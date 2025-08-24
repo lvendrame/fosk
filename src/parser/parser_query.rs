@@ -1,4 +1,4 @@
-use crate::parser::{Field, Projection};
+use crate::parser::{query, Collection, Field, Projection, Query};
 
 #[derive(Debug, Default)]
 pub struct TokenPosition {
@@ -23,7 +23,7 @@ impl WordComparer {
     pub fn compare(&self, parser: &ParserQuery) -> bool {
         let mut position = 0;
         while position < self.length {
-            if self.word[position] != parser.query[parser.position + position].to_ascii_uppercase() {
+            if self.word[position] != parser.text_v[parser.position + position].to_ascii_uppercase() {
                 return false;
             }
             position += 1;
@@ -94,6 +94,11 @@ impl QueryComparers {
             is_not_null: WordComparer::new("IS NOT NULL "),
         }
     }
+
+    pub fn is_block_delimiter(parser: &ParserQuery) -> bool {
+        let current = parser.current();
+        current == ' ' || current == '\r' || current == '\n'
+    }
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -113,11 +118,14 @@ pub enum Phase {
 pub struct ParserQuery {
     position: usize,
     length: usize,
-    query: Vec<char>,
+    text_v: Vec<char>,
     phase: Phase,
-    original_query: String,
+    text: String,
     token_position: TokenPosition,
     parentheses_depth: usize,
+    query: Query,
+
+    dbg: String,
 }
 
 impl ParserQuery {
@@ -125,34 +133,38 @@ impl ParserQuery {
         Self {
             position: 0,
             length: query.len(),
-            query: query.chars().collect(),
-            original_query: query.to_string(),
+            text_v: query.chars().collect(),
+            text: query.to_string(),
             ..Default::default()
         }
     }
 
     pub fn current(&self) -> char {
-        println!("{}", self.query[self.position]);
-        self.query[self.position]
+        println!("{}", self.text_v[self.position]);
+        self.text_v[self.position]
     }
 
     pub fn peek(&self, ahead: usize) -> char {
-        self.query[self.position + ahead]
+        self.text_v[self.position + ahead]
     }
 
     pub fn next(&mut self) {
         self.position += 1;
+
+        self.dbg = self.current().to_string();
     }
 
     pub fn jump(&mut self, ahead: usize) {
         self.position += ahead;
+
+        self.dbg = self.current().to_string();
     }
 
     pub fn parse(&mut self) -> Result<String, String> {
         let query_comparers = QueryComparers::new();
-        while self.position < self.length {
-            let a: String = self.parse_current(&query_comparers)?;
-            self.next();
+        while self.position < self.length - 1 {
+            let a = self.parse_current(&query_comparers)?;
+            // self.next();
         }
         Ok("".into())
     }
@@ -185,33 +197,40 @@ impl ParserQuery {
         Ok(())
     }
 
-    fn parse_current(&mut self, query_comparers: &QueryComparers) -> Result<String, String> {
+    fn parse_current(&mut self, query_comparers: &QueryComparers) -> Result<(), String> {
         let current = self.current();
         if current.is_whitespace() || current == '\r' || current == '\n' {
-            return Ok("".into());
+            self.next();
+            return Ok(());
         }
 
         self.check_phase(query_comparers)?;
 
         match self.phase {
-            Phase::Projection => {self.parse_projection(query_comparers)?;},
-            Phase::Collections => {self.parse_collections(query_comparers)?;},
-            Phase::CollectionsOr => {self.parse_collections(query_comparers)?;},
-            Phase::Constraints => todo!(),
-            Phase::Aggregates => todo!(),
-            Phase::Inners => todo!(),
-            Phase::Having => todo!(),
-            Phase::OrderBy => todo!(),
+            Phase::Projection => {
+                self.query.projection_fields = self.parse_projection(query_comparers)?;
+            },
+            Phase::Collections => {
+                let coll =  self.parse_collection(query_comparers)?;
+                self.query.collections.push(coll);
+            },
+            Phase::CollectionsOr => {
+                let coll =  self.parse_collection(query_comparers)?;
+                self.query.collections.push(coll);
+            },
+            Phase::Inners => {self.next();},
+            Phase::Constraints => {},
+            Phase::Aggregates => {},
+            Phase::Having => {},
+            Phase::OrderBy => {},
         };
-        Ok("".into())
+
+        Ok(())
     }
 
-    fn parse_projection(&mut self, query_comparers: &QueryComparers) -> Result<Projection, String> {
-        self.parse_projection_fields(query_comparers)
-    }
+    fn parse_projection(&mut self, query_comparers: &QueryComparers) -> Result<Vec<Field>, String> {
+        let mut fields: Vec<Field> = vec![];
 
-    fn parse_projection_fields(&mut self, query_comparers: &QueryComparers) -> Result<Projection, String> {
-        let mut projection = Projection::default();
         while !query_comparers.from.compare(self) {
             let current = self.current();
             if char::is_whitespace(current) || current == ',' {
@@ -220,16 +239,15 @@ impl ParserQuery {
             }
             if char::is_alphabetic(current) || current == '*' {
                 let field = self.parse_projection_field(query_comparers)?;
-                projection.fields.push(field);
+                fields.push(field);
                 continue;
             } else {
                 return Err(format!("Invalid character '{}' at position {}", current, self.position));
             }
-            self.next();
         }
 
         self.phase = Phase::Collections;
-        Ok(projection)
+        Ok(fields)
     }
 
     fn parse_projection_field(&mut self, query_comparers: &QueryComparers) -> Result<Field, String> {
@@ -249,10 +267,12 @@ impl ParserQuery {
 
 
         while self.current() != ',' && !query_comparers.from.compare(self) {
-            ///DEBUG
+            /*
+            DEBUG
             let s_ch: String = self.current().to_string();
             let s_cur: String = self.query[pivot..=self.position].iter().collect();
-            ///DEBUG
+            DEBUG
+            */
 
             let current = self.current();
             if current == '*' && !in_fn {
@@ -265,7 +285,7 @@ impl ParserQuery {
             }
 
             if current == '.' && !in_fn {
-                collection = Some(self.query[pivot..self.position].iter().collect());
+                collection = Some(self.text_v[pivot..self.position].iter().collect());
                 self.next();
                 pivot = self.position;
                 continue;
@@ -276,7 +296,7 @@ impl ParserQuery {
                     return Err(format!("Invalid character '{}' at position {}", current, self.position));
                 }
 
-                name = Some(self.query[pivot..self.position].iter().collect());
+                name = Some(self.text_v[pivot..self.position].iter().collect());
                 in_fn = true;
                 is_fn = true;
                 self.next();
@@ -288,21 +308,21 @@ impl ParserQuery {
                 if !in_fn || args.is_some() {
                     return Err(format!("Invalid character '{}' at position {}", current, self.position));
                 }
-                args = Some(self.query[pivot..self.position].iter().collect());
+                args = Some(self.text_v[pivot..self.position].iter().collect());
                 in_fn = false;
                 self.next();
                 pivot = self.position;
                 continue;
             }
 
-            if char::is_whitespace(current) {
+            if QueryComparers::is_block_delimiter(self) {
                 self.next();
                 if query_comparers.alias.compare(self) {
                     if in_alias {
                         return Err(format!("Invalid character '{}' at position {}", current, self.position));
                     }
                     if name.is_none() {
-                        name = Some(self.query[pivot..self.position-1].iter().collect());
+                        name = Some(self.text_v[pivot..self.position-1].iter().collect());
                     }
                     self.jump(query_comparers.alias.length);
                     pivot = self.position;
@@ -314,7 +334,7 @@ impl ParserQuery {
                     if alias.is_some() {
                         return Err(format!("Invalid character '{}' at position {}", current, self.position));
                     }
-                    alias = Some(self.query[pivot..self.position].iter().collect());
+                    alias = Some(self.text_v[pivot..self.position].iter().collect());
                     self.next();
                     pivot = self.position;
                     in_alias = false;
@@ -327,9 +347,9 @@ impl ParserQuery {
         }
 
         if in_alias {
-            alias = Some(self.query[pivot..self.position].iter().collect());
+            alias = Some(self.text_v[pivot..self.position].iter().collect());
         } else if name.is_none() {
-            name = Some(self.query[pivot..self.position].iter().collect());
+            name = Some(self.text_v[pivot..self.position].iter().collect());
         }
 
         let field = match (collection, name, args, alias, is_fn) {
@@ -339,39 +359,73 @@ impl ParserQuery {
             (Some(collection), Some(name), None, Some(alias), false) => Field::CollectionNameAlias(collection, name, alias),
             (None, Some(function), Some(args), None, true) => Field::Function(function, args),
             (None, Some(function), Some(args), Some(alias), true) => Field::FunctionAlias(function, args, alias),
-            _ => return Err(format!("Invalid field '{}' at position {}", String::from_iter(self.query[pivot..self.position].iter()), initial_position)),
+            _ => return Err(format!("Invalid field '{}' at position {}", String::from_iter(self.text_v[pivot..self.position].iter()), initial_position)),
         };
 
         Ok(field)
     }
 
-    fn parse_collections(&mut self, query_comparers: &QueryComparers) -> Result<String, String> {
-        if self.phase == Phase::Collections {
-            if !query_comparers.from.compare(self) {
-                return Err(format!("Invalid character '{}' at position {}", self.current(), self.position));
+    fn parse_collection(&mut self, query_comparers: &QueryComparers) -> Result<Collection, String> {
+
+        let mut pivot  = self.position;
+        let mut collection: Option<String> = None;
+
+        while self.position < self.length {
+            let current = self.current();
+            if QueryComparers::is_block_delimiter(self) {
+                let end = self.position;
+                self.next();
+                if query_comparers.inner_join.compare(self) ||
+                    query_comparers.left_join.compare(self) ||
+                    query_comparers.right_join.compare(self) ||
+                    query_comparers.criteria.compare(self) ||
+                    query_comparers.group_by.compare(self) ||
+                    query_comparers.order_by.compare(self) {
+
+                    let next: String = self.text_v[pivot..end].iter().collect();
+                    let coll =  match collection {
+                        Some(name) => Collection::NameAlias(name, next),
+                        None => Collection::Name(next),
+                    };
+
+                    self.phase = Phase::CollectionsOr;
+                    return Ok(coll);
+                } else {
+                    collection = Some(self.text_v[pivot..end].iter().collect());
+                    pivot = self.position;
+                    continue;
+                }
             }
-            self.jump(query_comparers.from.length);
+
+            if current == ',' {
+                let next: String = self.text_v[pivot..self.position].iter().collect();
+                let coll =  match collection {
+                    Some(name) => Collection::NameAlias(name, next),
+                    None => Collection::Name(next),
+                };
+
+                self.next();
+                self.phase = Phase::CollectionsOr;
+                return Ok(coll);
+            }
+
+            self.next();
         }
 
-        let mut collection = "".to_string();
-
-        // while self.position < self.length {
-
-        // }
-
-        Ok("".into())
+        Err("".into())
     }
 
 }
 
 #[cfg(test)]
 mod test {
-    use crate::parser::ParserQuery;
+    use crate::parser::*;
 
     #[test]
     pub fn dummy() {
         let query = r#"SELECT b.*, a.full_name as name, COUNT(*) as TotBy, *, AVG(a.sum), one as alias, field, other_field
-FROM TableA A
+FROM TableA a, TableB b, TableC,
+     TableD
 INNER JOIN TableB B ON A.id = B.id
 INNER JOIN (query...) Q ON Q.id = B.q_id
 WHERE A.Age > 16 AND (B.city = 'Porto' OR B.city like "Matosinhos")
@@ -382,6 +436,28 @@ ORDER BY b.description DESC"#;
         let mut parser = ParserQuery::new(query);
 
         let result = parser.parse();
+        println!("{:?}", parser.query);
+    }
+
+    #[test]
+    pub fn test_projection_simple() {
+        let query =
+            "SELECT b.*, a.full_name as name, COUNT(*) as TotBy, *, AVG(a.sum), one as alias, field, other_field FROM ";
+
+        let mut parser = ParserQuery::new(query);
+
+        let query_comparers = QueryComparers::new();
+
+
+        let _ = parser.check_phase(&query_comparers);
+
+        let result = parser.parse_projection(&query_comparers);
+
+        assert!(result.is_ok());
+        let result = result.unwrap();
+
+        assert_eq!(result.len(), 8);
+
         println!("{:?}", result);
     }
 
