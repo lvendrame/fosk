@@ -1,19 +1,18 @@
-#[derive(Debug)]
-pub enum Field {
-    /// *
-    All,
-    /// collection.*
-    CollectionAll(String),
-    /// field
-    Name(String),
-    /// field as alias
-    NameAlias(String, String),
-    /// collection.field
-    CollectionName(String, String),
-    /// collection.field as alias
-    CollectionNameAlias(String, String, String),
-    /// function(arg)
-    Function(String, String),
-    /// function(arg) as alias
-    FunctionAlias(String, String, String),
+use crate::parser::FieldType;
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Field {
+    pub name: String,
+    pub collection: Option<String>,
+    pub field_type: Option<FieldType>
+}
+
+impl Field {
+    pub fn new(name: String, collection: Option<String>) -> Self{
+        Self{
+            name,
+            collection,
+            field_type: None,
+        }
+    }
 }
