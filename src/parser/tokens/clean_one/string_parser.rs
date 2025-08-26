@@ -1,4 +1,4 @@
-use crate::parser::{ParseError, QueryComparers, QueryParser};
+use crate::parser::{tokens::clean_one::Literal, ParseError, QueryComparers, QueryParser};
 
 pub struct StringParser;
 
@@ -7,7 +7,7 @@ impl StringParser {
         parser.current() == '"'
     }
 
-    pub fn parse(parser: &mut QueryParser) -> Result<String, ParseError> {
+    pub fn parse(parser: &mut QueryParser) -> Result<Literal, ParseError> {
         let mut pivot = parser.position;
 
         if !StringParser::is_string_delimiter(parser) {
@@ -26,14 +26,15 @@ impl StringParser {
         if parser.eof() {
             return Err(ParseError::new("Invalid string", pivot, parser));
         }
+        parser.next();
 
-        Ok(parser.text_from_pivot(pivot))
+        Ok(Literal::String(parser.text_from_pivot(pivot)))
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{tokens::clean_one::StringParser, QueryParser};
+    use crate::parser::{tokens::clean_one::{Literal, StringParser}, QueryParser};
 
 
     #[test]
@@ -45,7 +46,10 @@ pub mod tests {
         let result = StringParser::parse(&mut parser);
 
         match result {
-            Ok(result) => assert_eq!(result, "identifier"),
+            Ok(result) => match result {
+                Literal::String(result) => assert_eq!(result, "identifier"),
+                _ => panic!(),
+            },
             Err(_) => panic!(),
         }
     }
@@ -59,7 +63,10 @@ pub mod tests {
         let result = StringParser::parse(&mut parser);
 
         match result {
-            Ok(result) => assert_eq!(result, "start\tend"),
+            Ok(result) => match result {
+                Literal::String(result) => assert_eq!(result, "start\tend"),
+                _ => panic!(),
+            },
             Err(_) => panic!(),
         }
     }

@@ -129,6 +129,23 @@ pub mod tests {
     }
 
     #[test]
+    pub fn test_bool_parser_true_parentheses_delimiter() {
+        let text = "true)";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = BoolParser::parse(&mut parser);
+
+        match result {
+            Ok(result) => match result {
+                Literal::Bool(value) => assert!(value),
+                _ => panic!(),
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
     pub fn test_bool_parser_true_break_line() {
         let text = "true\r\n";
 
