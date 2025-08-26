@@ -141,6 +141,7 @@ impl QueryParser {
             text_v: query.chars().collect(),
             text: query.to_string(),
             comparers: QueryComparers::new(),
+            dbg: query.chars().next().unwrap_or('\0').to_string(),
             ..Default::default()
         }
     }
