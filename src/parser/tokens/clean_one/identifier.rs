@@ -15,7 +15,7 @@ impl Identifier {
             return Err(ParseError::new("Invalid identifier", pivot, parser));
         }
 
-        while !parser.eof() && parser.current() != ',' && parser.current() != '(' && !QueryComparers::is_block_delimiter(parser) {
+        while !parser.eof() && parser.current() != ',' && parser.current() != '(' && !QueryComparers::is_current_block_delimiter(parser) {
             let current = parser.current();
             if current == '.' {
                 if collection.is_some() {

@@ -17,7 +17,7 @@ impl StringParser {
         pivot = parser.position;
 
         while !parser.eof() && !StringParser::is_string_delimiter(parser) {
-            if QueryComparers::is_block_delimiter(parser) {
+            if QueryComparers::is_current_block_delimiter(parser) {
                 return Err(ParseError::new("Invalid string", pivot, parser));
             }
 

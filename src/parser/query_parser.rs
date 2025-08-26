@@ -8,8 +8,8 @@ pub struct TokenPosition {
 
 #[derive(Debug, Default)]
 pub struct WordComparer {
-    length: usize,
-    word: Vec<char>,
+    pub length: usize,
+    pub word: Vec<char>,
 }
 
 impl WordComparer {
@@ -22,7 +22,7 @@ impl WordComparer {
 
     pub fn compare(&self, parser: &QueryParser) -> bool {
         let mut position = 0;
-        while position < self.length {
+        while position < self.length && (parser.position + position) < parser.length {
             if self.word[position] != parser.text_v[parser.position + position].to_ascii_uppercase() {
                 return false;
             }
@@ -30,6 +30,10 @@ impl WordComparer {
         }
 
         true
+    }
+
+    pub fn reach_eof(&self, parser: &QueryParser) -> bool {
+        parser.position + self.length >= parser.length
     }
 }
 
@@ -60,6 +64,9 @@ pub struct QueryComparers {
     pub is_not_null: WordComparer,
     pub r#in: WordComparer,
     pub not_in: WordComparer,
+    pub b_true: WordComparer,
+    pub b_false: WordComparer,
+    pub null: WordComparer,
 }
 
 impl Default for QueryComparers {
@@ -96,12 +103,27 @@ impl QueryComparers {
             is_not_null: WordComparer::new("IS NOT NULL "),
             r#in: WordComparer::new("IN "),
             not_in: WordComparer::new("NOT IN "),
+            b_true: WordComparer::new("TRUE"),//use block delimiter
+            b_false: WordComparer::new("FALSE"),//use block delimiter
+            null: WordComparer::new("NULL"),//use block delimiter
         }
     }
 
-    pub fn is_block_delimiter(parser: &QueryParser) -> bool {
-        let current = parser.current();
-        current == ' ' || current == '\r' || current == '\n'
+    pub fn is_block_delimiter(ch: char) -> bool {
+        ch == ' ' || ch == '\r' || ch == '\n'
+    }
+
+    pub fn is_full_block_delimiter(ch: char) -> bool {
+        ch == ',' || QueryComparers::is_block_delimiter(ch)
+    }
+
+    pub fn is_current_block_delimiter(parser: &QueryParser) -> bool {
+        QueryComparers::is_block_delimiter(parser.current())
+    }
+
+    pub fn compare_with_block_delimiter(comparer: &WordComparer, parser: &QueryParser) -> bool {
+        comparer.compare(parser) &&
+            (comparer.reach_eof(parser) || QueryComparers::is_full_block_delimiter(parser.peek(comparer.length)))
     }
 }
 
@@ -188,7 +210,7 @@ impl QueryParser {
 
     pub fn parse(&mut self) -> Result<String, String> {
         while self.position < self.length - 1 {
-            let a = self.parse_current()?;
+            self.parse_current()?;
             // self.next();
         }
         Ok("".into())
@@ -206,7 +228,7 @@ impl QueryParser {
         if self.phase == Phase::Collections {
             if self.comparers.from.compare(self) {
                 self.jump(self.comparers.from.length);
-            } else if self.query.collections.len() == 0 {
+            } else if self.query.collections.is_empty() {
                 return Err(format!("Invalid character '{}' at position {}", self.current(), self.position));
             }
         }
@@ -329,7 +351,7 @@ impl QueryParser {
                 continue;
             }
 
-            if QueryComparers::is_block_delimiter(self) {
+            if QueryComparers::is_current_block_delimiter(self) {
                 self.next();
                 if self.comparers.alias.compare(self) {
                     if in_alias {
@@ -390,7 +412,7 @@ impl QueryParser {
 
         while self.position < self.length {
             let current = self.current();
-            if QueryComparers::is_block_delimiter(self) {
+            if QueryComparers::is_current_block_delimiter(self) {
                 let end = self.position;
                 self.next();
 

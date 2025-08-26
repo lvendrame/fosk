@@ -9,3 +9,6 @@ pub use string_parser::*;
 
 pub mod number_parser;
 pub use number_parser::*;
+
+pub mod bool_parser;
+pub use bool_parser::*;

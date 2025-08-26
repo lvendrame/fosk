@@ -23,7 +23,7 @@ impl NumberParser {
             parser.next();
         }
 
-        if !parser.eof() && parser.current() != ',' && !QueryComparers::is_block_delimiter(parser) {
+        if !parser.eof() && parser.current() != ',' && !QueryComparers::is_current_block_delimiter(parser) {
             return Err(ParseError::new("Invalid number value", pivot, parser));
         }
 
