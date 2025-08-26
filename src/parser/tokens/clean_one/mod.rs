@@ -12,3 +12,6 @@ pub use number_parser::*;
 
 pub mod bool_parser;
 pub use bool_parser::*;
+
+pub mod null_parser;
+pub use null_parser::*;
