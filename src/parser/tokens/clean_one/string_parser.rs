@@ -26,16 +26,17 @@ impl StringParser {
         if parser.eof() {
             return Err(ParseError::new("Invalid string", pivot, parser));
         }
+
+        let text = parser.text_from_pivot(pivot);
         parser.next();
 
-        Ok(Literal::String(parser.text_from_pivot(pivot)))
+        Ok(Literal::String(text))
     }
 }
 
 #[cfg(test)]
 pub mod tests {
     use crate::parser::{tokens::clean_one::{Literal, StringParser}, QueryParser};
-
 
     #[test]
     pub fn test_string_parser() {

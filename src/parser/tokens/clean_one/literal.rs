@@ -27,7 +27,25 @@ impl Literal {
         }
 
         let identifier = Identifier::parse(parser)?;
-        Ok(Literal::Column { column: identifier, alias: None })
+
+        let alias = if parser.current().is_whitespace() && !parser.eof() {
+            parser.next();
+            if parser.comparers.alias.compare(parser) {
+                parser.jump(parser.comparers.alias.length);
+                let alias = Identifier::parse(parser)?;
+                match alias {
+                    Identifier::Name { name } => Some(name),
+                    Identifier::WithCollection { collection: _, name: _ } =>
+                        return Err(ParseError::new("Invalid identifier for alias", parser.position, parser)),
+                }
+            } else {
+                return Err(ParseError::new("Invalid identifier for alias", parser.position, parser));
+            }
+        } else {
+            None
+        };
+
+        Ok(Literal::Column { column: identifier, alias })
     }
 }
 
@@ -53,6 +71,57 @@ mod tests {
                             assert_eq!(alias, None);
                         },
                         Identifier::WithCollection { collection: _, name: _ } => panic!(),
+                    },
+                    _ => panic!(),
+                }
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_literal_identifier_name_with_alias() {
+        let text = "identifier as nick";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Literal::parse(&mut parser);
+
+        match result {
+            Ok(result) => {
+                match result {
+                    Literal::Column { column, alias } => match column {
+                        Identifier::Name { name } => {
+                            assert_eq!(name, "identifier");
+                            assert_eq!(alias.unwrap(), "nick");
+                        },
+                        Identifier::WithCollection { collection: _, name: _ } => panic!(),
+                    },
+                    _ => panic!(),
+                }
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_literal_identifier_name_and_collection_with_alias() {
+        let text = "collection.identifier as nick";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Literal::parse(&mut parser);
+
+        match result {
+            Ok(result) => {
+                match result {
+                    Literal::Column { column, alias } => match column {
+                        Identifier::Name { name: _ } => panic!(),
+                        Identifier::WithCollection { collection, name } => {
+                            assert_eq!(collection, "collection");
+                            assert_eq!(name, "identifier");
+                            assert_eq!(alias.unwrap(), "nick");
+                        },
                     },
                     _ => panic!(),
                 }
@@ -111,6 +180,7 @@ mod tests {
             Err(_) => panic!(),
         }
     }
+
     #[test]
     pub fn test_literal_string_parser() {
         let text = "\"identifier\"";

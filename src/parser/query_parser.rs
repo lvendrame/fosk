@@ -110,7 +110,7 @@ impl QueryComparers {
     }
 
     pub fn is_block_delimiter(ch: char) -> bool {
-        ch.is_whitespace() || ch == '\r' || ch == '\n'
+        ch == ' ' || ch == '\r' || ch == '\n'
     }
 
     pub fn is_full_block_delimiter(ch: char) -> bool {
