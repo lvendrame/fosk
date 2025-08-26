@@ -6,3 +6,6 @@ pub use literal::*;
 
 pub mod string_parser;
 pub use string_parser::*;
+
+pub mod number_parser;
+pub use number_parser::*;

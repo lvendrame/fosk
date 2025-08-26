@@ -3,16 +3,20 @@ use crate::parser::{ParseError, QueryComparers, QueryParser};
 pub struct StringParser;
 
 impl StringParser {
+    pub fn is_string_delimiter(parser: &QueryParser) -> bool {
+        parser.current() == '"'
+    }
+
     pub fn parse(parser: &mut QueryParser) -> Result<String, ParseError> {
         let mut pivot = parser.position;
 
-        if parser.current() != '"' {
+        if !StringParser::is_string_delimiter(parser) {
             return Err(ParseError::new("Invalid string value", pivot, parser));
         }
         parser.next();
         pivot = parser.position;
 
-        while !parser.eof() && parser.current() != '"' {
+        while !parser.eof() && !StringParser::is_string_delimiter(parser) {
             if QueryComparers::is_block_delimiter(parser) {
                 return Err(ParseError::new("Invalid string", pivot, parser));
             }
