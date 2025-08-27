@@ -11,20 +11,20 @@ impl ScalarExpr {
     pub fn parse(parser: &mut QueryParser) -> Result<ScalarExpr, ParseError> {
         if NumberParser::is_number(parser) {
             return NumberParser::parse(parser)
-                .map(|lit| ScalarExpr::Literal(lit));
+                .map(ScalarExpr::Literal);
         }
         if StringParser::is_string_delimiter(parser) {
             return StringParser::parse(parser)
-                .map(|lit| ScalarExpr::Literal(lit));
+                .map(ScalarExpr::Literal);
         }
         if BoolParser::is_bool(parser) {
             return BoolParser::parse(parser)
-                .map(|lit| ScalarExpr::Literal(lit));
+                .map(ScalarExpr::Literal);
         }
 
         if NullParser::is_null(parser) {
             return  NullParser::parse(parser)
-                .map(|lit| ScalarExpr::Literal(lit));
+                .map(ScalarExpr::Literal);
         }
 
         Column::parse_column_or_function(parser)
