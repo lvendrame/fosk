@@ -1,4 +1,4 @@
-use crate::parser::{tokens::clean_one::Literal, ParseError, QueryParser};
+use crate::parser::{tokens::clean_one::{ScalarExpr}, ParseError, QueryParser};
 
 pub struct ArgsParser;
 
@@ -11,9 +11,10 @@ impl ArgsParser {
         parser.current() == ')'
     }
 
-    pub fn parse(parser: &mut QueryParser) -> Result<Vec<Literal>, ParseError> {
+    pub fn parse(parser: &mut QueryParser) -> Result<Vec<ScalarExpr>, ParseError> {
         let pivot = parser.position;
-        let mut args: Vec<Literal> = vec![];
+        let mut args: Vec<ScalarExpr> = vec![];
+        let mut can_consume = true;
 
         if !ArgsParser::is_args_start(parser) {
             return Err(ParseError::new("Invalid args value", pivot, parser));
@@ -22,10 +23,17 @@ impl ArgsParser {
         // pivot = parser.position;
 
         while !parser.eof() && !ArgsParser::is_args_end(parser) {
-            if parser.current().is_whitespace() || parser.current() == ',' {
+            if parser.current().is_whitespace() {
+                parser.next();
+            } else if parser.current() == ',' {
+                can_consume = true;
                 parser.next();
             } else {
-                args.push(Literal::parse(parser)?);
+                if !can_consume {
+                    return Err(ParseError::new("Invalid args value", pivot, parser));
+                }
+                args.push(ScalarExpr::parse(parser)?);
+                can_consume = false;
             }
         }
 
@@ -135,6 +143,24 @@ pub mod tests {
                 assert_eq!(err.text, "(\"hello\", true, 1");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 17);
+            },
+        }
+    }
+
+    #[test]
+    pub fn test_args_without_right_separation() {
+        let text = "(\"hello\" true 1)";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ArgsParser::parse(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "(\"hello\" t");
+                assert_eq!(err.start, 0);
+                assert_eq!(err.end, 9);
             },
         }
     }
