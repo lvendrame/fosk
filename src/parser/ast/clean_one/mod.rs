@@ -16,5 +16,11 @@ pub use projection_parser::*;
 pub mod scalar_expr;
 pub use scalar_expr::*;
 
+pub mod text_collector;
+pub use text_collector::*;
+
 pub mod identifier;
 pub use identifier::*;
+
+pub mod collection;
+pub use collection::*;

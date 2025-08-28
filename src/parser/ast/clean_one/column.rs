@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::{ArgsParser, Function, ScalarExpr}, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::{ArgsParser, Function, ScalarExpr, TextCollector}, ParseError, QueryComparers, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Column {
@@ -23,6 +23,8 @@ impl Column {
         let mut name = "".to_string();
         let mut is_wildcard = false;
 
+        let mut text = String::new();
+
         if parser.current().is_ascii_digit() {
             return Err(ParseError::new("Invalid column", pivot, parser));
         }
@@ -36,22 +38,28 @@ impl Column {
                 return Err(ParseError::new("Invalid wildcard", pivot, parser));
             }
 
+            text = TextCollector::collect_with_stopper(parser, &|current| current == '*')?;
+
             let current = parser.current();
             if current == '.' {
                 if collection.is_some() {
                     return Err(ParseError::new("Invalid column", pivot, parser));
                 }
-                collection = Some(parser.text_from_pivot(pivot));
+                collection = Some(text.clone());
                 pivot = parser.position + 1;
+                parser.next();
             } else if parser.current() == '(' {
-                name = parser.text_from_pivot(pivot);
+                name = text.clone();
                 args = Some(ArgsParser::parse(parser)?);
+                parser.next();
             } else if current == '*' {
                 is_wildcard = true;
-            } else if !current.is_ascii_alphanumeric() && current != '_' {
-                return Err(ParseError::new("Invalid column", pivot, parser));
+                parser.next();
             }
-            parser.next();
+            //  else if !current.is_ascii_alphanumeric() && current != '_' {
+            //     return Err(ParseError::new("Invalid column", pivot, parser));
+            // }
+            //
         }
 
         if is_wildcard && !allow_wildcard {
@@ -59,7 +67,7 @@ impl Column {
         }
 
         if name.is_empty() {
-            name =  parser.text_from_pivot(pivot);
+            name =  text;
         }
 
         let result = match is_wildcard {
@@ -134,6 +142,28 @@ mod tests {
     #[test]
     pub fn test_column_name_with_space() {
         let text = "column ";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Column::parse_column_or_function(&mut parser);
+
+        match result {
+            Ok(result) => {
+                match result {
+                    ScalarExpr::Column(column) => match column {
+                        Column::Name { name } => assert_eq!(name, "column"),
+                        Column::WithCollection { collection: _, name: _ } => panic!(),
+                    },
+                    _ => panic!(),
+                }
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_column_name_with_alias() {
+        let text = "column as nick";
 
         let mut parser = QueryParser::new(text);
 

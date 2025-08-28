@@ -114,7 +114,7 @@ impl QueryComparers {
     }
 
     pub fn is_full_block_delimiter(ch: char) -> bool {
-        ch == ',' || ch == ')' || QueryComparers::is_block_delimiter(ch)
+        ch == ',' || ch == '(' || ch == ')' || ch == '.' || QueryComparers::is_block_delimiter(ch)
     }
 
     pub fn is_current_block_delimiter(parser: &QueryParser) -> bool {

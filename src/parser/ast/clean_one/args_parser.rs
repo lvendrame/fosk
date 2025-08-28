@@ -26,6 +26,9 @@ impl ArgsParser {
             if parser.current().is_whitespace() {
                 parser.next();
             } else if parser.current() == ',' {
+                if can_consume {
+                    return Err(ParseError::new("Invalid args value", pivot, parser));
+                }
                 can_consume = true;
                 parser.next();
             } else {
@@ -125,6 +128,24 @@ pub mod tests {
                 assert_eq!(err.text, "\"");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
+            },
+        }
+    }
+
+    #[test]
+    pub fn test_args_wrong_comma() {
+        let text = "(\"hello\", true, , 1";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ArgsParser::parse(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "(\"hello\", true, ,");
+                assert_eq!(err.start, 0);
+                assert_eq!(err.end, 16);
             },
         }
     }

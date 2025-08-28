@@ -28,13 +28,12 @@ impl ProjectionParser {
             }
 
             if !current.is_whitespace() && !QueryComparers::is_block_delimiter(current) {
-                if can_consume {
-                    result.push(Identifier::parse(parser)?);
-                    can_consume = false;
-                    continue;
-                } else {
+                if !can_consume {
                     return ParseError::new("Invalid projection", parser.position, parser).err();
                 }
+                result.push(Identifier::parse(parser)?);
+                can_consume = false;
+                continue;
             }
 
             parser.next();

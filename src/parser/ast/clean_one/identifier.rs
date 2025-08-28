@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::ScalarExpr, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::{ScalarExpr, TextCollector}, ParseError, QueryComparers, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct  Identifier {
@@ -30,14 +30,9 @@ impl Identifier {
 
         parser.jump(parser.comparers.alias.length);
 
-        let pivot = parser.position;
-        while !parser.eof() && !QueryComparers::is_full_block_delimiter(parser.current()) && !parser.comparers.from.compare(parser) {
-            parser.next();
-        }
-
         Ok(Identifier {
             expression: scalar,
-            alias: Some(parser.text_from_pivot(pivot)),
+            alias: Some(TextCollector::collect(parser)?),
         })
     }
 }
