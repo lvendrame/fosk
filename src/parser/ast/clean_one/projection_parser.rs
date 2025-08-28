@@ -1,14 +1,10 @@
-use crate::parser::{ast::clean_one::Identifier, ParseError, QueryComparers, QueryParser, WordComparer};
+use crate::parser::{ast::clean_one::Identifier, ParseError, QueryParser, WordComparer};
 
 pub struct ProjectionParser;
 
 impl ProjectionParser {
     pub fn is_projection_start(parser: &QueryParser) -> bool {
         parser.comparers.select.compare(parser)
-    }
-
-    pub fn is_projection_end(parser: &QueryParser) -> bool {
-        parser.comparers.from.compare(parser)
     }
 
     pub fn parse(parser: &mut QueryParser) -> Result<Vec<Identifier>, ParseError> {
@@ -19,7 +15,7 @@ impl ProjectionParser {
 
         let mut result: Vec<Identifier> = vec![];
         let mut can_consume = true;
-        while !parser.eof() && !parser.comparers.from.compare(parser) {
+        while !parser.eof() && !parser.check_next_phase() {
             let current = parser.current();
 
             if current == ',' {
@@ -32,7 +28,7 @@ impl ProjectionParser {
                 continue;
             }
 
-            if !current.is_whitespace() && !WordComparer::is_block_delimiter(current) {
+            if !current.is_whitespace() {
                 if !can_consume {
                     return ParseError::new("Invalid projection", parser.position, parser).err();
                 }

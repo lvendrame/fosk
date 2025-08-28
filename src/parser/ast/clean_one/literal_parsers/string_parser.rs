@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::Literal, ParseError, QueryComparers, QueryParser, WordComparer};
+use crate::parser::{ast::clean_one::Literal, ParseError, QueryParser, WordComparer};
 
 pub struct StringParser;
 

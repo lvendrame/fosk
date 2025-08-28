@@ -164,35 +164,18 @@ impl QueryComparers {
             null: WordComparer::new("NULL").with_any_delimiter_postfix().with_eof(),
         }
     }
-
-    // pub fn is_block_delimiter(ch: char) -> bool {
-    //     ch == ' ' || ch == '\r' || ch == '\n'
-    // }
-
-    // pub fn is_full_block_delimiter(ch: char) -> bool {
-    //     ch == ',' || ch == '(' || ch == ')' || ch == '.' || QueryComparers::is_block_delimiter(ch)
-    // }
-
-    // pub fn is_current_block_delimiter(parser: &QueryParser) -> bool {
-    //     QueryComparers::is_block_delimiter(parser.current())
-    // }
-
-    // pub fn compare_with_block_delimiter(comparer: &WordComparer, parser: &QueryParser) -> bool {
-    //     comparer.compare(parser) &&
-    //         (comparer.reach_eof(parser) || QueryComparers::is_full_block_delimiter(parser.peek(comparer.length)))
-    // }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, PartialOrd)]
 pub enum Phase {
     #[default]
-    Projection,
-    Collections,
-    Inners,
-    Criteria,
-    Aggregates,
-    Having,
-    OrderBy
+    Projection = 0,
+    Collections = 1,
+    Joins = 2,
+    Criteria = 3,
+    Aggregates = 4,
+    Having = 5,
+    OrderBy = 6
 }
 
 #[derive(Debug, Default)]
@@ -276,6 +259,48 @@ impl QueryParser {
         Ok("".into())
     }
 
+    pub fn check_next_phase(&mut self) -> bool {
+        // Projection = 0,
+        // Collections = 1,
+        // Inners = 2,
+        // Criteria = 3,
+        // Aggregates = 4,
+        // Having = 5,
+        // OrderBy = 6
+        if self.phase < Phase::OrderBy && self.comparers.order_by.compare(self) {
+            self.phase = Phase::OrderBy;
+            return true;
+        }
+
+        if self.phase < Phase::Having && self.comparers.having.compare(self) {
+            self.phase = Phase::Having;
+            return true;
+        }
+
+        if self.phase < Phase::Aggregates && self.comparers.group_by.compare(self) {
+            self.phase = Phase::Aggregates;
+            return true;
+        }
+
+        if self.phase < Phase::Criteria && self.comparers.criteria.compare(self) {
+            self.phase = Phase::Criteria;
+            return true;
+        }
+
+        if self.phase <= Phase::Joins &&
+            (self.comparers.inner_join.compare(self) || self.comparers.left_join.compare(self) || self.comparers.right_join.compare(self)) {
+            self.phase = Phase::Joins;
+            return true;
+        }
+
+        if self.phase < Phase::Collections && self.comparers.from.compare(self) {
+            self.phase = Phase::Collections;
+            return true;
+        }
+
+        false
+    }
+
     fn check_phase(&mut self) -> Result<(), String> {
         if self.phase == Phase::Projection {
             if self.comparers.select.compare(self) {
@@ -298,7 +323,7 @@ impl QueryParser {
             // if collection.is_empty() {
                 //     return Err(format!("Invalid character '{}' at position {}", self.current(), self.position));
                 // }
-            self.phase = Phase::Inners;
+            self.phase = Phase::Joins;
         }
 
         Ok(())
@@ -321,7 +346,7 @@ impl QueryParser {
                 let coll =  self.parse_collection()?;
                 self.query.collections.push(coll);
             },
-            Phase::Inners => {self.next();},
+            Phase::Joins => {self.next();},
             Phase::Criteria => {},
             Phase::Aggregates => {},
             Phase::Having => {},
@@ -515,7 +540,7 @@ impl QueryParser {
         if self.comparers.inner_join.compare(self) ||
             self.comparers.left_join.compare(self) ||
             self.comparers.right_join.compare(self) {
-            return Phase::Inners;
+            return Phase::Joins;
         } else if self.comparers.criteria.compare(self) {
             return Phase::Criteria;
         } else if self.comparers.group_by.compare(self) {

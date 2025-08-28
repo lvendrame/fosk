@@ -1,4 +1,4 @@
-use crate::parser::{ParseError, QueryComparers, QueryParser, WordComparer};
+use crate::parser::{ParseError, QueryParser, WordComparer};
 
 pub struct TextCollector;
 
