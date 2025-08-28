@@ -1,4 +1,4 @@
-use crate::parser::{tokens::clean_one::{ArgsParser, Function, ScalarExpr}, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::{ArgsParser, Function, ScalarExpr}, ParseError, QueryComparers, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Column {
@@ -85,7 +85,7 @@ impl Column {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{tokens::clean_one::{Column, ScalarExpr}, QueryParser};
+    use crate::parser::{ast::clean_one::{Column, ScalarExpr}, QueryParser};
 
     #[test]
     pub fn test_column_name() {

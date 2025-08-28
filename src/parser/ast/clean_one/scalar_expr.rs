@@ -1,4 +1,4 @@
-use crate::parser::{tokens::clean_one::{BoolParser, Column, Function, Literal, NullParser, NumberParser, StringParser}, ParseError, QueryParser};
+use crate::parser::{ast::clean_one::{BoolParser, Column, Function, Literal, NullParser, NumberParser, StringParser}, ParseError, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScalarExpr {
@@ -35,7 +35,7 @@ impl ScalarExpr {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{tokens::clean_one::{Column, Literal, ScalarExpr}, QueryParser};
+    use crate::parser::{ast::clean_one::{Column, Literal, ScalarExpr}, QueryParser};
 
     #[test]
     pub fn test_literal_column_name() {

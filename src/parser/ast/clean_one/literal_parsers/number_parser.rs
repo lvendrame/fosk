@@ -1,4 +1,4 @@
-use crate::parser::{tokens::clean_one::Literal, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::Literal, ParseError, QueryComparers, QueryParser};
 
 pub struct NumberParser;
 
@@ -39,7 +39,7 @@ impl NumberParser {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{tokens::clean_one::{Literal, NumberParser}, QueryParser};
+    use crate::parser::{ast::clean_one::{Literal, NumberParser}, QueryParser};
 
     #[test]
     pub fn test_number_parser_int() {

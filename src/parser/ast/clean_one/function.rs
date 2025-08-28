@@ -1,4 +1,4 @@
-use crate::parser::tokens::clean_one::ScalarExpr;
+use crate::parser::ast::clean_one::ScalarExpr;
 
 
 #[derive(Debug, Clone, PartialEq)]

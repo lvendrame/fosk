@@ -1,4 +1,4 @@
-use crate::parser::{tokens::clean_one::Literal, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::Literal, ParseError, QueryComparers, QueryParser};
 
 pub struct StringParser;
 
@@ -36,7 +36,7 @@ impl StringParser {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{tokens::clean_one::{Literal, StringParser}, QueryParser};
+    use crate::parser::{ast::clean_one::{Literal, StringParser}, QueryParser};
 
     #[test]
     pub fn test_string_parser() {
