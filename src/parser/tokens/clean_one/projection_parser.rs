@@ -1,4 +1,4 @@
-use crate::parser::{tokens::clean_one::{Identifier, Literal}, ParseError, QueryComparers, QueryParser};
+use crate::parser::{tokens::clean_one::{Identifier}, ParseError, QueryComparers, QueryParser};
 
 pub struct ProjectionParser;
 
@@ -16,17 +16,22 @@ impl ProjectionParser {
         let mut can_consume = true;
         while !parser.eof() && !parser.comparers.from.compare(parser) {
             let current = parser.current();
+
             if current == ',' {
                 if can_consume {
                     return ParseError::new("Invalid projection", parser.position, parser).err();
                 }
 
                 can_consume = true;
+                parser.next();
+                continue;
             }
 
             if !current.is_whitespace() && !QueryComparers::is_block_delimiter(current) {
                 if can_consume {
                     result.push(Identifier::parse(parser)?);
+                    can_consume = false;
+                    continue;
                 } else {
                     return ParseError::new("Invalid projection", parser.position, parser).err();
                 }
@@ -35,6 +40,37 @@ impl ProjectionParser {
             parser.next();
         }
 
+        if parser.eof() {
+            return ParseError::new("Invalid projection", parser.position, parser).err();
+        }
+
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parser::{tokens::clean_one::ProjectionParser, QueryParser};
+
+    #[test]
+    pub fn test_projection() {
+        let text = "column FROM table";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ProjectionParser::parse(&mut parser).expect("Failed to parse Projection");
+
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    pub fn test_projection_three_columns() {
+        let text = "column, other_column, column as alias FROM table";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ProjectionParser::parse(&mut parser).expect("Failed to parse Projection");
+
+        assert_eq!(result.len(), 3);
     }
 }

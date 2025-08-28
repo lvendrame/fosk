@@ -17,6 +17,12 @@ impl Identifier {
             });
         }
         parser.next();
+        if parser.comparers.from.compare(parser) {
+            return Ok(Identifier {
+                expression: scalar,
+                alias: None
+            });
+        }
 
         if !parser.comparers.alias.compare(parser) {
             return ParseError::new("Invalid alias for identifier", parser.position, parser).err();
@@ -25,7 +31,7 @@ impl Identifier {
         parser.jump(parser.comparers.alias.length);
 
         let pivot = parser.position;
-        while !parser.eof() && !QueryComparers::is_full_block_delimiter(parser.current()) {
+        while !parser.eof() && !QueryComparers::is_full_block_delimiter(parser.current()) && !parser.comparers.from.compare(parser) {
             parser.next();
         }
 
