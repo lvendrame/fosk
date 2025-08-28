@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::Literal, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::Literal, ParseError, QueryComparers, QueryParser, WordComparer};
 
 pub struct NumberParser;
 
@@ -23,7 +23,7 @@ impl NumberParser {
             parser.next();
         }
 
-        if !parser.eof() && !QueryComparers::is_full_block_delimiter(parser.current()) {
+        if !parser.eof() && !WordComparer::is_any_delimiter(parser.current()) {
             return Err(ParseError::new("Invalid number value", pivot, parser));
         }
 

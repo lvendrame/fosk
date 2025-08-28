@@ -1,4 +1,4 @@
-use crate::parser::{ParseError, QueryComparers, QueryParser};
+use crate::parser::{ParseError, QueryComparers, QueryParser, WordComparer};
 
 pub struct TextCollector;
 
@@ -15,7 +15,7 @@ impl TextCollector {
         }
 
         let pivot = parser.position;
-        while !parser.eof() && !QueryComparers::is_full_block_delimiter(parser.current()) && !stopper(parser.current()) {
+        while !parser.eof() && !WordComparer::is_any_delimiter(parser.current()) && !stopper(parser.current()) {
             let current = parser.current();
             if !current.is_ascii_alphanumeric() && current != '_' {
                 return Err(ParseError::new("Invalid text", pivot, parser));

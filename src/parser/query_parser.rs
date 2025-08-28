@@ -36,12 +36,20 @@ impl WordComparer {
         ch.is_ascii_whitespace()
     }
 
-    pub fn is_full_block_delimiter(ch: char) -> bool {
+    pub fn is_any_delimiter(ch: char) -> bool {
         ch == ',' || ch == '(' || ch == ')' || ch == '.' || Self::is_block_delimiter(ch)
+    }
+
+    pub fn is_break_line(ch: char) -> bool {
+        ch == '\r' || ch == '\n'
     }
 
     pub fn is_current_block_delimiter(parser: &QueryParser) -> bool {
         Self::is_block_delimiter(parser.current())
+    }
+
+    pub fn is_current_breal_line(parser: &QueryParser) -> bool {
+        Self::is_break_line(parser.current())
     }
 
     pub fn compare(&self, parser: &QueryParser) -> bool {
@@ -59,7 +67,7 @@ impl WordComparer {
 
         let next = parser.text_v[parser.position + position];
 
-        if self.full_block_delimiter_postfix && !Self::is_full_block_delimiter(next) {
+        if self.full_block_delimiter_postfix && !Self::is_any_delimiter(next) {
             return false;
         }
 
@@ -67,7 +75,7 @@ impl WordComparer {
             return false;
         }
 
-        if self.break_line_postfix && next != '\r' && next != '\n' {
+        if self.break_line_postfix && Self::is_break_line(next) {
             return false;
         }
 
@@ -81,7 +89,7 @@ impl WordComparer {
 
     pub fn compare_with_block_delimiter(&self, parser: &QueryParser) -> bool {
         self.compare(parser) &&
-            (self.reach_eof(parser) || WordComparer::is_full_block_delimiter(parser.peek(self.length)))
+            (self.reach_eof(parser) || WordComparer::is_any_delimiter(parser.peek(self.length)))
     }
 }
 
@@ -157,22 +165,22 @@ impl QueryComparers {
         }
     }
 
-    pub fn is_block_delimiter(ch: char) -> bool {
-        ch == ' ' || ch == '\r' || ch == '\n'
-    }
+    // pub fn is_block_delimiter(ch: char) -> bool {
+    //     ch == ' ' || ch == '\r' || ch == '\n'
+    // }
 
-    pub fn is_full_block_delimiter(ch: char) -> bool {
-        ch == ',' || ch == '(' || ch == ')' || ch == '.' || QueryComparers::is_block_delimiter(ch)
-    }
+    // pub fn is_full_block_delimiter(ch: char) -> bool {
+    //     ch == ',' || ch == '(' || ch == ')' || ch == '.' || QueryComparers::is_block_delimiter(ch)
+    // }
 
-    pub fn is_current_block_delimiter(parser: &QueryParser) -> bool {
-        QueryComparers::is_block_delimiter(parser.current())
-    }
+    // pub fn is_current_block_delimiter(parser: &QueryParser) -> bool {
+    //     QueryComparers::is_block_delimiter(parser.current())
+    // }
 
-    pub fn compare_with_block_delimiter(comparer: &WordComparer, parser: &QueryParser) -> bool {
-        comparer.compare(parser) &&
-            (comparer.reach_eof(parser) || QueryComparers::is_full_block_delimiter(parser.peek(comparer.length)))
-    }
+    // pub fn compare_with_block_delimiter(comparer: &WordComparer, parser: &QueryParser) -> bool {
+    //     comparer.compare(parser) &&
+    //         (comparer.reach_eof(parser) || QueryComparers::is_full_block_delimiter(parser.peek(comparer.length)))
+    // }
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -403,7 +411,7 @@ impl QueryParser {
                 continue;
             }
 
-            if QueryComparers::is_current_block_delimiter(self) {
+            if WordComparer::is_current_block_delimiter(self) {
                 self.next();
                 if self.comparers.alias.compare(self) {
                     if in_alias {
@@ -464,7 +472,7 @@ impl QueryParser {
 
         while self.position < self.length {
             let current = self.current();
-            if QueryComparers::is_current_block_delimiter(self) {
+            if WordComparer::is_current_block_delimiter(self) {
                 let end = self.position;
                 self.next();
 

@@ -4,11 +4,11 @@ pub struct NullParser;
 
 impl NullParser {
     pub fn is_null(parser: &QueryParser) -> bool {
-        QueryComparers::compare_with_block_delimiter(&parser.comparers.null, parser)
+        parser.comparers.null.compare(parser)
     }
 
     pub fn parse(parser: &mut QueryParser) -> Result<Literal, ParseError> {
-        if QueryComparers::compare_with_block_delimiter(&parser.comparers.null, parser) {
+        if parser.comparers.null.compare(parser) {
             parser.jump(parser.comparers.null.length);
             return Ok(Literal::Null)
         }

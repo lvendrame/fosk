@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::{ArgsParser, Function, ScalarExpr, TextCollector}, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::{ArgsParser, Function, ScalarExpr, TextCollector}, ParseError, QueryParser, WordComparer};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Column {
@@ -29,7 +29,7 @@ impl Column {
             return Err(ParseError::new("Invalid column", pivot, parser));
         }
 
-        while !parser.eof() && !QueryComparers::is_full_block_delimiter(parser.current()) {
+        while !parser.eof() && !WordComparer::is_any_delimiter(parser.current()) {
             if args.is_some() {
                 return Err(ParseError::new("Invalid function", pivot, parser));
             }

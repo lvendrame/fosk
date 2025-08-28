@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::{ScalarExpr, TextCollector}, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::{ScalarExpr, TextCollector}, ParseError, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct  Identifier {

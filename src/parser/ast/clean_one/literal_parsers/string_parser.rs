@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::Literal, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::Literal, ParseError, QueryComparers, QueryParser, WordComparer};
 
 pub struct StringParser;
 
@@ -17,7 +17,7 @@ impl StringParser {
         pivot = parser.position;
 
         while !parser.eof() && !StringParser::is_string_delimiter(parser) {
-            if QueryComparers::is_current_block_delimiter(parser) {
+            if WordComparer::is_current_breal_line(parser) {
                 return Err(ParseError::new("Invalid string", pivot, parser));
             }
 

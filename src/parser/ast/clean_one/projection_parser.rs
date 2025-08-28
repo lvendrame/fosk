@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::{Identifier}, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::clean_one::Identifier, ParseError, QueryComparers, QueryParser, WordComparer};
 
 pub struct ProjectionParser;
 
@@ -32,7 +32,7 @@ impl ProjectionParser {
                 continue;
             }
 
-            if !current.is_whitespace() && !QueryComparers::is_block_delimiter(current) {
+            if !current.is_whitespace() && !WordComparer::is_block_delimiter(current) {
                 if !can_consume {
                     return ParseError::new("Invalid projection", parser.position, parser).err();
                 }
