@@ -2,14 +2,14 @@ use crate::parser::{ParseError, QueryParser, WordComparer};
 
 pub struct TextCollector;
 
-pub type Stopper = dyn Fn(char) -> bool;
-
 impl TextCollector {
     pub fn collect(parser: &mut QueryParser) -> Result<String, ParseError> {
-        TextCollector::collect_with_stopper(parser, &|_|false)
+        TextCollector::collect_with_stopper(parser, |_|false)
     }
 
-    pub fn collect_with_stopper(parser: &mut QueryParser, stopper: &Stopper) -> Result<String, ParseError> {
+    pub fn collect_with_stopper<F>(parser: &mut QueryParser, stopper: F) -> Result<String, ParseError>
+        where F: Fn(char) -> bool
+    {
         while parser.current().is_whitespace() {
             parser.next();
         }
@@ -102,7 +102,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = TextCollector::collect_with_stopper(&mut parser, &|current| current == 'a')
+        let result = TextCollector::collect_with_stopper(&mut parser, |current| current == 'a')
             .expect("Failed to collect text");
 
         assert_eq!(result, "text");

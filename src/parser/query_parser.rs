@@ -229,6 +229,14 @@ impl QueryParser {
         self.dbg = self.current().to_string();
     }
 
+    pub fn next_non_whitespace(&mut self) {
+        while self.current().is_whitespace() {
+            self.next();
+        }
+
+        self.dbg = self.current().to_string();
+    }
+
     pub fn jump(&mut self, ahead: usize) {
         if self.position + ahead < self.length {
             self.position += ahead;
