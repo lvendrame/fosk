@@ -10,6 +10,10 @@ pub struct TokenPosition {
 pub struct WordComparer {
     pub length: usize,
     pub word: Vec<char>,
+    whitespace_postfix: bool,
+    break_line_postfix: bool,
+    full_block_delimiter_postfix: bool,
+    eof: bool,
 }
 
 impl WordComparer {
@@ -17,7 +21,27 @@ impl WordComparer {
         Self {
             length: word.len(),
             word: word.to_uppercase().chars().collect(),
+            whitespace_postfix: false,
+            break_line_postfix: false,
+            full_block_delimiter_postfix: false,
+            eof: false,
         }
+    }
+
+    pub fn reach_eof(&self, parser: &QueryParser) -> bool {
+        parser.position + self.length >= parser.length
+    }
+
+    pub fn is_block_delimiter(ch: char) -> bool {
+        ch.is_ascii_whitespace()
+    }
+
+    pub fn is_full_block_delimiter(ch: char) -> bool {
+        ch == ',' || ch == '(' || ch == ')' || ch == '.' || Self::is_block_delimiter(ch)
+    }
+
+    pub fn is_current_block_delimiter(parser: &QueryParser) -> bool {
+        Self::is_block_delimiter(parser.current())
     }
 
     pub fn compare(&self, parser: &QueryParser) -> bool {
@@ -29,11 +53,35 @@ impl WordComparer {
             position += 1;
         }
 
+        if self.reach_eof(parser) {
+             return self.eof;
+        }
+
+        let next = parser.text_v[parser.position + position];
+
+        if self.full_block_delimiter_postfix && !Self::is_full_block_delimiter(next) {
+            return false;
+        }
+
+        if self.whitespace_postfix && !Self::is_block_delimiter(next) {
+            return false;
+        }
+
+        if self.break_line_postfix && next != '\r' && next != '\n' {
+            return false;
+        }
+
         true
     }
 
-    pub fn reach_eof(&self, parser: &QueryParser) -> bool {
-        parser.position + self.length >= parser.length
+    pub fn with_eof(mut self) -> Self { self.eof = true; self }
+    pub fn with_whitespace_postfix(mut self) -> Self { self.whitespace_postfix = true; self }
+    pub fn with_break_line_postfix(mut self) -> Self { self.break_line_postfix = true; self }
+    pub fn with_any_delimiter_postfix(mut self) -> Self { self.full_block_delimiter_postfix = true; self }
+
+    pub fn compare_with_block_delimiter(&self, parser: &QueryParser) -> bool {
+        self.compare(parser) &&
+            (self.reach_eof(parser) || WordComparer::is_full_block_delimiter(parser.peek(self.length)))
     }
 }
 
@@ -78,34 +126,34 @@ impl Default for QueryComparers {
 impl QueryComparers {
     pub fn new() -> Self {
         Self {
-            select: WordComparer::new("SELECT "),
-            alias: WordComparer::new("AS "),
-            from: WordComparer::new("FROM "),
-            inner_join: WordComparer::new("INNER JOIN "),
-            left_join: WordComparer::new("LEFT JOIN "),
-            right_join: WordComparer::new("RIGHT JOIN "),
-            on: WordComparer::new("ON "),
-            criteria: WordComparer::new("WHERE "),
-            group_by: WordComparer::new("GROUP BY "),
-            having: WordComparer::new("HAVING "),
-            order_by: WordComparer::new("ORDER BY "),
-            and: WordComparer::new("AND "),
-            or: WordComparer::new("OR "),
-            equal: WordComparer::new("= "),
-            not_equal_b: WordComparer::new("<> "),
-            not_equal_c: WordComparer::new("!= "),
-            greater_than: WordComparer::new("> "),
-            greater_than_or_equal: WordComparer::new(">= "),
-            less_than: WordComparer::new("< "),
-            less_than_or_equal: WordComparer::new("<= "),
-            like: WordComparer::new("LIKE "),
-            is_null: WordComparer::new("IS NULL "),
-            is_not_null: WordComparer::new("IS NOT NULL "),
-            r#in: WordComparer::new("IN "),
-            not_in: WordComparer::new("NOT IN "),
-            b_true: WordComparer::new("TRUE"),//use block delimiter
-            b_false: WordComparer::new("FALSE"),//use block delimiter
-            null: WordComparer::new("NULL"),//use block delimiter
+            select: WordComparer::new("SELECT").with_whitespace_postfix(),
+            alias: WordComparer::new("AS").with_whitespace_postfix(),
+            from: WordComparer::new("FROM").with_whitespace_postfix(),
+            inner_join: WordComparer::new("INNER JOIN").with_whitespace_postfix(),
+            left_join: WordComparer::new("LEFT JOIN").with_whitespace_postfix(),
+            right_join: WordComparer::new("RIGHT JOIN").with_whitespace_postfix(),
+            on: WordComparer::new("ON").with_whitespace_postfix(),
+            criteria: WordComparer::new("WHERE").with_whitespace_postfix(),
+            group_by: WordComparer::new("GROUP BY").with_whitespace_postfix(),
+            having: WordComparer::new("HAVING").with_whitespace_postfix(),
+            order_by: WordComparer::new("ORDER BY").with_whitespace_postfix(),
+            and: WordComparer::new("AND").with_whitespace_postfix(),
+            or: WordComparer::new("OR").with_whitespace_postfix(),
+            equal: WordComparer::new("=").with_whitespace_postfix(),
+            not_equal_b: WordComparer::new("<>").with_whitespace_postfix(),
+            not_equal_c: WordComparer::new("!=").with_whitespace_postfix(),
+            greater_than: WordComparer::new(">").with_whitespace_postfix(),
+            greater_than_or_equal: WordComparer::new(">=").with_whitespace_postfix(),
+            less_than: WordComparer::new("<").with_whitespace_postfix(),
+            less_than_or_equal: WordComparer::new("<=").with_whitespace_postfix(),
+            like: WordComparer::new("LIKE").with_whitespace_postfix(),
+            is_null: WordComparer::new("IS NULL").with_whitespace_postfix(),
+            is_not_null: WordComparer::new("IS NOT NULL").with_whitespace_postfix(),
+            r#in: WordComparer::new("IN").with_whitespace_postfix(),
+            not_in: WordComparer::new("NOT IN").with_whitespace_postfix(),
+            b_true: WordComparer::new("TRUE").with_any_delimiter_postfix().with_eof(),
+            b_false: WordComparer::new("FALSE").with_any_delimiter_postfix().with_eof(),
+            null: WordComparer::new("NULL").with_any_delimiter_postfix().with_eof(),
         }
     }
 

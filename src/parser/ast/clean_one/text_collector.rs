@@ -10,6 +10,10 @@ impl TextCollector {
     }
 
     pub fn collect_with_stopper(parser: &mut QueryParser, stopper: &Stopper) -> Result<String, ParseError> {
+        while parser.current().is_whitespace() {
+            parser.next();
+        }
+
         let pivot = parser.position;
         while !parser.eof() && !QueryComparers::is_full_block_delimiter(parser.current()) && !stopper(parser.current()) {
             let current = parser.current();

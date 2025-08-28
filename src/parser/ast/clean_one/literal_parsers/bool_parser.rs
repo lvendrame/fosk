@@ -4,16 +4,16 @@ pub struct BoolParser;
 
 impl BoolParser {
     pub fn is_bool(parser: &QueryParser) -> bool {
-        QueryComparers::compare_with_block_delimiter(&parser.comparers.b_true, parser) ||
-        QueryComparers::compare_with_block_delimiter(&parser.comparers.b_false, parser)
+        parser.comparers.b_true.compare(parser) ||
+        parser.comparers.b_false.compare(parser)
     }
 
     pub fn parse(parser: &mut QueryParser) -> Result<Literal, ParseError> {
-        if QueryComparers::compare_with_block_delimiter(&parser.comparers.b_true, parser) {
+        if parser.comparers.b_true.compare(parser) {
             parser.jump(parser.comparers.b_true.length);
             return Ok(Literal::Bool(true))
         }
-        if QueryComparers::compare_with_block_delimiter(&parser.comparers.b_false, parser) {
+        if parser.comparers.b_false.compare(parser) {
             parser.jump(parser.comparers.b_false.length);
             return Ok(Literal::Bool(false))
         }

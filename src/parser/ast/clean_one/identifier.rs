@@ -16,7 +16,11 @@ impl Identifier {
                 alias: None
             });
         }
-        parser.next();
+
+        while parser.current().is_whitespace() {
+            parser.next();
+        }
+
         if parser.comparers.from.compare(parser) {
             return Ok(Identifier {
                 expression: scalar,
@@ -29,6 +33,10 @@ impl Identifier {
         }
 
         parser.jump(parser.comparers.alias.length);
+
+        while parser.current().is_whitespace() {
+            parser.next();
+        }
 
         Ok(Identifier {
             expression: scalar,

@@ -11,6 +11,10 @@ pub enum ScalarExpr {
 
 impl ScalarExpr {
     pub fn parse(parser: &mut QueryParser, allow_wildcard: bool) -> Result<ScalarExpr, ParseError> {
+        while parser.current().is_whitespace() {
+            parser.next();
+        }
+
         if NumberParser::is_number(parser) {
             return NumberParser::parse(parser)
                 .map(ScalarExpr::Literal);

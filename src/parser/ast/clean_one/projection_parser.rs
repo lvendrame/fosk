@@ -12,6 +12,11 @@ impl ProjectionParser {
     }
 
     pub fn parse(parser: &mut QueryParser) -> Result<Vec<Identifier>, ParseError> {
+        if !ProjectionParser::is_projection_start(parser) {
+            return ParseError::new("Invalid projection", parser.position, parser).err();
+        }
+        parser.jump(parser.comparers.select.length);
+
         let mut result: Vec<Identifier> = vec![];
         let mut can_consume = true;
         while !parser.eof() && !parser.comparers.from.compare(parser) {
@@ -53,7 +58,7 @@ mod tests {
 
     #[test]
     pub fn test_projection() {
-        let text = "column FROM table";
+        let text = "SELECT column FROM table";
 
         let mut parser = QueryParser::new(text);
 
@@ -64,7 +69,7 @@ mod tests {
 
     #[test]
     pub fn test_projection_three_columns() {
-        let text = "column, other_column, column as alias FROM table";
+        let text = "SELECT column, other_column, column as alias FROM table";
 
         let mut parser = QueryParser::new(text);
 
@@ -75,7 +80,7 @@ mod tests {
 
     #[test]
     pub fn test_projection_three_columns_with_break_line() {
-        let text = r#"column,
+        let text = r#"SELECT column,
 other_column,
 column as alias FROM table"#;
 
@@ -88,7 +93,7 @@ column as alias FROM table"#;
 
     #[test]
     pub fn test_projection_three_columns_with_break_line_and_tab() {
-        let text = "column,\tother_column,\t123 as alias FROM table";
+        let text = "SELECT column,\tother_column,\t123 as alias FROM table";
 
         let mut parser = QueryParser::new(text);
 
@@ -99,7 +104,7 @@ column as alias FROM table"#;
 
     #[test]
     pub fn test_projection_with_wrong_from() {
-        let text = "column FROMM table";
+        let text = "SELECT column FROMM table";
 
         let mut parser = QueryParser::new(text);
 
@@ -109,15 +114,15 @@ column as alias FROM table"#;
             Ok(_) => panic!(),
             Err(err) => {
                 assert_eq!(err.text, "F");
-                assert_eq!(err.start, 7);
-                assert_eq!(err.end, 7);
+                assert_eq!(err.start, 14);
+                assert_eq!(err.end, 14);
             },
         }
     }
 
     #[test]
     pub fn test_projection_wrong_comma() {
-        let text = "column, other_column, , column as alias FROM table";
+        let text = "SELECT column, other_column, , column as alias FROM table";
 
         let mut parser = QueryParser::new(text);
 
@@ -127,15 +132,15 @@ column as alias FROM table"#;
             Ok(_) => panic!(),
             Err(err) => {
                 assert_eq!(err.text, ",");
-                assert_eq!(err.start, 22);
-                assert_eq!(err.end, 22);
+                assert_eq!(err.start, 29);
+                assert_eq!(err.end, 29);
             },
         }
     }
 
     #[test]
     pub fn test_projection_eof() {
-        let text = "column, other_column, column as alias";
+        let text = "SELECT column, other_column, column as alias";
 
         let mut parser = QueryParser::new(text);
 
@@ -145,8 +150,8 @@ column as alias FROM table"#;
             Ok(_) => panic!(),
             Err(err) => {
                 assert_eq!(err.text, "");
-                assert_eq!(err.start, 37);
-                assert_eq!(err.end, 37);
+                assert_eq!(err.start, 44);
+                assert_eq!(err.end, 44);
             },
         }
     }
