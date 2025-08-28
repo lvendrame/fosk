@@ -1,4 +1,4 @@
-use crate::parser::{tokens::clean_one::Literal, ParseError, QueryParser};
+use crate::parser::{tokens::clean_one::{Identifier, Literal}, ParseError, QueryComparers, QueryParser};
 
 pub struct ProjectionParser;
 
@@ -11,30 +11,30 @@ impl ProjectionParser {
         parser.comparers.from.compare(parser)
     }
 
-    pub fn parse(parser: &mut QueryParser) -> Result<Vec<Literal>, ParseError> {
-        // let pivot = parser.position;
-        // let mut args: Vec<Literal> = vec![];
-        // let mut can_consume = true;
+    pub fn parse(parser: &mut QueryParser) -> Result<Vec<Identifier>, ParseError> {
+        let mut result: Vec<Identifier> = vec![];
+        let mut can_consume = true;
+        while !parser.eof() && !parser.comparers.from.compare(parser) {
+            let current = parser.current();
+            if current == ',' {
+                if can_consume {
+                    return ParseError::new("Invalid projection", parser.position, parser).err();
+                }
 
-        // if !ProjectionParser::is_projection_start(parser) {
-        //     return Err(ParseError::new("Invalid projection value", pivot, parser));
-        // }
-        // parser.jump(parser.comparers.select.length);
-        // // pivot = parser.position;
+                can_consume = true;
+            }
 
-        // while !parser.eof() && !ProjectionParser::is_projection_end(parser) {
-        //     if parser.current().is_whitespace() || parser.current() == ',' {
-        //         parser.next();
-        //     } else {
-        //         args.push(Literal::parse(parser)?);
-        //     }
-        // }
+            if !current.is_whitespace() && !QueryComparers::is_block_delimiter(current) {
+                if can_consume {
+                    result.push(Identifier::parse(parser)?);
+                } else {
+                    return ParseError::new("Invalid projection", parser.position, parser).err();
+                }
+            }
 
-        // if parser.eof() {
-        //     return Err(ParseError::new("Invalid args value", pivot, parser));
-        // }
+            parser.next();
+        }
 
-        // Ok(args)
-        panic!()
+        Ok(result)
     }
 }

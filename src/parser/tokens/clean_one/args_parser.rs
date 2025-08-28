@@ -32,7 +32,7 @@ impl ArgsParser {
                 if !can_consume {
                     return Err(ParseError::new("Invalid args value", pivot, parser));
                 }
-                args.push(ScalarExpr::parse(parser)?);
+                args.push(ScalarExpr::parse(parser, false)?);
                 can_consume = false;
             }
         }

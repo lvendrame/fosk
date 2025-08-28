@@ -1,17 +1,27 @@
 use crate::parser::{tokens::clean_one::{ArgsParser, Function, ScalarExpr}, ParseError, QueryComparers, QueryParser};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Column {
     Name { name: String },
     WithCollection { collection: String, name: String },
 }
 
 impl Column {
+
+    pub fn parse_column_or_function_or_wildcard(parser: &mut QueryParser) -> Result<ScalarExpr, ParseError> {
+        Column::parse_general_scalar(parser, true)
+    }
+
     pub fn parse_column_or_function(parser: &mut QueryParser) -> Result<ScalarExpr, ParseError> {
+        Column::parse_general_scalar(parser, false)
+    }
+
+    pub fn parse_general_scalar(parser: &mut QueryParser, allow_wildcard: bool) -> Result<ScalarExpr, ParseError> {
         let mut pivot = parser.position;
         let mut collection: Option<String> = None;
         let mut args: Option<Vec<ScalarExpr>> = None;
         let mut name = "".to_string();
+        let mut is_wildcard = false;
 
         if parser.current().is_ascii_digit() {
             return Err(ParseError::new("Invalid column", pivot, parser));
@@ -20,6 +30,10 @@ impl Column {
         while !parser.eof() && !QueryComparers::is_full_block_delimiter(parser.current()) {
             if args.is_some() {
                 return Err(ParseError::new("Invalid function", pivot, parser));
+            }
+
+            if is_wildcard {
+                return Err(ParseError::new("Invalid wildcard", pivot, parser));
             }
 
             let current = parser.current();
@@ -32,24 +46,36 @@ impl Column {
             } else if parser.current() == '(' {
                 name = parser.text_from_pivot(pivot);
                 args = Some(ArgsParser::parse(parser)?);
+            } else if current == '*' {
+                is_wildcard = true;
             } else if !current.is_ascii_alphanumeric() && current != '_' {
                 return Err(ParseError::new("Invalid column", pivot, parser));
             }
             parser.next();
         }
 
+        if is_wildcard && !allow_wildcard {
+            return Err(ParseError::new("Invalid scalar", pivot, parser));
+        }
+
         if name.is_empty() {
             name =  parser.text_from_pivot(pivot);
         }
 
-        let result = match args {
-            Some(args) => ScalarExpr::Function(Function {
-                name: format!("{}{}", collection.map_or("".to_string(), |coll| format!("{}.", coll)), name),
-                args,
-            }),
-            None => match collection {
-                Some(collection) => ScalarExpr::Column(Column::WithCollection { collection, name }),
-                None => ScalarExpr::Column(Column::Name { name }),
+        let result = match is_wildcard {
+            true => match collection {
+                Some(collection) => ScalarExpr::WildCardWithCollection(collection),
+                None => ScalarExpr::WildCard,
+            },
+            false => match args {
+                Some(args) => ScalarExpr::Function(Function {
+                    name: format!("{}{}", collection.map_or("".to_string(), |coll| format!("{}.", coll)), name),
+                    args,
+                }),
+                None => match collection {
+                    Some(collection) => ScalarExpr::Column(Column::WithCollection { collection, name }),
+                    None => ScalarExpr::Column(Column::Name { name }),
+                },
             },
         };
 
@@ -381,6 +407,94 @@ mod tests {
             Err(err) => {
                 assert_eq!(err.end, 8);
                 assert_eq!(err.text, "fn_new()f");
+            },
+        }
+    }
+
+     #[test]
+    pub fn test_wildcard() {
+        let text = "*";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Column::parse_column_or_function_or_wildcard(&mut parser);
+
+        match result {
+            Ok(result) => match result {
+                ScalarExpr::WildCard => {}, //allowed
+                _ => panic!(),
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_wildcard_with_collection() {
+        let text = "coll.*";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Column::parse_column_or_function_or_wildcard(&mut parser);
+
+        match result {
+            Ok(result) => match result {
+                ScalarExpr::WildCardWithCollection(collection) => assert_eq!(collection, "coll"),
+                _ => todo!(),
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_wildcard_with_wrong_char() {
+        let text = "*4";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Column::parse_column_or_function(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.start, 0);
+                assert_eq!(err.end, 1);
+                assert_eq!(err.text, "*4");
+            },
+        }
+    }
+
+    #[test]
+    pub fn test_wildcard_not_allowed() {
+        let text = "*";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Column::parse_column_or_function(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.start, 0);
+                assert_eq!(err.end, 1);
+                assert_eq!(err.text, "*");
+            },
+        }
+    }
+
+    #[test]
+    pub fn test_wildcard_with_collection_not_allowed() {
+        let text = "coll.*";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Column::parse_column_or_function(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.start, 5);
+                assert_eq!(err.end, 6);
+                assert_eq!(err.text, "*");
             },
         }
     }

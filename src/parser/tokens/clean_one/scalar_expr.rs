@@ -1,14 +1,16 @@
 use crate::parser::{tokens::clean_one::{BoolParser, Column, Function, Literal, NullParser, NumberParser, StringParser}, ParseError, QueryParser};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ScalarExpr {
     Literal(Literal),
     Column(Column),
     Function(Function),
+    WildCard,
+    WildCardWithCollection(String),
 }
 
 impl ScalarExpr {
-    pub fn parse(parser: &mut QueryParser) -> Result<ScalarExpr, ParseError> {
+    pub fn parse(parser: &mut QueryParser, allow_wildcard: bool) -> Result<ScalarExpr, ParseError> {
         if NumberParser::is_number(parser) {
             return NumberParser::parse(parser)
                 .map(ScalarExpr::Literal);
@@ -27,24 +29,7 @@ impl ScalarExpr {
                 .map(ScalarExpr::Literal);
         }
 
-        Column::parse_column_or_function(parser)
-
-        // let alias = if parser.current().is_whitespace() && !parser.eof() {
-        //     parser.next();
-        //     if parser.comparers.alias.compare(parser) {
-        //         parser.jump(parser.comparers.alias.length);
-        //         let alias = Column::parse_column_or_function(parser)?;
-        //         match alias {
-        //             Column::Name { name } => Some(name),
-        //             Column::WithCollection { collection: _, name: _ } =>
-        //                 return Err(ParseError::new("Invalid identifier for alias", parser.position, parser)),
-        //         }
-        //     } else {
-        //         return Err(ParseError::new("Invalid identifier for alias", parser.position, parser));
-        //     }
-        // } else {
-        //     None
-        // };
+        Column::parse_general_scalar(parser, allow_wildcard)
     }
 }
 
@@ -58,7 +43,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ScalarExpr::parse(&mut parser);
+        let result = ScalarExpr::parse(&mut parser, true);
 
         match result {
             Ok(result) => {
@@ -82,7 +67,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ScalarExpr::parse(&mut parser);
+        let result = ScalarExpr::parse(&mut parser, true);
 
         match result {
             Ok(result) => {
@@ -107,7 +92,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ScalarExpr::parse(&mut parser);
+        let result = ScalarExpr::parse(&mut parser, true);
 
         match result {
             Ok(result) => match result {
@@ -127,7 +112,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ScalarExpr::parse(&mut parser);
+        let result = ScalarExpr::parse(&mut parser, true);
 
         match result {
             Ok(result) => match result {
@@ -147,7 +132,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ScalarExpr::parse(&mut parser);
+        let result = ScalarExpr::parse(&mut parser, true);
 
         match result {
             Ok(result) => match result {
@@ -167,7 +152,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ScalarExpr::parse(&mut parser);
+        let result = ScalarExpr::parse(&mut parser, true);
 
         match result {
             Ok(result) => match result {
