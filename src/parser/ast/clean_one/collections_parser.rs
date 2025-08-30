@@ -16,7 +16,7 @@ impl CollectionsParser {
         let mut collections: Vec<Collection> = vec![];
         let mut can_consume = true;
 
-        while parser.phase == Phase::Collections && !parser.eof() {
+        while parser.phase == Phase::Collections {
             if parser.current() == ',' {
                 if can_consume {
                     return ParseError::new("Invalid select statement", parser.position, parser).err();

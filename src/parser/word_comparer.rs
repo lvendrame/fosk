@@ -50,8 +50,9 @@ impl WordComparer {
 
     pub fn compare(&self, parser: &QueryParser) -> bool {
         let mut position = 0;
-        while position < self.length && (parser.position + position) < parser.length {
-            if self.word[position] != parser.text_v[parser.position + position].to_ascii_uppercase() {
+        while position < self.length {
+            if (parser.position + position) >= parser.length ||
+                self.word[position] != parser.text_v[parser.position + position].to_ascii_uppercase() {
                 return false;
             }
             position += 1;

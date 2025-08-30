@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::Identifier, ParseError, QueryParser, WordComparer};
+use crate::parser::{ast::clean_one::Identifier, ParseError, Phase, QueryParser, WordComparer};
 
 pub struct ProjectionParser;
 
@@ -13,14 +13,17 @@ impl ProjectionParser {
         }
         parser.jump(parser.comparers.select.length);
 
+        let mut pivot = parser.position;
         let mut result: Vec<Identifier> = vec![];
         let mut can_consume = true;
-        while !parser.eof() && !parser.check_next_phase() {
+        while parser.phase == Phase::Projection {
+            parser.next_non_whitespace();
+
             let current = parser.current();
 
             if current == ',' {
                 if can_consume {
-                    return ParseError::new("Invalid projection", parser.position, parser).err();
+                    return ParseError::new("Invalid projection", pivot, parser).err();
                 }
 
                 can_consume = true;
@@ -28,20 +31,25 @@ impl ProjectionParser {
                 continue;
             }
 
-            if !current.is_whitespace() {
-                if !can_consume {
-                    return ParseError::new("Invalid projection", parser.position, parser).err();
+            if parser.check_next_phase() {
+                if can_consume {
+                    return ParseError::new("Invalid projection", pivot, parser).err();
                 }
-                result.push(Identifier::parse(parser)?);
-                can_consume = false;
                 continue;
             }
 
-            parser.next();
+            if !can_consume {
+                return ParseError::new("Invalid projection", pivot, parser).err();
+            }
+            result.push(Identifier::parse(parser)?);
+            can_consume = false;
+
+            pivot = parser.position;
+            //parser.next();
         }
 
         if parser.eof() {
-            return ParseError::new("Invalid projection", parser.position, parser).err();
+            return ParseError::new("Invalid projection", pivot, parser).err();
         }
 
         Ok(result)
@@ -127,8 +135,8 @@ column as alias FROM table"#;
         match result {
             Ok(_) => panic!(),
             Err(err) => {
-                assert_eq!(err.text, ",");
-                assert_eq!(err.start, 29);
+                assert_eq!(err.text, ", ,");
+                assert_eq!(err.start, 27);
                 assert_eq!(err.end, 29);
             },
         }
@@ -148,6 +156,24 @@ column as alias FROM table"#;
                 assert_eq!(err.text, "");
                 assert_eq!(err.start, 44);
                 assert_eq!(err.end, 44);
+            },
+        }
+    }
+
+    #[test]
+    pub fn test_projection_comma_before_from() {
+        let text = "SELECT column, other_column, column as alias, FROM table";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ProjectionParser::parse(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, ", F");
+                assert_eq!(err.start, 44);
+                assert_eq!(err.end, 46);
             },
         }
     }

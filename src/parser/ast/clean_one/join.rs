@@ -155,8 +155,6 @@ mod tests {
         }
     }
 
-
-
     #[test]
     pub fn test_inner_join_and_left_join() {
         let text = r#"INNER JOIN tableA ON tableA.columnA = tableB.columnA
@@ -169,20 +167,54 @@ mod tests {
 
         assert_eq!(result.len(), 2);
 
-        match result.first() {
-            Some(first) => match first.join_type {
-                JoinType::Inner => {
-                    match &first.collection {
+        let expect_names = ["tableA", "tableC"];
+        let expect_types = [JoinType::Inner, JoinType::Left];
+
+        for (i, item) in result.iter().enumerate() {
+            match item.join_type {
+                JoinType::Inner | JoinType::Left => {
+                    match &item.collection {
                         Collection::Table { name, alias } => {
-                            assert_eq!(name, "tableA");
+                            assert_eq!(name, expect_names[i]);
+                            assert_eq!(item.join_type, expect_types[i]);
                             assert!(alias.is_none());
                         },
                         Collection::Query => todo!(),
                     }
                 },
                 _ => panic!(),
-            },
-            None => panic!(),
+            }
+        }
+    }
+
+    #[test]
+    pub fn test_all_joins() {
+        let text =r#"
+        INNER JOIN tableA ON tableA.columnA = tableB.columnA
+        LEFT JOIN tableC ON tableC.columnB = tableA.columnB
+        RIGHT JOIN tableD ON tableD.columnB = tableC.columnB
+        FULL JOIN tableE ON tableE.columnB = tableA.columnB
+        "#;
+
+        let mut parser = QueryParser::new(text);
+        assert!(parser.check_next_phase());
+
+        let result = Join::parse(&mut parser).expect("Failed to parse join");
+
+        assert_eq!(result.len(), 4);
+
+        let expect_names = ["tableA", "tableC", "tableD", "tableE"];
+        let expect_types = [JoinType::Inner, JoinType::Left, JoinType::Right, JoinType::Full];
+
+        for (i, item) in result.iter().enumerate() {
+            match &item.collection {
+                Collection::Table { name, alias } => {
+                    assert_eq!(name, expect_names[i]);
+                    assert_eq!(item.join_type, expect_types[i]);
+                    assert!(alias.is_none());
+                },
+                Collection::Query => todo!(),
+            }
         }
     }
 }

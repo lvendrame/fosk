@@ -328,6 +328,42 @@ mod tests {
     }
 
     #[test]
+    pub fn test_predicate_single_wrong_comparer() {
+        let text = "columnA =! 'columnB'";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Predicate::parse_single(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "=");
+                assert_eq!(err.start, 8);
+                assert_eq!(err.end, 8);
+            },
+        };
+    }
+
+    #[test]
+    pub fn test_predicate_single_without_right_side() {
+        let text = "columnA != ";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Predicate::parse_single(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "");
+                assert_eq!(err.start, 11);
+                assert_eq!(err.end, 11);
+            },
+        };
+    }
+
+    #[test]
     pub fn test_predicate_and() {
         let text = "columnA = columnB AND columnC = columnD";
 
@@ -352,6 +388,78 @@ mod tests {
         match result {
             Predicate::And(predicates) => assert_eq!(predicates.len(), 2),
             _ => panic!(),
+        };
+    }
+
+    #[test]
+    pub fn test_predicate_and_p_or_without_end() {
+        let text = "columnA = columnB AND (columnC = columnD OR columnE = columnF FROM";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Predicate::parse(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "");
+                assert_eq!(err.start, 66);
+                assert_eq!(err.end, 66);
+            },
+        };
+    }
+
+    #[test]
+    pub fn test_predicate_and_p_or_without_end_case2() {
+        let text = "columnA = columnB AND (columnC = columnD OR columnE = columnF FROM ";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Predicate::parse(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "F");
+                assert_eq!(err.start, 62);
+                assert_eq!(err.end, 62);
+            },
+        };
+    }
+
+    #[test]
+    pub fn test_predicate_and_p_or_without_start() {
+        let text = "columnA = columnB AND columnC = columnD OR columnE = columnF) FROM ";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Predicate::parse(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, ")");
+                assert_eq!(err.start, 60);
+                assert_eq!(err.end, 60);
+            },
+        };
+    }
+
+    #[test]
+    pub fn test_predicate_double_and_p_or_without_start() {
+        let text = "columnA = columnB AND AND columnC = columnD OR columnE = columnF FROM ";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Predicate::parse(&mut parser);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "c");
+                assert_eq!(err.start, 26);
+                assert_eq!(err.end, 26);
+            },
         };
     }
 }

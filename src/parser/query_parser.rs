@@ -109,6 +109,7 @@ impl QueryParser {
     }
 
     pub fn check_next_phase(&mut self) -> bool {
+        self.next_non_whitespace();
         // Projection = 0,
         // Collections = 1,
         // Inners = 2,
