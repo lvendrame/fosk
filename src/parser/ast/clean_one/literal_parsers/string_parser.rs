@@ -4,7 +4,7 @@ pub struct StringParser;
 
 impl StringParser {
     pub fn is_string_delimiter(parser: &QueryParser) -> bool {
-        parser.current() == '"'
+        parser.current() == '"' || parser.current() == '\''
     }
 
     pub fn parse(parser: &mut QueryParser) -> Result<Literal, ParseError> {
@@ -13,11 +13,13 @@ impl StringParser {
         if !StringParser::is_string_delimiter(parser) {
             return Err(ParseError::new("Invalid string value", pivot, parser));
         }
+
+        let delimiter = parser.current();
         parser.next();
         pivot = parser.position;
 
-        while !parser.eof() && !StringParser::is_string_delimiter(parser) {
-            if WordComparer::is_current_breal_line(parser) {
+        while !parser.eof() && parser.current() != delimiter {
+            if WordComparer::is_current_break_line(parser) {
                 return Err(ParseError::new("Invalid string", pivot, parser));
             }
 
@@ -41,6 +43,23 @@ pub mod tests {
     #[test]
     pub fn test_string_parser() {
         let text = "\"identifier\"";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = StringParser::parse(&mut parser);
+
+        match result {
+            Ok(result) => match result {
+                Literal::String(result) => assert_eq!(result, "identifier"),
+                _ => panic!(),
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_string_parser_single_quote() {
+        let text = "'identifier'";
 
         let mut parser = QueryParser::new(text);
 

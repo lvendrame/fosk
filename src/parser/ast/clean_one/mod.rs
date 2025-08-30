@@ -25,5 +25,14 @@ pub use identifier::*;
 pub mod collection;
 pub use collection::*;
 
-pub mod collections;
-pub use collections::*;
+pub mod collections_parser;
+pub use collections_parser::*;
+
+pub mod operators;
+pub use operators::*;
+
+pub mod predicate;
+pub use predicate::*;
+
+pub mod join;
+pub use join::*;

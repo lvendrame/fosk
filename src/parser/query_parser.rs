@@ -1,169 +1,9 @@
-use crate::parser::{Collection, ProjectionField, Query};
+use crate::parser::{Collection, ProjectionField, Query, QueryComparers, WordComparer};
 
 #[derive(Debug, Default)]
 pub struct TokenPosition {
     pub pivot: usize,
     pub end: usize,
-}
-
-#[derive(Debug, Default)]
-pub struct WordComparer {
-    pub length: usize,
-    pub word: Vec<char>,
-    whitespace_postfix: bool,
-    break_line_postfix: bool,
-    full_block_delimiter_postfix: bool,
-    eof: bool,
-}
-
-impl WordComparer {
-    pub fn new(word: &str) -> Self {
-        Self {
-            length: word.len(),
-            word: word.to_uppercase().chars().collect(),
-            whitespace_postfix: false,
-            break_line_postfix: false,
-            full_block_delimiter_postfix: false,
-            eof: false,
-        }
-    }
-
-    pub fn reach_eof(&self, parser: &QueryParser) -> bool {
-        parser.position + self.length >= parser.length
-    }
-
-    pub fn is_block_delimiter(ch: char) -> bool {
-        ch.is_ascii_whitespace()
-    }
-
-    pub fn is_any_delimiter(ch: char) -> bool {
-        ch == ',' || ch == '(' || ch == ')' || ch == '.' || Self::is_block_delimiter(ch)
-    }
-
-    pub fn is_break_line(ch: char) -> bool {
-        ch == '\r' || ch == '\n'
-    }
-
-    pub fn is_current_block_delimiter(parser: &QueryParser) -> bool {
-        Self::is_block_delimiter(parser.current())
-    }
-
-    pub fn is_current_breal_line(parser: &QueryParser) -> bool {
-        Self::is_break_line(parser.current())
-    }
-
-    pub fn compare(&self, parser: &QueryParser) -> bool {
-        let mut position = 0;
-        while position < self.length && (parser.position + position) < parser.length {
-            if self.word[position] != parser.text_v[parser.position + position].to_ascii_uppercase() {
-                return false;
-            }
-            position += 1;
-        }
-
-        if self.reach_eof(parser) {
-             return self.eof;
-        }
-
-        let next = parser.text_v[parser.position + position];
-
-        if self.full_block_delimiter_postfix && !Self::is_any_delimiter(next) {
-            return false;
-        }
-
-        if self.whitespace_postfix && !Self::is_block_delimiter(next) {
-            return false;
-        }
-
-        if self.break_line_postfix && Self::is_break_line(next) {
-            return false;
-        }
-
-        true
-    }
-
-    pub fn with_eof(mut self) -> Self { self.eof = true; self }
-    pub fn with_whitespace_postfix(mut self) -> Self { self.whitespace_postfix = true; self }
-    pub fn with_break_line_postfix(mut self) -> Self { self.break_line_postfix = true; self }
-    pub fn with_any_delimiter_postfix(mut self) -> Self { self.full_block_delimiter_postfix = true; self }
-
-    pub fn compare_with_block_delimiter(&self, parser: &QueryParser) -> bool {
-        self.compare(parser) &&
-            (self.reach_eof(parser) || WordComparer::is_any_delimiter(parser.peek(self.length)))
-    }
-}
-
-#[derive(Debug)]
-pub struct QueryComparers {
-    pub select: WordComparer,
-    pub alias: WordComparer,
-    pub from: WordComparer,
-    pub inner_join: WordComparer,
-    pub left_join: WordComparer,
-    pub right_join: WordComparer,
-    pub on: WordComparer,
-    pub criteria: WordComparer,
-    pub group_by: WordComparer,
-    pub having: WordComparer,
-    pub order_by: WordComparer,
-    pub and: WordComparer,
-    pub or: WordComparer,
-    pub equal: WordComparer,
-    pub not_equal_b: WordComparer, // basic
-    pub not_equal_c: WordComparer, // c
-    pub greater_than: WordComparer,
-    pub greater_than_or_equal: WordComparer,
-    pub less_than: WordComparer,
-    pub less_than_or_equal: WordComparer,
-    pub like: WordComparer,
-    pub is_null: WordComparer,
-    pub is_not_null: WordComparer,
-    pub r#in: WordComparer,
-    pub not_in: WordComparer,
-    pub b_true: WordComparer,
-    pub b_false: WordComparer,
-    pub null: WordComparer,
-}
-
-impl Default for QueryComparers {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl QueryComparers {
-    pub fn new() -> Self {
-        Self {
-            select: WordComparer::new("SELECT").with_whitespace_postfix(),
-            alias: WordComparer::new("AS").with_whitespace_postfix(),
-            from: WordComparer::new("FROM").with_whitespace_postfix(),
-            inner_join: WordComparer::new("INNER JOIN").with_whitespace_postfix(),
-            left_join: WordComparer::new("LEFT JOIN").with_whitespace_postfix(),
-            right_join: WordComparer::new("RIGHT JOIN").with_whitespace_postfix(),
-            on: WordComparer::new("ON").with_whitespace_postfix(),
-            criteria: WordComparer::new("WHERE").with_whitespace_postfix(),
-            group_by: WordComparer::new("GROUP BY").with_whitespace_postfix(),
-            having: WordComparer::new("HAVING").with_whitespace_postfix(),
-            order_by: WordComparer::new("ORDER BY").with_whitespace_postfix(),
-            and: WordComparer::new("AND").with_whitespace_postfix(),
-            or: WordComparer::new("OR").with_whitespace_postfix(),
-            equal: WordComparer::new("=").with_whitespace_postfix(),
-            not_equal_b: WordComparer::new("<>").with_whitespace_postfix(),
-            not_equal_c: WordComparer::new("!=").with_whitespace_postfix(),
-            greater_than: WordComparer::new(">").with_whitespace_postfix(),
-            greater_than_or_equal: WordComparer::new(">=").with_whitespace_postfix(),
-            less_than: WordComparer::new("<").with_whitespace_postfix(),
-            less_than_or_equal: WordComparer::new("<=").with_whitespace_postfix(),
-            like: WordComparer::new("LIKE").with_whitespace_postfix(),
-            is_null: WordComparer::new("IS NULL").with_whitespace_postfix(),
-            is_not_null: WordComparer::new("IS NOT NULL").with_whitespace_postfix(),
-            r#in: WordComparer::new("IN").with_whitespace_postfix(),
-            not_in: WordComparer::new("NOT IN").with_whitespace_postfix(),
-            b_true: WordComparer::new("TRUE").with_any_delimiter_postfix().with_eof(),
-            b_false: WordComparer::new("FALSE").with_any_delimiter_postfix().with_eof(),
-            null: WordComparer::new("NULL").with_any_delimiter_postfix().with_eof(),
-        }
-    }
 }
 
 #[derive(Debug, Default, PartialEq, PartialOrd)]
@@ -296,7 +136,8 @@ impl QueryParser {
         }
 
         if self.phase <= Phase::Joins &&
-            (self.comparers.inner_join.compare(self) || self.comparers.left_join.compare(self) || self.comparers.right_join.compare(self)) {
+            (self.comparers.inner_join.compare(self) || self.comparers.left_join.compare(self) ||
+                self.comparers.right_join.compare(self) || self.comparers.full_join.compare(self)) {
             self.phase = Phase::Joins;
             return true;
         }

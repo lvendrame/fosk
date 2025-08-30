@@ -1,8 +1,8 @@
 use crate::parser::{ast::clean_one::Collection, ParseError, Phase, QueryParser};
 
-pub struct Collections;
+pub struct CollectionsParser;
 
-impl Collections {
+impl CollectionsParser {
 
     fn parse(parser: &mut QueryParser) -> Result<Vec<Collection>, ParseError> {
 
@@ -45,7 +45,7 @@ impl Collections {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::clean_one::{Collections}, Phase, QueryParser};
+    use crate::parser::{ast::clean_one::{CollectionsParser}, Phase, QueryParser};
 
     #[test]
     pub fn test_collections() {
@@ -54,7 +54,7 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.phase = Phase::Collections;
 
-        let result = Collections::parse(&mut parser).expect("Failed to parse collections");
+        let result = CollectionsParser::parse(&mut parser).expect("Failed to parse collections");
 
         assert_eq!(result.len(), 1);
     }
@@ -66,7 +66,7 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.phase = Phase::Collections;
 
-        let result = Collections::parse(&mut parser).expect("Failed to parse collections");
+        let result = CollectionsParser::parse(&mut parser).expect("Failed to parse collections");
 
         assert_eq!(result.len(), 1);
     }
@@ -78,7 +78,7 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.phase = Phase::Collections;
 
-        let result = Collections::parse(&mut parser).expect("Failed to parse collections");
+        let result = CollectionsParser::parse(&mut parser).expect("Failed to parse collections");
 
         assert_eq!(result.len(), 2);
     }
@@ -90,7 +90,7 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.phase = Phase::Collections;
 
-        let result = Collections::parse(&mut parser).expect("Failed to parse collections");
+        let result = CollectionsParser::parse(&mut parser).expect("Failed to parse collections");
 
         assert_eq!(result.len(), 3);
     }
@@ -102,7 +102,7 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.phase = Phase::Collections;
 
-        let result = Collections::parse(&mut parser).expect("Failed to parse collections");
+        let result = CollectionsParser::parse(&mut parser).expect("Failed to parse collections");
 
         assert_eq!(result.len(), 3);
     }
@@ -114,7 +114,7 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.phase = Phase::Collections;
 
-        let result = Collections::parse(&mut parser);
+        let result = CollectionsParser::parse(&mut parser);
 
         match result {
             Ok(_) => panic!(),
@@ -133,7 +133,7 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.phase = Phase::Collections;
 
-        let result = Collections::parse(&mut parser);
+        let result = CollectionsParser::parse(&mut parser);
 
         match result {
             Ok(_) => panic!(),
@@ -152,7 +152,7 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.phase = Phase::Collections;
 
-        let result = Collections::parse(&mut parser);
+        let result = CollectionsParser::parse(&mut parser);
 
         match result {
             Ok(_) => panic!(),
