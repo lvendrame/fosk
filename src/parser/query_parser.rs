@@ -15,7 +15,8 @@ pub enum Phase {
     Criteria = 3,
     Aggregates = 4,
     Having = 5,
-    OrderBy = 6
+    OrderBy = 6,
+    EOF = 7,
 }
 
 #[derive(Debug, Default)]
@@ -115,6 +116,11 @@ impl QueryParser {
         // Aggregates = 4,
         // Having = 5,
         // OrderBy = 6
+        if self.eof() {
+            self.phase = Phase::EOF;
+            return true;
+        }
+
         if self.phase < Phase::OrderBy && self.comparers.order_by.compare(self) {
             self.phase = Phase::OrderBy;
             return true;
@@ -185,8 +191,6 @@ impl QueryParser {
             return Ok(());
         }
 
-        self.check_phase()?;
-
         match self.phase {
             Phase::Projection => {
                 self.query.projection_fields = self.parse_projection()?;
@@ -200,6 +204,7 @@ impl QueryParser {
             Phase::Aggregates => {},
             Phase::Having => {},
             Phase::OrderBy => {},
+            Phase::EOF => {},
         };
 
         Ok(())

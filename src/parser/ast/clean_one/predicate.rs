@@ -80,7 +80,7 @@ impl Predicate {
         let mut predicates: Vec<Predicate> = vec![];
         let mut and = false;
         let mut or = false;
-        while (!parser.eof() && !parser.check_next_phase()) && (depth == 0 || parser.current() != ')')   {
+        while (!parser.check_next_phase()) && (depth == 0 || parser.current() != ')')   {
             predicates.push(Self::parse_single(parser)?);
             parser.next_non_whitespace();
 

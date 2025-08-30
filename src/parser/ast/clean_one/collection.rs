@@ -16,14 +16,14 @@ impl Collection {
 
 
         let mut alias: Option<String> = None;
-        if parser.current() != ',' && !parser.check_next_phase() && !parser.eof() {
+        if parser.current() != ',' && !parser.check_next_phase() && !parser.eof() && !parser.comparers.on.compare(parser) {
             alias = Some(TextCollector::collect(parser)?)
         }
 
         parser.next_non_whitespace();
 
         let pivot = parser.position;
-        if parser.current() == ',' || parser.check_next_phase() || parser.eof() {
+        if parser.current() == ',' || parser.check_next_phase() || parser.eof() || parser.comparers.on.compare(parser) {
             return Ok(Collection::Table { name, alias });
         }
 
@@ -72,6 +72,23 @@ mod tests {
     #[test]
     pub fn test_collection_with_alias_and_comma() {
         let text = "table a,";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = Collection::parse(&mut parser).expect("Failed to parse collection");
+
+        match result {
+            Collection::Table { name, alias } => {
+                assert_eq!(name, "table");
+                assert_eq!(alias.unwrap(), "a");
+            },
+            Collection::Query => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_collection_with_alias_and_on() {
+        let text = "table a ON ";
 
         let mut parser = QueryParser::new(text);
 
