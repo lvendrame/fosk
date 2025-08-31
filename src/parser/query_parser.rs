@@ -136,7 +136,7 @@ impl QueryParser {
             return true;
         }
 
-        if self.phase < Phase::Criteria && self.comparers.criteria.compare(self) {
+        if self.phase < Phase::Criteria && self.comparers.r#where.compare(self) {
             self.phase = Phase::Criteria;
             return true;
         }

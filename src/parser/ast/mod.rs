@@ -36,3 +36,6 @@ pub use predicate::*;
 
 pub mod join;
 pub use join::*;
+
+pub mod where_parser;
+pub use where_parser::*;
