@@ -81,7 +81,7 @@ impl QueryParser {
         if self.position + ahead < self.length {
             self.position += ahead;
         } else {
-            self.position = self.length - 1;
+            self.position = self.length;
         }
 
         self.dbg = self.current().to_string();

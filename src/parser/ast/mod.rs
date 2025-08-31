@@ -39,3 +39,6 @@ pub use join::*;
 
 pub mod where_parser;
 pub use where_parser::*;
+
+pub mod order_by;
+pub use order_by::*;

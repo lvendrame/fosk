@@ -9,6 +9,7 @@ pub struct WordComparer {
     full_block_delimiter_postfix: bool,
     eof: bool,
     delimiter: Option<char>,
+    optional_postfix: Vec<char>,
 }
 
 impl WordComparer {
@@ -21,6 +22,7 @@ impl WordComparer {
             full_block_delimiter_postfix: false,
             eof: false,
             delimiter: None,
+            optional_postfix: vec![],
         }
     }
 
@@ -62,28 +64,41 @@ impl WordComparer {
              return self.eof;
         }
 
+        if self.delimiter.is_none() && !self.full_block_delimiter_postfix && !self.whitespace_postfix &&
+            !self.break_line_postfix && self.optional_postfix.is_empty() {
+            return true;
+        }
+
         let mut next = parser.text_v[parser.position + position];
 
+        let mut result = false;
+
         if let Some(delimiter) = self.delimiter {
-            if next != delimiter {
-                return false;
+            if next == delimiter {
+                result = true;
             }
             next = parser.text_v[parser.position + position + 1];
         }
 
-        if self.full_block_delimiter_postfix && !Self::is_any_delimiter(next) {
-            return false;
+        if self.full_block_delimiter_postfix && Self::is_any_delimiter(next) {
+            result = true;
         }
 
-        if self.whitespace_postfix && !Self::is_block_delimiter(next) {
-            return false;
+        if self.whitespace_postfix && Self::is_block_delimiter(next) {
+            result = true;
         }
 
         if self.break_line_postfix && Self::is_break_line(next) {
-            return false;
+            result = true;
         }
 
-        true
+        for value in self.optional_postfix.iter() {
+            if *value == next {
+                result = true;
+            }
+        }
+
+        result
     }
 
     pub fn with_eof(mut self) -> Self { self.eof = true; self }
@@ -91,6 +106,7 @@ impl WordComparer {
     pub fn with_break_line_postfix(mut self) -> Self { self.break_line_postfix = true; self }
     pub fn with_any_delimiter_postfix(mut self) -> Self { self.full_block_delimiter_postfix = true; self }
     pub fn with_delimiter(mut self, delimiter: char) -> Self { self.delimiter = Some(delimiter); self }
+    pub fn with_optional_postfix(mut self, value: char) -> Self { self.optional_postfix.push(value); self }
 
     pub fn compare_with_block_delimiter(&self, parser: &QueryParser) -> bool {
         self.compare(parser) &&
