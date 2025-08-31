@@ -1,4 +1,4 @@
-use crate::parser::{ast::Literal, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::Literal, ParseError, QueryParser};
 
 pub struct NullParser;
 

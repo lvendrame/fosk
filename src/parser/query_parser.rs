@@ -200,7 +200,7 @@ GROUP BY a.full_name
 HAVING COUNT(*) > 3
 ORDER BY b.description DESC"#;
 
-        let mut parser = QueryParser::new(query);
+        let mut _parser = QueryParser::new(query);
 
         //let result = parser.parse();
         //println!("{:?}", parser.query);

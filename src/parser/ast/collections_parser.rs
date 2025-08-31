@@ -4,7 +4,7 @@ pub struct CollectionsParser;
 
 impl CollectionsParser {
 
-    fn parse(parser: &mut QueryParser) -> Result<Vec<Collection>, ParseError> {
+    pub fn parse(parser: &mut QueryParser) -> Result<Vec<Collection>, ParseError> {
 
         if !parser.comparers.from.compare(parser) {
             return ParseError::new("Invalid select statement", parser.position, parser).err();

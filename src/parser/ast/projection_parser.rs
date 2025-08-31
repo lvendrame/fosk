@@ -1,4 +1,4 @@
-use crate::parser::{ast::Identifier, ParseError, Phase, QueryParser, WordComparer};
+use crate::parser::{ast::Identifier, ParseError, Phase, QueryParser};
 
 pub struct ProjectionParser;
 

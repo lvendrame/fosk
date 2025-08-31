@@ -1,4 +1,4 @@
-use crate::parser::{ast::Literal, ParseError, QueryComparers, QueryParser, WordComparer};
+use crate::parser::{ast::Literal, ParseError, QueryParser, WordComparer};
 
 pub struct NumberParser;
 
