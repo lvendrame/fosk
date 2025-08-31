@@ -1,5 +1,6 @@
 use crate::parser::{ParseError, Phase, QueryParser, ScalarExpr};
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct OrderBy {
     pub expr: ScalarExpr,
     pub ascending: bool,
