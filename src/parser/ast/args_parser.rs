@@ -11,7 +11,7 @@ impl ArgsParser {
         parser.current() == ')'
     }
 
-    pub fn parse(parser: &mut QueryParser) -> Result<Vec<ScalarExpr>, ParseError> {
+    pub fn parse(parser: &mut QueryParser, allow_wildcard: bool) -> Result<Vec<ScalarExpr>, ParseError> {
         let pivot = parser.position;
         let mut args: Vec<ScalarExpr> = vec![];
         let mut can_consume = true;
@@ -35,7 +35,7 @@ impl ArgsParser {
                 if !can_consume {
                     return Err(ParseError::new("Invalid args value", pivot, parser));
                 }
-                args.push(ScalarExpr::parse(parser, false)?);
+                args.push(ScalarExpr::parse(parser, allow_wildcard)?);
                 can_consume = false;
             }
         }
@@ -58,7 +58,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser);
+        let result = ArgsParser::parse(&mut parser, false);
 
         match result {
             Ok(result) => assert_eq!(result.len(), 0),
@@ -72,7 +72,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser);
+        let result = ArgsParser::parse(&mut parser, false);
 
         match result {
             Ok(result) => {
@@ -88,7 +88,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser);
+        let result = ArgsParser::parse(&mut parser, false);
 
         match result {
             Ok(result) => {
@@ -104,7 +104,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser);
+        let result = ArgsParser::parse(&mut parser, false);
 
         match result {
             Ok(result) => {
@@ -120,7 +120,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser);
+        let result = ArgsParser::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -138,7 +138,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser);
+        let result = ArgsParser::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -156,7 +156,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser);
+        let result = ArgsParser::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -174,7 +174,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser);
+        let result = ArgsParser::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -182,6 +182,40 @@ pub mod tests {
                 assert_eq!(err.text, "(\"hello\" t");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 9);
+            },
+        }
+    }
+
+    #[test]
+    pub fn test_args_wildcard_allowed() {
+        let text = "(*)";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ArgsParser::parse(&mut parser, true);
+
+        match result {
+            Ok(result) => {
+                assert_eq!(result.len(), 1);
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_args_wildcard_not_allowed() {
+        let text = "(*)";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ArgsParser::parse(&mut parser, false);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "*)");
+                assert_eq!(err.start, 1);
+                assert_eq!(err.end, 2);
             },
         }
     }

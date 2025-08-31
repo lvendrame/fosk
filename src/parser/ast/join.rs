@@ -54,7 +54,7 @@ impl Join {
                 return ParseError::new("Invalid join statement", parser.position, parser).err();
             }
 
-            let predicate = Predicate::parse(parser)?;
+            let predicate = Predicate::parse(parser, false)?;
 
             joins.push(Join {
                 join_type,

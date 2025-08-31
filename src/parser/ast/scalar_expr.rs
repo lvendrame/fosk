@@ -213,4 +213,74 @@ mod tests {
             },
         }
     }
+
+    #[test]
+    pub fn test_scalar_wildcard() {
+        let text = "*";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ScalarExpr::parse(&mut parser, true);
+
+        match result {
+            Ok(result) => match result {
+                ScalarExpr::WildCard => {}, //should pass
+                _ => panic!(),
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_scalar_wildcard_with_collection() {
+        let text = "collection.*";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ScalarExpr::parse(&mut parser, true);
+
+        match result {
+            Ok(result) => match result {
+                ScalarExpr::WildCardWithCollection(collection) => assert_eq!(collection, "collection"),
+                _ => panic!(),
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_scalar_wildcard_not_allowed() {
+        let text = "*";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ScalarExpr::parse(&mut parser, false);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "*");
+                assert_eq!(err.start, 0);
+                assert_eq!(err.end, 1);
+            },
+        }
+    }
+
+    #[test]
+    pub fn test_scalar_wildcard_with_collection_not_allowed() {
+        let text = "collection.*";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ScalarExpr::parse(&mut parser, false);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "*");
+                assert_eq!(err.start, 11);
+                assert_eq!(err.end, 12);
+            },
+        }
+    }
 }

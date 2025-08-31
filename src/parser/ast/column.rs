@@ -50,7 +50,7 @@ impl Column {
                 parser.next();
             } else if parser.current() == '(' {
                 name = text.clone();
-                args = Some(ArgsParser::parse(parser)?);
+                args = Some(ArgsParser::parse(parser, allow_wildcard)?);
                 parser.next();
             } else if current == '*' {
                 is_wildcard = true;

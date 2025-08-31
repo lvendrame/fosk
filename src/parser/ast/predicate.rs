@@ -18,9 +18,9 @@ impl Predicate {
         parser.comparers.on.compare(parser)
     }
 
-    pub fn parse_single(parser: &mut QueryParser) -> Result<Self, ParseError> {
+    pub fn parse_single(parser: &mut QueryParser, allow_wildcard: bool) -> Result<Self, ParseError> {
 
-        let left = ScalarExpr::parse(parser, false)?;
+        let left = ScalarExpr::parse(parser, allow_wildcard)?;
 
         parser.next_non_whitespace();
 
@@ -46,13 +46,13 @@ impl Predicate {
 
         if parser.comparers.r#in.compare(parser) {
             parser.jump(parser.comparers.r#in.length);
-            let args = ArgsParser::parse(parser)?;
+            let args = ArgsParser::parse(parser, allow_wildcard)?;
             return Ok(Self::InList { expr: left, list: args, negated: false });
         }
 
         if parser.comparers.not_in.compare(parser) {
             parser.jump(parser.comparers.not_in.length);
-            let args = ArgsParser::parse(parser)?;
+            let args = ArgsParser::parse(parser, allow_wildcard)?;
             return Ok(Self::InList { expr: left, list: args, negated: true });
         }
 
@@ -75,13 +75,13 @@ impl Predicate {
         ParseError::new("Invalid predicate", pivot, parser).err()
     }
 
-    pub fn parse_all(parser: &mut QueryParser, depth: i8) -> Result<Self, ParseError> {
+    pub fn parse_all(parser: &mut QueryParser, allow_wildcard: bool, depth: i8) -> Result<Self, ParseError> {
         let mut pivot = parser.position;
         let mut predicates: Vec<Predicate> = vec![];
         let mut and = false;
         let mut or = false;
         while (!parser.check_next_phase()) && (depth == 0 || parser.current() != ')')   {
-            predicates.push(Self::parse_single(parser)?);
+            predicates.push(Self::parse_single(parser, allow_wildcard)?);
             parser.next_non_whitespace();
 
             if parser.comparers.and.compare(parser) {
@@ -98,7 +98,7 @@ impl Predicate {
 
             if parser.current() == '(' {
                 parser.next();
-                predicates.push(Self::parse_all(parser, depth + 1)?);
+                predicates.push(Self::parse_all(parser, allow_wildcard, depth + 1)?);
                 parser.next();
             }
 
@@ -130,8 +130,8 @@ impl Predicate {
         ParseError::new("Invalid predicate", pivot, parser).err()
     }
 
-    pub fn parse(parser: &mut QueryParser) -> Result<Self, ParseError> {
-        Self::parse_all(parser, 0)
+    pub fn parse(parser: &mut QueryParser, allow_wildcard: bool) -> Result<Self, ParseError> {
+        Self::parse_all(parser, allow_wildcard, 0)
     }
 }
 
@@ -145,7 +145,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::Eq),
@@ -159,7 +159,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::NotEq),
@@ -173,7 +173,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::NotEq),
@@ -187,7 +187,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::Lt),
@@ -201,7 +201,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::LtEq),
@@ -215,7 +215,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::Gt),
@@ -229,7 +229,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::GtEq),
@@ -243,7 +243,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::IsNull { expr: _, negated } => assert!(!negated),
@@ -257,7 +257,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::IsNull { expr: _, negated } => assert!(negated),
@@ -271,7 +271,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::InList { expr: _, list, negated } => {
@@ -288,7 +288,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::InList { expr: _, list, negated } => {
@@ -305,7 +305,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::Like { expr: _, pattern: _, negated } => assert!(!negated),
@@ -319,7 +319,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::Like { expr: _, pattern: _, negated } => assert!(!negated),
@@ -333,7 +333,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser);
+        let result = Predicate::parse_single(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -351,7 +351,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser);
+        let result = Predicate::parse_single(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -369,7 +369,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::And(predicates) => assert_eq!(predicates.len(), 2),
@@ -383,7 +383,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse(&mut parser).expect("Failed to parse predicate");
+        let result = Predicate::parse(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::And(predicates) => assert_eq!(predicates.len(), 2),
@@ -397,7 +397,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse(&mut parser);
+        let result = Predicate::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -415,7 +415,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse(&mut parser);
+        let result = Predicate::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -433,7 +433,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse(&mut parser);
+        let result = Predicate::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -451,7 +451,7 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse(&mut parser);
+        let result = Predicate::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),

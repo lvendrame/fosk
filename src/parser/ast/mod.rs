@@ -42,3 +42,9 @@ pub use where_parser::*;
 
 pub mod order_by;
 pub use order_by::*;
+
+pub mod group_by;
+pub use group_by::*;
+
+pub mod having_parser;
+pub use having_parser::*;
