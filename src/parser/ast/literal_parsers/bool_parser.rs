@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::Literal, ParseError, QueryParser};
+use crate::parser::{ast::Literal, ParseError, QueryParser};
 
 pub struct BoolParser;
 
@@ -24,7 +24,7 @@ impl BoolParser {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::clean_one::{BoolParser, Literal}, QueryParser};
+    use crate::parser::{ast::{BoolParser, Literal}, QueryParser};
 
     #[test]
     pub fn test_bool_parser_true() {

@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::Collection, ParseError, Phase, QueryParser};
+use crate::parser::{ast::Collection, ParseError, Phase, QueryParser};
 
 pub struct CollectionsParser;
 
@@ -45,7 +45,7 @@ impl CollectionsParser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::clean_one::{CollectionsParser}, Phase, QueryParser};
+    use crate::parser::{ast::{CollectionsParser}, Phase, QueryParser};
 
     #[test]
     pub fn test_collections() {

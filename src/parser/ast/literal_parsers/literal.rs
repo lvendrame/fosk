@@ -1,4 +1,4 @@
-use crate::parser::ast::clean_one::Column;
+use crate::parser::ast::Column;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {

@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::Identifier, ParseError, Phase, QueryParser, WordComparer};
+use crate::parser::{ast::Identifier, ParseError, Phase, QueryParser, WordComparer};
 
 pub struct ProjectionParser;
 
@@ -58,7 +58,7 @@ impl ProjectionParser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::clean_one::ProjectionParser, QueryParser};
+    use crate::parser::{ast::ProjectionParser, QueryParser};
 
     #[test]
     pub fn test_projection() {

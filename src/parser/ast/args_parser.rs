@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::{ScalarExpr}, ParseError, QueryParser};
+use crate::parser::{ast::{ScalarExpr}, ParseError, QueryParser};
 
 pub struct ArgsParser;
 
@@ -50,7 +50,7 @@ impl ArgsParser {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::clean_one::ArgsParser, QueryParser};
+    use crate::parser::{ast::ArgsParser, QueryParser};
 
     #[test]
     pub fn test_args_empty() {

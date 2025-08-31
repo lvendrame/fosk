@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::{ArgsParser, Function, ScalarExpr, TextCollector}, ParseError, QueryParser, WordComparer};
+use crate::parser::{ast::{ArgsParser, Function, ScalarExpr, TextCollector}, ParseError, QueryParser, WordComparer};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Column {
@@ -38,7 +38,7 @@ impl Column {
                 return Err(ParseError::new("Invalid wildcard", pivot, parser));
             }
 
-            text = TextCollector::collect_with_stopper(parser, &|current| current == '*')?;
+            text = TextCollector::collect_with_stopper(parser, |current| current == '*')?;
 
             let current = parser.current();
             if current == '.' {
@@ -56,10 +56,6 @@ impl Column {
                 is_wildcard = true;
                 parser.next();
             }
-            //  else if !current.is_ascii_alphanumeric() && current != '_' {
-            //     return Err(ParseError::new("Invalid column", pivot, parser));
-            // }
-            //
         }
 
         if is_wildcard && !allow_wildcard {
@@ -93,7 +89,7 @@ impl Column {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::clean_one::{Column, ScalarExpr}, QueryParser};
+    use crate::parser::{ast::{Column, ScalarExpr}, QueryParser};
 
     #[test]
     pub fn test_column_name() {

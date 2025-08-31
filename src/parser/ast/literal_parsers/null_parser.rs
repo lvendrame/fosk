@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::Literal, ParseError, QueryComparers, QueryParser};
+use crate::parser::{ast::Literal, ParseError, QueryComparers, QueryParser};
 
 pub struct NullParser;
 
@@ -19,7 +19,7 @@ impl NullParser {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::clean_one::{NullParser, Literal}, QueryParser};
+    use crate::parser::{ast::{NullParser, Literal}, QueryParser};
 
     #[test]
     pub fn test_null_parser() {

@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::{ScalarExpr, TextCollector}, ParseError, QueryParser};
+use crate::parser::{ast::{ScalarExpr, TextCollector}, ParseError, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct  Identifier {
@@ -47,7 +47,7 @@ impl Identifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::clean_one::{Column, Identifier, ScalarExpr}, QueryParser};
+    use crate::parser::{ast::{Column, Identifier, ScalarExpr}, QueryParser};
 
     #[test]
     pub fn test_identifier() {

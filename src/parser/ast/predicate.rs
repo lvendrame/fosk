@@ -1,4 +1,4 @@
-use crate::parser::{ast::clean_one::{ArgsParser, ComparatorOp, ScalarExpr}, ParseError, QueryParser};
+use crate::parser::{ast::{ArgsParser, ComparatorOp, ScalarExpr}, ParseError, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Predicate {
@@ -137,7 +137,7 @@ impl Predicate {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::clean_one::{ComparatorOp, Predicate}, QueryParser};
+    use crate::parser::{ast::{ComparatorOp, Predicate}, QueryParser};
 
     #[test]
     pub fn test_predicate_single_equal() {

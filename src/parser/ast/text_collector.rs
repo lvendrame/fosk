@@ -28,7 +28,7 @@ impl TextCollector {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::clean_one::TextCollector, QueryParser};
+    use crate::parser::{ast::TextCollector, QueryParser};
 
     #[test]
     pub fn test_text_collector_collect() {
