@@ -1,4 +1,4 @@
-use crate::parser::{ParseError, Predicate, QueryParser};
+use crate::parser::{ast::Predicate, ParseError, QueryParser};
 
 pub struct HavingParser;
 
@@ -15,7 +15,7 @@ impl HavingParser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ComparatorOp, Phase, Predicate, QueryParser, HavingParser};
+    use crate::parser::{ast::{ComparatorOp, HavingParser, Predicate}, Phase, QueryParser};
 
     #[test]
     pub fn test_having() {

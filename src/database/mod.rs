@@ -13,3 +13,5 @@ pub use db_collection::*;
 pub mod db;
 pub use db::*;
 
+pub mod schema;
+pub use schema::*;

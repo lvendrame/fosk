@@ -11,6 +11,8 @@ pub enum Predicate {
     IsNull  { expr: ScalarExpr, negated: bool },
     InList  { expr: ScalarExpr, list: Vec<ScalarExpr>, negated: bool },
     Like    { expr: ScalarExpr, pattern: ScalarExpr, negated: bool },
+
+    Const(bool),
 }
 
 impl Predicate {

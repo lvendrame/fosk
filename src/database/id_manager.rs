@@ -12,12 +12,10 @@ pub enum IdValue {
 
 impl Display for IdValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let id = match self {
-            IdValue::Int(id) => id.to_string(),
-            IdValue::Uuid(uuid) => uuid.clone(),
-        };
-
-        f.write_str(&id)
+        match self {
+            IdValue::Uuid(uuid) => f.write_str(uuid),
+            IdValue::Int(id) => write!(f, "{id}"),
+        }
     }
 }
 

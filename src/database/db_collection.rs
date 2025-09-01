@@ -1,7 +1,7 @@
 use std::{collections::HashMap, ffi::OsString, fs, sync::{Arc, RwLock}};
 use serde_json::Value;
 
-use crate::{Config, IdManager, IdType, IdValue};
+use crate::database::{Config, IdManager, IdType, IdValue, SchemaDict};
 
 pub type MemoryCollection = Arc<RwLock<InternalMemoryCollection>>;
 
@@ -9,7 +9,8 @@ pub struct InternalMemoryCollection {
     collection: HashMap<String, Value>,
     id_manager: IdManager,
     config: Config,
-    name: String,
+    pub name: String,
+    pub schema: Option<SchemaDict>,
 }
 
 impl InternalMemoryCollection {
@@ -21,11 +22,26 @@ impl InternalMemoryCollection {
             id_manager,
             config,
             name: name.to_string(),
+            schema: None,
         }
     }
 
     pub fn into_protected(self) -> MemoryCollection {
         Arc::new(RwLock::new(self))
+    }
+
+    pub fn schema(&self) -> Option<&SchemaDict> {
+        self.schema.as_ref()
+    }
+
+    pub fn ensure_update_schema_for_item(&mut self, item: &Value) {
+        if let Value::Object(map) = item {
+            if self.schema.is_none() {
+                self.schema = Some(SchemaDict::infer_schema_from_object(map));
+            } else if let Some(schema) = &mut self.schema {
+                schema.merge_schema(map);
+            }
+        }
     }
 
     fn merge_json_values(mut base: Value, update: Value) -> Value {
@@ -51,6 +67,8 @@ impl InternalMemoryCollection {
 }
 
 pub trait DbCollection {
+    fn schema(&self) -> Option<SchemaDict>;
+
     fn new_coll(name: &str, config: Config) -> Self;
 
     fn get_all(&self) -> Vec<Value>;
@@ -58,12 +76,6 @@ pub trait DbCollection {
     fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value>;
 
     fn get(&self, id: &str) -> Option<Value>;
-
-    // fn get_from_criteria(&self, criteria: &Criteria) -> Vec<Value>;
-
-    // fn get_from_where(&self, where_statement: &str) -> Vec<Value>;
-
-    // fn get_from_constraint(&self, criteria: &Constraint) -> Vec<Value>;
 
     fn exists(&self, id: &str) -> bool;
 
@@ -107,35 +119,6 @@ impl DbCollection for InternalMemoryCollection {
         self.collection.get(id).cloned()
     }
 
-    // fn get_from_constraint(&self, constraint: &Constraint) -> Vec<Value> {
-    //     self.collection.values().filter(|&item| {
-    //             match item {
-    //                 Value::Object(map) => constraint.compare_item(map),
-    //                 _ => false
-    //             }
-    //         }).cloned()
-    //         .collect::<Vec<Value>>()
-    // }
-
-    // fn get_from_criteria(&self, criteria: &Criteria) -> Vec<Value> {
-    //     self.collection.values().filter(|&item| {
-    //             match item {
-    //                 Value::Object(map) => criteria.compare_item(map),
-    //                 _ => false
-    //             }
-    //         }).cloned()
-    //         .collect::<Vec<Value>>()
-    // }
-
-    // fn get_from_where(&self, where_statement: &str) -> Vec<Value> {
-    //     let criteria = CriteriaBuilder::start(where_statement);
-    //     if criteria.is_err() {
-    //         return vec![];
-    //     }
-
-    //     self.get_from_criteria(criteria.unwrap().as_ref())
-    // }
-
     fn exists(&self, id: &str) -> bool {
         self.collection.contains_key(id)
     }
@@ -168,6 +151,8 @@ impl DbCollection for InternalMemoryCollection {
         };
 
         if let Some(id_string) = id_string {
+            self.ensure_update_schema_for_item(&item);
+
             self.collection.insert(id_string, item.clone());
 
             return Some(item);
@@ -183,6 +168,8 @@ impl DbCollection for InternalMemoryCollection {
             let mut max_id = None;
             for item in items_array {
                 if let Value::Object(ref item_map) = item {
+                    self.ensure_update_schema_for_item(&item);
+
                     let id = item_map.get(&self.config.id_key);
                     let id = match self.id_manager.id_type {
                         IdType::Uuid => match id {
@@ -241,6 +228,7 @@ impl DbCollection for InternalMemoryCollection {
         }
 
         if self.collection.contains_key(id) {
+            self.ensure_update_schema_for_item(&item);
             self.collection.insert(id.to_string(), item.clone());
             Some(item)
         } else {
@@ -258,6 +246,8 @@ impl DbCollection for InternalMemoryCollection {
             if let Value::Object(ref mut map) = final_item {
                 map.insert(self.config.id_key.clone(), Value::String(id.to_string()));
             }
+
+            self.ensure_update_schema_for_item(&final_item);
 
             // Update the item in the database
             self.collection.insert(id.to_string(), final_item.clone());
@@ -304,6 +294,10 @@ impl DbCollection for InternalMemoryCollection {
             Err(error) => Err(format!("Error to process the file {}. Details: {}", file_path_lossy, error)),
         }
     }
+
+    fn schema(&self) -> Option<SchemaDict> {
+        self.schema().cloned()
+    }
 }
 
 impl DbCollection for MemoryCollection {
@@ -322,18 +316,6 @@ impl DbCollection for MemoryCollection {
     fn get(&self, id: &str) -> Option<Value> {
         self.read().unwrap().get(id)
     }
-
-    // fn get_from_constraint(&self, constraint: &Constraint) -> Vec<Value> {
-    //     self.read().unwrap().get_from_constraint(constraint)
-    // }
-
-    // fn get_from_criteria(&self, criteria: &Criteria) -> Vec<Value> {
-    //     self.read().unwrap().get_from_criteria(criteria)
-    // }
-
-    // fn get_from_where(&self, where_statement: &str) -> Vec<Value> {
-    //     self.read().unwrap().get_from_where(where_statement)
-    // }
 
     fn exists(&self, id: &str) -> bool {
         self.read().unwrap().exists(id)
@@ -374,74 +356,16 @@ impl DbCollection for MemoryCollection {
     fn load_from_file(&mut self, file_path: &OsString) -> Result<String, String> {
         self.write().unwrap().load_from_file(file_path)
     }
+
+    fn schema(&self) -> Option<SchemaDict> {
+        self.read().ok().and_then(|g| g.schema().cloned())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-    // use crate::memory_db::constraint::Comparer;
-
-    // #[test]
-    // fn test_get_from_criteria_and_or_parentheses() {
-    //     let mut collection = create_test_collection();
-    //     collection.add(json!({"name": "Alice", "age": 25, "city": "NY"}));
-    //     collection.add(json!({"name": "Bob", "age": 30, "city": "Boston"}));
-    //     collection.add(json!({"name": "Charlie", "age": 25, "city": "Boston"}));
-    //     collection.add(json!({"name": "David", "age": 35, "city": "NY"}));
-
-    //     // WHERE age = 25 AND city = "NY"
-    //     let criteria = crate::memory_db::CriteriaBuilder::build("age = 25 AND city = \"NY\"").unwrap();
-    //     let results = collection.get_from_criteria(criteria.as_ref());
-    //     assert_eq!(results.len(), 1);
-    //     assert_eq!(results[0].get("name").unwrap(), "Alice");
-
-    //     // WHERE age = 25 OR city = "Boston"
-    //     let criteria = crate::memory_db::CriteriaBuilder::build("age = 25 OR city = \"Boston\"").unwrap();
-    //     let results = collection.get_from_criteria(criteria.as_ref());
-    //     assert_eq!(results.len(), 3);
-    //     let names: Vec<&str> = results.iter().map(|r| r.get("name").unwrap().as_str().unwrap()).collect();
-    //     assert!(names.contains(&"Alice"));
-    //     assert!(names.contains(&"Bob"));
-    //     assert!(names.contains(&"Charlie"));
-
-    //     // WHERE age = 25 AND (city = "NY" OR city = "Boston")
-    //     let criteria = crate::memory_db::CriteriaBuilder::build("age = 25 AND (city = \"NY\" OR city = \"Boston\")").unwrap();
-    //     let results = collection.get_from_criteria(criteria.as_ref());
-    //     assert_eq!(results.len(), 2);
-    //     let names: Vec<&str> = results.iter().map(|r| r.get("name").unwrap().as_str().unwrap()).collect();
-    //     assert!(names.contains(&"Alice"));
-    //     assert!(names.contains(&"Charlie"));
-    // }
-
-    // #[test]
-    // fn test_get_from_where_and_or_parentheses() {
-    //     let mut collection = create_test_collection();
-    //     collection.add(json!({"name": "Alice", "age": 25, "city": "NY"}));
-    //     collection.add(json!({"name": "Bob", "age": 30, "city": "Boston"}));
-    //     collection.add(json!({"name": "Charlie", "age": 25, "city": "Boston"}));
-    //     collection.add(json!({"name": "David", "age": 35, "city": "NY"}));
-
-    //     // WHERE age = 25 AND city = "NY"
-    //     let results = collection.get_from_where("WHERE age <= 25 AND city = \"NY\"");
-    //     assert_eq!(results.len(), 1);
-    //     assert_eq!(results[0].get("name").unwrap(), "Alice");
-
-    //     // WHERE age = 25 OR city = "Boston"
-    //     let results = collection.get_from_where("WHERE age = 25 OR city = \"Boston\"");
-    //     assert_eq!(results.len(), 3);
-    //     let names: Vec<&str> = results.iter().map(|r| r.get("name").unwrap().as_str().unwrap()).collect();
-    //     assert!(names.contains(&"Alice"));
-    //     assert!(names.contains(&"Bob"));
-    //     assert!(names.contains(&"Charlie"));
-
-    //     // WHERE age = 25 AND (city = "NY" OR city = "Boston")
-    //     let results = collection.get_from_where("WHERE age = 25 AND (city = \"NY\" OR city = \"Boston\")");
-    //     assert_eq!(results.len(), 2);
-    //     let names: Vec<&str> = results.iter().map(|r| r.get("name").unwrap().as_str().unwrap()).collect();
-    //     assert!(names.contains(&"Alice"));
-    //     assert!(names.contains(&"Charlie"));
-    // }
 
     fn create_test_collection() -> InternalMemoryCollection {
         InternalMemoryCollection::new("test_collection", Config::int("id"))

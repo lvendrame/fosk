@@ -1,4 +1,4 @@
-use crate::parser::{Column, ParseError, QueryParser, ScalarExpr};
+use crate::parser::{ast::{Column, ScalarExpr}, ParseError, QueryParser};
 
 pub struct GroupBy;
 
@@ -39,7 +39,7 @@ impl GroupBy {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{Column, GroupBy, QueryParser};
+    use crate::parser::{ast::{Column, GroupBy}, QueryParser};
 
     #[test]
     pub fn test_group_by() {

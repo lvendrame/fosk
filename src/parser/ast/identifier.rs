@@ -2,8 +2,8 @@ use crate::parser::{ast::{ScalarExpr, TextCollector}, ParseError, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct  Identifier {
-    expression: ScalarExpr,
-    alias: Option<String>,
+    pub expression: ScalarExpr,
+    pub alias: Option<String>,
 }
 
 impl Identifier {

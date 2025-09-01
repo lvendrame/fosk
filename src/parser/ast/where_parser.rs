@@ -1,4 +1,4 @@
-use crate::parser::{ParseError, Predicate, QueryParser};
+use crate::parser::{ast::Predicate, ParseError, QueryParser};
 
 pub struct WhereParser;
 
@@ -15,7 +15,7 @@ impl WhereParser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ComparatorOp, Phase, Predicate, QueryParser, WhereParser};
+    use crate::parser::{ast::{ComparatorOp, Predicate, WhereParser}, Phase, QueryParser};
 
     #[test]
     pub fn test_where() {

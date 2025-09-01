@@ -1,4 +1,4 @@
-use crate::parser::{ParseError, Phase, QueryParser, ScalarExpr};
+use crate::parser::{ast::ScalarExpr, ParseError, Phase, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct OrderBy {
@@ -61,7 +61,7 @@ impl OrderBy {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{Column, OrderBy, QueryParser, ScalarExpr};
+    use crate::parser::{ast::{Column, OrderBy, ScalarExpr}, QueryParser};
 
     #[test]
     pub fn test_order_by_single() {

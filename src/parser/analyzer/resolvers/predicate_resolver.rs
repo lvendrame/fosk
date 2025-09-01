@@ -1,0 +1,139 @@
+use crate::parser::{analyzer::{AnalysisContext, AnalyzerError, LiteralResolver, ScalarResolver}, ast::{Literal, Predicate, ScalarExpr}};
+
+pub struct  PredicateResolver;
+
+impl PredicateResolver {
+
+    pub fn fold_predicate(pred: &Predicate) -> Predicate {
+        match pred {
+            Predicate::And(list) => {
+                let mut out = Vec::with_capacity(list.len());
+                for p in list {
+                    match Self::fold_predicate(p) {
+                        Predicate::Const(true) => {},           // skip true
+                        Predicate::Const(false) => return Predicate::Const(false), // short-circuit
+                        other => out.push(other),
+                    }
+                }
+                if out.is_empty() { Predicate::Const(true) } else { Predicate::And(out) }
+            }
+            Predicate::Or(list) => {
+                let mut out = Vec::with_capacity(list.len());
+                for p in list {
+                    match Self::fold_predicate(p) {
+                        Predicate::Const(false) => {},          // skip false
+                        Predicate::Const(true) => return Predicate::Const(true),  // short-circuit
+                        other => out.push(other),
+                    }
+                }
+                if out.is_empty() { Predicate::Const(false) } else { Predicate::Or(out) }
+            }
+
+            Predicate::Compare { left, op, right } => {
+                let l = ScalarResolver::fold_scalar(left);
+                let r = ScalarResolver::fold_scalar(right);
+                if let (Some(ll), Some(rr)) = (ScalarResolver::scalar_literal(&l), ScalarResolver::scalar_literal(&r)) {
+                    let res = LiteralResolver::eval_compare(&ll, *op, &rr);
+                    Predicate::Const(res)
+                } else {
+                    Predicate::Compare { left: l, op: *op, right: r }
+                }
+            }
+
+            Predicate::IsNull { expr, negated } => {
+                let e = ScalarResolver::fold_scalar(expr);
+                if let Some(ll) = ScalarResolver::scalar_literal(&e) {
+                    let is_null = matches!(ll, Literal::Null);
+                    let v = if *negated { !is_null } else { is_null };
+                    Predicate::Const(v)
+                } else {
+                    Predicate::IsNull { expr: e, negated: *negated }
+                }
+            }
+
+            Predicate::InList { expr, list, negated } => {
+                let e = ScalarResolver::fold_scalar(expr);
+                let folded_list: Vec<_> = list.iter().map(ScalarResolver::fold_scalar).collect();
+                if let (Some(el), true) = (ScalarResolver::scalar_literal(&e), folded_list.iter().all(|x| ScalarResolver::scalar_literal(x).is_some())) {
+                    let set: Vec<Literal> = folded_list.into_iter().map(|x| ScalarResolver::scalar_literal(&x).unwrap()).collect();
+                    let contains = set.iter().any(|v| LiteralResolver::literal_equal(v, &el));
+                    Predicate::Const(if *negated { !contains } else { contains })
+                } else {
+                    Predicate::InList { expr: e, list: folded_list, negated: *negated }
+                }
+            }
+
+            Predicate::Like { expr, pattern, negated } => {
+                let e = ScalarResolver::fold_scalar(expr);
+                let p = ScalarResolver::fold_scalar(pattern);
+                if let (Some(Literal::String(s)), Some(Literal::String(pat))) = (ScalarResolver::scalar_literal(&e), ScalarResolver::scalar_literal(&p)) {
+                    let ok = LiteralResolver::eval_like(&s, &pat);
+                    Predicate::Const(if *negated { !ok } else { ok })
+                } else {
+                    Predicate::Like { expr: e, pattern: p, negated: *negated }
+                }
+            }
+
+            Predicate::Const(v) => Predicate::Const(*v),
+        }
+    }
+
+    pub fn qualify_predicate(predicate: &Predicate, ctx: &AnalysisContext) -> Result<Predicate, AnalyzerError> {
+        Ok(match predicate {
+            Predicate::And(v) => Predicate::And(v.iter().map(|x| Self::qualify_predicate(x, ctx)).collect::<Result<Vec<_>,_>>()?),
+            Predicate::Or(v)  => Predicate::Or(v.iter().map(|x| Self::qualify_predicate(x, ctx)).collect::<Result<Vec<_>,_>>()?),
+            Predicate::Compare { left, op, right } => {
+                        Predicate::Compare { left: ScalarResolver::qualify_scalar(left, ctx)?, op: *op, right: ScalarResolver::qualify_scalar(right, ctx)? }
+                    },
+            Predicate::IsNull { expr, negated } => {
+                        Predicate::IsNull { expr: ScalarResolver::qualify_scalar(expr, ctx)?, negated: *negated }
+                    },
+            Predicate::InList { expr, list, negated } => {
+                        Predicate::InList { expr: ScalarResolver::qualify_scalar(expr, ctx)?, list: list.iter().map(|x| ScalarResolver::qualify_scalar(x, ctx)).collect::<Result<Vec<_>,_>>()?, negated: *negated }
+                    },
+            Predicate::Like { expr, pattern, negated } => {
+                        Predicate::Like { expr: ScalarResolver::qualify_scalar(expr, ctx)?, pattern: ScalarResolver::qualify_scalar(pattern, ctx)?, negated: *negated }
+                    },
+            Predicate::Const(value) => Predicate::Const(*value),
+        })
+    }
+
+}
+
+
+#[cfg(test)]
+mod test {
+    use crate::parser::{analyzer::PredicateResolver, ast::{
+        Literal::*, Predicate, ScalarExpr::*
+    }};
+
+    #[test]
+    fn fold_is_null_and_not_null() {
+        // IS NULL
+        let p = Predicate::IsNull { expr: Literal(Null), negated: false };
+        assert_eq!(PredicateResolver::fold_predicate(&p), Predicate::Const(true));
+        // IS NOT NULL
+        let p = Predicate::IsNull { expr: Literal(String("x".into())), negated: true };
+        assert_eq!(PredicateResolver::fold_predicate(&p), Predicate::Const(true));
+    }
+
+    #[test]
+    fn fold_in_and_not_in() {
+        // 5 IN (1,5,7) -> true
+        let p = Predicate::InList { expr: Literal(Int(5)), list: vec![Literal(Int(1)), Literal(Int(5)), Literal(Int(7))], negated: false };
+        assert_eq!(PredicateResolver::fold_predicate(&p), Predicate::Const(true));
+        // 5 NOT IN (1,5,7) -> false
+        let p = Predicate::InList { expr: Literal(Int(5)), list: vec![Literal(Int(1)), Literal(Int(5)), Literal(Int(7))], negated: true };
+        assert_eq!(PredicateResolver::fold_predicate(&p), Predicate::Const(false));
+    }
+
+    #[test]
+    fn fold_like_and_not_like() {
+        // 'hello' LIKE 'he%%' -> true
+        let p = Predicate::Like { expr: Literal(String("hello".into())), pattern: Literal(String("he%%".into())), negated: false };
+        assert_eq!(PredicateResolver::fold_predicate(&p), Predicate::Const(true));
+        // NOT LIKE
+        let p = Predicate::Like { expr: Literal(String("hello".into())), pattern: Literal(String("x%".into())), negated: true };
+        assert_eq!(PredicateResolver::fold_predicate(&p), Predicate::Const(true));
+    }
+}

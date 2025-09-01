@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::{Arc, RwLock}};
 
-use crate::{Config, DbCollection, MemoryCollection};
+use crate::database::{Config, DbCollection, MemoryCollection, SchemaProvider};
 
 pub type Db = Arc<RwLock<InternalDb>>;
 
@@ -84,5 +84,13 @@ impl DbCommon for Db {
 
     fn list_collections(&self) -> Vec<String> {
         self.read().unwrap().list_collections()
+    }
+}
+
+impl SchemaProvider for Db {
+    fn schema_of(&self, collection_ref: &str) -> Option<super::SchemaDict> {
+        let guard = self.read().ok()?;
+        let coll = guard.get(collection_ref)?;
+        coll.read().ok()?.schema().cloned()
     }
 }

@@ -7,7 +7,7 @@
 // HAVING COUNT(*) > 3
 // ORDER BY b.description DESC V
 
-use crate::parser::{Collection, CollectionsParser, Column, GroupBy, HavingParser, Identifier, Join, OrderBy, ParseError, Phase, Predicate, ProjectionParser, QueryParser, WhereParser};
+use crate::parser::{ast::{Collection, CollectionsParser, Column, GroupBy, HavingParser, Identifier, Join, OrderBy, Predicate, ProjectionParser, WhereParser}, ParseError, Phase, QueryParser};
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Query {
@@ -54,7 +54,7 @@ impl TryFrom<&str> for Query {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::Query;
+    use crate::parser::ast::Query;
 
     #[test]
     pub fn test_query() {
