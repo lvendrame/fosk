@@ -1,6 +1,6 @@
 use crate::parser::{ast::{ArgsParser, Function, ScalarExpr, TextCollector}, ParseError, QueryParser, WordComparer};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Column {
     Name { name: String },
     WithCollection { collection: String, name: String },

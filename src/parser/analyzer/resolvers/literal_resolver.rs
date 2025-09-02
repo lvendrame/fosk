@@ -15,9 +15,9 @@ impl LiteralResolver {
             (Literal::Null, Literal::Null) => true,
             (Literal::Bool(x), Literal::Bool(y)) => x == y,
             (Literal::Int(x),  Literal::Int(y))  => x == y,
-            (Literal::Float(x), Literal::Float(y)) => Self::float_eq(*x, *y),
-            (Literal::Int(x),  Literal::Float(y)) => Self::float_eq(*x as f64, *y),
-            (Literal::Float(x), Literal::Int(y))  => Self::float_eq(*x, *y as f64),
+            (Literal::Float(x), Literal::Float(y)) => Self::float_eq(x.into_inner(), y.into_inner()),
+            (Literal::Int(x),  Literal::Float(y)) => Self::float_eq(*x as f64, y.into_inner()),
+            (Literal::Float(x), Literal::Int(y))  => Self::float_eq(x.into_inner(), *y as f64),
             (Literal::String(x), Literal::String(y)) => x == y,
             _ => false,
         }
@@ -48,9 +48,9 @@ impl LiteralResolver {
             // exact integer/same-signed
             (Literal::Int(a),  Literal::Int(b))  => num_cmp(*a as f64, *b as f64),
             // floats
-            (Literal::Float(a), Literal::Float(b)) => num_cmp(*a, *b),
-            (Literal::Int(a),   Literal::Float(b)) => num_cmp(*a as f64, *b),
-            (Literal::Float(a), Literal::Int(b))   => num_cmp(*a, *b as f64),
+            (Literal::Float(a), Literal::Float(b)) => num_cmp(a.into_inner(), b.into_inner()),
+            (Literal::Int(a),   Literal::Float(b)) => num_cmp(*a as f64, b.into_inner()),
+            (Literal::Float(a), Literal::Int(b))   => num_cmp(a.into_inner(), *b as f64),
             (Literal::String(a), Literal::String(b)) => match op {
                 ComparatorOp::Eq    => if a == b { True } else { False },
                 ComparatorOp::NotEq => if a != b { True } else { False },
@@ -91,6 +91,8 @@ impl LiteralResolver {
 mod tests {
     use super::*;
 
+    fn lf(v: f64) -> Literal { Literal::Float(ordered_float::NotNan::new(v).unwrap()) }
+
     // --- float_eq -------------------------------------------------------------
 
     #[test]
@@ -114,13 +116,13 @@ mod tests {
         assert!(LiteralResolver::literal_equal(&Int(42), &Int(42)));
         assert!(!LiteralResolver::literal_equal(&Int(42), &Int(41)));
 
-        assert!(LiteralResolver::literal_equal(&Float(3.0), &Float(3.0 + 1e-12)));
-        assert!(!LiteralResolver::literal_equal(&Float(3.0), &Float(3.001)));
+    assert!(LiteralResolver::literal_equal(&lf(3.0), &lf(3.0 + 1e-12)));
+    assert!(!LiteralResolver::literal_equal(&lf(3.0), &lf(3.001)));
 
         // cross int/float numeric equality
-        assert!(LiteralResolver::literal_equal(&Int(3), &Float(3.0)));
-        assert!(LiteralResolver::literal_equal(&Float(5.0), &Int(5)));
-        assert!(!LiteralResolver::literal_equal(&Int(3), &Float(3.01)));
+    assert!(LiteralResolver::literal_equal(&Int(3), &lf(3.0)));
+    assert!(LiteralResolver::literal_equal(&lf(5.0), &Int(5)));
+    assert!(!LiteralResolver::literal_equal(&Int(3), &lf(3.01)));
 
         // strings
         assert!(LiteralResolver::literal_equal(&String("abc".into()), &String("abc".into())));
@@ -141,8 +143,8 @@ mod tests {
         use Truth::*;
 
         // equality with tolerance
-        assert_eq!(LiteralResolver::eval_compare3(&Float(1.0), Eq, &Float(1.0 + 1e-12)), True);
-        assert_eq!(LiteralResolver::eval_compare3(&Int(5), Eq, &Float(5.0)), True);
+    assert_eq!(LiteralResolver::eval_compare3(&lf(1.0), Eq, &lf(1.0 + 1e-12)), True);
+    assert_eq!(LiteralResolver::eval_compare3(&Int(5), Eq, &lf(5.0)), True);
 
         // inequalities int-int
         assert_eq!(LiteralResolver::eval_compare3(&Int(2), Lt, &Int(3)), True);
@@ -150,9 +152,9 @@ mod tests {
         assert_eq!(LiteralResolver::eval_compare3(&Int(3), LtEq, &Int(3)), True);
         assert_eq!(LiteralResolver::eval_compare3(&Int(3), GtEq, &Int(3)), True);
 
-        // inequalities int-float
-        assert_eq!(LiteralResolver::eval_compare3(&Int(2), Lt, &Float(2.000001)), True);
-        assert_eq!(LiteralResolver::eval_compare3(&Float(2.0), Gt, &Int(1)), True);
+    // inequalities int-float
+    assert_eq!(LiteralResolver::eval_compare3(&Int(2), Lt, &lf(2.000001)), True);
+    assert_eq!(LiteralResolver::eval_compare3(&lf(2.0), Gt, &Int(1)), True);
 
         // strings: only Eq/NotEq defined
         assert_eq!(LiteralResolver::eval_compare3(&String("a".into()), Eq, &String("a".into())), True);
@@ -184,13 +186,12 @@ mod tests {
     #[test]
     fn compare3_le_ge_with_tiny_delta() {
         use ComparatorOp::*;
-        use Literal::*;
         use Truth::*;
 
         // x <= y when x is just slightly above y within epsilon? Our impl treats
         // <= as (x <= y) OR float_eq(x,y). With x slightly below y, definitely True.
-        assert_eq!(LiteralResolver::eval_compare3(&Float(1.0), LtEq, &Float(1.0 + 1e-12)), True);
-        assert_eq!(LiteralResolver::eval_compare3(&Float(1.0 + 1e-12), GtEq, &Float(1.0)), True);
+        assert_eq!(LiteralResolver::eval_compare3(&lf(1.0), LtEq, &lf(1.0 + 1e-12)), True);
+        assert_eq!(LiteralResolver::eval_compare3(&lf(1.0 + 1e-12), GtEq, &lf(1.0)), True);
     }
 
     // --- eval_like ------------------------------------------------------------

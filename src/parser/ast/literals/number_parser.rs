@@ -29,7 +29,9 @@ impl NumberParser {
 
         let number = parser.text_from_pivot(pivot);
         let number = match is_float {
-            true => Literal::Float(number.parse::<f64>().map_err(|_| ParseError::new("Invalid number", pivot, parser))?),
+            true => Literal::Float(ordered_float::NotNan::new(
+                number.parse::<f64>().map_err(|_| ParseError::new("Invalid number", pivot, parser))?
+            ).map_err(|_| ParseError::new("Invalid number (NaN)", pivot, parser))?),
             false => Literal::Int(number.parse::<i64>().map_err(|_| ParseError::new("Invalid number", pivot, parser))?),
         };
 
@@ -102,7 +104,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                Literal::Float(value) => assert_eq!(value, 32.0),
+                Literal::Float(value) => assert_eq!(value.into_inner(), 32.0),
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -119,7 +121,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                Literal::Float(value) => assert_eq!(value, 32.5),
+                Literal::Float(value) => assert_eq!(value.into_inner(), 32.5),
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -136,7 +138,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                Literal::Float(value) => assert_eq!(value, 32.5),
+                Literal::Float(value) => assert_eq!(value.into_inner(), 32.5),
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -153,7 +155,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                Literal::Float(value) => assert_eq!(value, -32.5),
+                Literal::Float(value) => assert_eq!(value.into_inner(), -32.5),
                 _ => panic!(),
             },
             Err(_) => panic!(),

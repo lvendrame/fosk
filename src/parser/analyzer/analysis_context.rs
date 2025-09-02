@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use crate::{
     database::SchemaProvider,
     parser::{
-        aggregators_helper::AggregateRegistry, analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, OrderByResolver, PredicateResolver, ScalarResolver, TypeInference}, ast::{Collection, Query}
+        aggregators_helper::AggregateRegistry, analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, JoinResolver, OrderByResolver, PredicateResolver, ScalarResolver, TypeInference}, ast::{Collection, Query}
     }
 };
 
@@ -103,6 +103,8 @@ impl<'a> AnalysisContext<'a> {
             });
         }
 
+        let analyzed_joins = JoinResolver::qualify_and_fold_joins(query, &ctx)?;
+
         // qualify + fold predicates
         let criteria_qualified = match &query.criteria {
             Some(predicate) => Some(PredicateResolver::qualify_predicate(predicate, &ctx)?),
@@ -164,6 +166,7 @@ impl<'a> AnalysisContext<'a> {
         Ok(AnalyzedQuery {
             projection: analyzed_proj,
             collections: ctx.collections.iter().map(|(v, b)| (v.clone(), b.clone())).collect(),
+            joins: analyzed_joins,
             criteria,
             group_by,
             having,

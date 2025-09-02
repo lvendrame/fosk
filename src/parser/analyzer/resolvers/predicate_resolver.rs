@@ -182,7 +182,7 @@ mod tests {
 
     // ---------- helpers ----------
     fn lit_i(v: i64) -> ScalarExpr { ScalarExpr::Literal(Literal::Int(v)) }
-    fn lit_f(v: f64) -> ScalarExpr { ScalarExpr::Literal(Literal::Float(v)) }
+    fn lit_f(v: f64) -> ScalarExpr { ScalarExpr::Literal(Literal::Float(ordered_float::NotNan::new(v).unwrap())) }
     fn lit_s(v: &str) -> ScalarExpr { ScalarExpr::Literal(Literal::String(v.to_string())) }
     fn lit_b(v: bool) -> ScalarExpr { ScalarExpr::Literal(Literal::Bool(v)) }
     fn lit_n() -> ScalarExpr { ScalarExpr::Literal(Literal::Null) }

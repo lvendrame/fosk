@@ -1,6 +1,6 @@
 use crate::parser::{ast::{BoolParser, Column, Function, Literal, NullParser, NumberParser, StringParser}, ParseError, QueryParser};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScalarExpr {
     Literal(Literal),
     Column(Column),

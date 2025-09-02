@@ -1,6 +1,5 @@
 use crate::{
-    planner::aggregate_call::AggregateCall,
-    parser::ast::{Column, OrderBy}
+    parser::ast::{Column, JoinType, OrderBy, Predicate}, planner::aggregate_call::AggregateCall
 };
 
 #[derive(Debug, Clone)]
@@ -9,6 +8,13 @@ pub enum LogicalPlan {
     Scan {
         backing: String,   // backing collection (table) name
         visible: String,   // visible name (alias or table)
+    },
+
+    Join {
+        left: Box<LogicalPlan>,
+        right: Box<LogicalPlan>,
+        join_type: JoinType,
+        on: Predicate,                       // already qualified + folded
     },
 
     /// Row-level filter (WHERE or HAVING depending on position in the tree).

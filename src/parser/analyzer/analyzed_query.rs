@@ -1,9 +1,10 @@
-use crate::parser::{analyzer::AnalyzedIdentifier, ast::{Column, OrderBy, Predicate}};
+use crate::parser::{analyzer::AnalyzedIdentifier, ast::{Column, Join, OrderBy, Predicate}};
 
 #[derive(Debug, Clone)]
 pub struct AnalyzedQuery {
     pub projection: Vec<AnalyzedIdentifier>, // qualified + typed
     pub collections: Vec<(String /*visible*/, String /*backing*/ )>,
+    pub joins: Vec<Join>,
     pub criteria: Option<Predicate>,         // qualified + folded
     pub group_by: Vec<Column>,               // qualified
     pub having: Option<Predicate>,           // qualified + folded

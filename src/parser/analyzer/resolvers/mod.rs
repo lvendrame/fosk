@@ -4,6 +4,9 @@ pub use column_resolver::*;
 pub mod identifier_resolver;
 pub use identifier_resolver::*;
 
+pub mod join_resolver;
+pub use join_resolver::*;
+
 pub mod wildcard_resolver;
 pub use wildcard_resolver::*;
 
