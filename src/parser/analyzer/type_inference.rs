@@ -36,53 +36,8 @@ impl TypeInference {
         let lname = function.name.to_ascii_lowercase();
 
         // Aggregates
-        match lname.as_str() {
-            "count" => {
-                // COUNT(*) or COUNT(expr) or COUNT(DISTINCT expr) -> Int, non-nullable
-                return Ok((JsonPrimitive::Int, false));
-            }
-            "sum" => {
-                // SUM(arg) -> Int/Float, nullable
-                let (t, _n) = match function.args.first() {
-                    Some(arg) => TypeInference::infer_scalar(arg, ctx)?,
-                    None => return Err(AnalyzerError::FunctionArgMismatch {
-                        name: function.name.clone(), expected: "SUM(arg)".into(), got: vec![]
-                    }),
-                };
-                return Ok((match t {
-                    JsonPrimitive::Int   => JsonPrimitive::Int,
-                    JsonPrimitive::Float => JsonPrimitive::Float,
-                    _ => return Err(AnalyzerError::FunctionArgMismatch {
-                        name: function.name.clone(), expected: "numeric".into(), got: vec![t]
-                    }),
-                }, true));
-            }
-            "avg" => {
-                // AVG(arg) -> Float, nullable
-                let (t, _n) = match function.args.first() {
-                    Some(arg) => TypeInference::infer_scalar(arg, ctx)?,
-                    None => return Err(AnalyzerError::FunctionArgMismatch {
-                        name: function.name.clone(), expected: "AVG(arg)".into(), got: vec![]
-                    }),
-                };
-                return Ok((match t {
-                    JsonPrimitive::Int | JsonPrimitive::Float => JsonPrimitive::Float,
-                    _ => return Err(AnalyzerError::FunctionArgMismatch {
-                        name: function.name.clone(), expected: "numeric".into(), got: vec![t]
-                    }),
-                }, true));
-            }
-            "min" | "max" => {
-                // MIN/MAX(arg) -> same type, nullable
-                let (t, _n) = match function.args.first() {
-                    Some(arg) => TypeInference::infer_scalar(arg, ctx)?,
-                    None => return Err(AnalyzerError::FunctionArgMismatch {
-                        name: function.name.clone(), expected: "MIN/MAX(arg)".into(), got: vec![]
-                    }),
-                };
-                return Ok((t, true));
-            }
-            _ => { /* fall through to scalar functions */ }
+        if let Some(_imp) = ctx.aggregates.get(&lname) {
+            return ctx.aggregates.infer_type(function, ctx);
         }
 
         let mut arg_types = Vec::with_capacity(function.args.len());

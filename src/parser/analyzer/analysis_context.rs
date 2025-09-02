@@ -1,23 +1,37 @@
 use indexmap::IndexMap;
+use once_cell::sync::Lazy;
 
 use crate::{
     database::SchemaProvider,
     parser::{
-        analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, OrderByResolver, PredicateResolver, ScalarResolver, TypeInference},
-        ast::{Collection, Query}
+        aggregators_helper::AggregateRegistry, analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, OrderByResolver, PredicateResolver, ScalarResolver, TypeInference}, ast::{Collection, Query}
     }
 };
+
+// Use a single shared default registry, safely.
+static DEFAULT_REGISTRY: Lazy<AggregateRegistry> = Lazy::new(AggregateRegistry::default_aggregate_registry);
 
 pub struct AnalysisContext<'a> {
     /// map visible name -> underlying collection ref (alias or table)
     pub collections: IndexMap<String, String>,
     /// access to schemas
     pub schemas: &'a dyn SchemaProvider,
+    /// access to aggregate implementations
+    pub aggregates: &'a AggregateRegistry,
 }
 
 impl<'a> AnalysisContext<'a> {
+    pub fn new_with_aggregates(
+        schemas: &'a dyn SchemaProvider,
+        aggregates: &'a AggregateRegistry,
+    ) -> Self {
+        Self { collections: IndexMap::new(), schemas, aggregates }
+    }
+
+    /// Backward-compatible: uses the default registry.
     pub fn new(schemas: &'a dyn SchemaProvider) -> Self {
-        Self { collections: IndexMap::new(), schemas }
+        let reg: &AggregateRegistry = &DEFAULT_REGISTRY;
+        Self::new_with_aggregates(schemas, reg)
     }
 
     pub fn add_collection(&mut self, visible: impl Into<String>, backing: impl Into<String>) {
@@ -28,8 +42,12 @@ impl<'a> AnalysisContext<'a> {
         self.collections.insert(visible.into(), backing.into());
     }
 
-    pub fn build_context_from_query(q: &Query, sp: &'a dyn SchemaProvider) -> Result<Self, AnalyzerError> {
-        let mut ctx = Self::new(sp);
+    pub fn build_context_from_query(
+        q: &Query,
+        sp: &'a dyn SchemaProvider,
+        aggregates: &'a AggregateRegistry,
+    ) -> Result<Self, AnalyzerError> {
+        let mut ctx = Self::new_with_aggregates(sp, aggregates);
         for c in &q.collections {
             match c {
                 Collection::Table { name, alias } => {
@@ -58,8 +76,12 @@ impl<'a> AnalysisContext<'a> {
         Ok(ctx)
     }
 
-    pub fn analyze_query(query: &Query, schema_provider: &'a dyn SchemaProvider) -> Result<AnalyzedQuery, AnalyzerError> {
-        let ctx = Self::build_context_from_query(query, schema_provider)?;
+    pub fn analyze_query(
+        query: &Query,
+        schema_provider: &'a dyn SchemaProvider,
+        aggregates: &'a AggregateRegistry,
+    ) -> Result<AnalyzedQuery, AnalyzerError> {
+        let ctx = Self::build_context_from_query(query, schema_provider, aggregates)?;
 
         // expand wildcards in projection
         let expanded_proj = IdentifierResolver::expand_projection_idents(&query.projection, &ctx)?;
@@ -146,6 +168,8 @@ impl<'a> AnalysisContext<'a> {
             group_by,
             having,
             order_by,
+            limit: query.limit,
+            offset: query.offset,
         })
     }
 }
@@ -186,7 +210,7 @@ mod tests {
     }
 
     fn simple_ctx_for<'a>(query: &'a Query, sp: &'a DummySchemas) -> AnalysisContext<'a> {
-        AnalysisContext::build_context_from_query(query, sp).expect("build context")
+        AnalysisContext::build_context_from_query(query, sp, &DEFAULT_REGISTRY).expect("build context")
     }
 
     fn make_query_with_table(
@@ -245,11 +269,11 @@ mod tests {
         );
 
         // OK case
-        let analyzed_ok = AnalysisContext::analyze_query(&q_ok, &sp);
+        let analyzed_ok = AnalysisContext::analyze_query(&q_ok, &sp, &DEFAULT_REGISTRY);
         assert!(analyzed_ok.is_ok(), "expected OK, got: {:?}", analyzed_ok);
 
         // Error case
-        let analyzed_err = AnalysisContext::analyze_query(&q_err, &sp);
+        let analyzed_err = AnalysisContext::analyze_query(&q_err, &sp, &DEFAULT_REGISTRY);
         assert!(analyzed_err.is_err(), "expected GROUP BY validation error");
         let msg = format!("{analyzed_err:?}");
         assert!(msg.to_lowercase().contains("group by"), "err msg should mention group by; got: {msg}");
@@ -278,7 +302,7 @@ mod tests {
             vec![],
         );
 
-        let res = AnalysisContext::analyze_query(&q, &sp);
+        let res = AnalysisContext::analyze_query(&q, &sp, &DEFAULT_REGISTRY);
         assert!(res.is_err(), "aggregates in WHERE should error");
         let msg = format!("{res:?}");
         assert!(msg.to_lowercase().contains("where"), "err msg should mention WHERE; got: {msg}");
@@ -310,7 +334,7 @@ mod tests {
             vec![],
         );
 
-        let res = AnalysisContext::analyze_query(&q, &sp);
+        let res = AnalysisContext::analyze_query(&q, &sp, &DEFAULT_REGISTRY);
         assert!(res.is_ok(), "HAVING with aggregate should be accepted: {:?}", res.err());
     }
 
@@ -339,7 +363,7 @@ mod tests {
             ],
         );
 
-        let analyzed = AnalysisContext::analyze_query(&q, &sp).expect("analyze");
+        let analyzed = AnalysisContext::analyze_query(&q, &sp, &DEFAULT_REGISTRY).expect("analyze");
         // first ORDER BY should resolve to the `name` column expr; second to the 2nd projection (age)
         assert_eq!(analyzed.order_by.len(), 2);
         match &analyzed.order_by[0].expr {
@@ -364,7 +388,7 @@ mod tests {
             None,
             vec![ OrderBy { expr: ScalarExpr::Column(Column::Name { name: "age".into() }), ascending: true } ],
         );
-        let err = AnalysisContext::analyze_query(&q_bad, &sp);
+        let err = AnalysisContext::analyze_query(&q_bad, &sp, &DEFAULT_REGISTRY);
         assert!(err.is_err(), "ORDER BY should error when referencing non-grouped columns outside aggregates");
         let msg = format!("{err:?}");
         assert!(msg.to_lowercase().contains("order by"), "err msg should mention ORDER BY; got: {msg}");
@@ -397,7 +421,7 @@ mod tests {
         };
 
         // build ctx & expand (indirectly via analyze)
-        let analyzed = AnalysisContext::analyze_query(&query, &sp).expect("analyze");
+        let analyzed = AnalysisContext::analyze_query(&query, &sp, &DEFAULT_REGISTRY).expect("analyze");
         // Expect order: t1.id, t1.name, t2.x
         let cols: Vec<(String,String)> = analyzed.projection.iter().filter_map(|id| {
             if let ScalarExpr::Column(Column::WithCollection{collection, name}) = &id.expression {

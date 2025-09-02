@@ -8,4 +8,6 @@ pub struct AnalyzedQuery {
     pub group_by: Vec<Column>,               // qualified
     pub having: Option<Predicate>,           // qualified + folded
     pub order_by: Vec<OrderBy>,  // OrderBy
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
