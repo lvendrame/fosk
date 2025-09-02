@@ -38,6 +38,50 @@ impl TypeInference {
         for arg in &function.args {
             arg_types.push(TypeInference::infer_scalar(arg, ctx)?);
         }
+
+        // Aggregates
+        match lname.as_str() {
+            "count" => {
+                // COUNT(*) or COUNT(expr) or COUNT(DISTINCT expr)
+                // -> Int, non-nullable
+                return Ok((JsonPrimitive::Int, false));
+            },
+            "sum" => {
+                // nullable=true (NULL if all inputs NULL)
+                // Int->Int, Float->Float
+                let (t, _n) = arg_types.get(0).ok_or_else(|| AnalyzerError::FunctionArgMismatch {
+                    name: function.name.clone(), expected: "SUM(arg)".into(), got: vec![]
+                })?;
+                return Ok((match t {
+                    JsonPrimitive::Int => JsonPrimitive::Int,
+                    JsonPrimitive::Float => JsonPrimitive::Float,
+                    _ => return Err(AnalyzerError::FunctionArgMismatch {
+                        name: function.name.clone(), expected: "numeric".into(), got: vec![*t]
+                    }),
+                }, true));
+            },
+            "avg" => {
+                // numeric -> Float, nullable
+                let (t, _n) = arg_types.get(0).ok_or_else(|| AnalyzerError::FunctionArgMismatch {
+                    name: function.name.clone(), expected: "AVG(arg)".into(), got: vec![]
+                })?;
+                return Ok((match t {
+                    JsonPrimitive::Int | JsonPrimitive::Float => JsonPrimitive::Float,
+                    _ => return Err(AnalyzerError::FunctionArgMismatch {
+                        name: function.name.clone(), expected: "numeric".into(), got: vec![*t]
+                    }),
+                }, true));
+            },
+            "min" | "max" => {
+                // same type as input, nullable
+                let (ty, _n) = arg_types.get(0).ok_or_else(|| AnalyzerError::FunctionArgMismatch {
+                    name: function.name.clone(), expected: "MIN/MAX(arg)".into(), got: vec![]
+                })?;
+                return Ok((*ty, true));
+            },
+            _ => { /* fall through to scalar functions below */ },
+        }
+
         match (lname.as_str(), arg_types.as_slice()) {
             // UPPER(s), LOWER(s), TRIM(s)
             ("upper",  [(JsonPrimitive::String, nullable)]) |

@@ -5,4 +5,5 @@ use crate::parser::ast::ScalarExpr;
 pub struct Function {
     pub name: String,
     pub args: Vec<ScalarExpr>,
+    pub distinct: bool,
 }

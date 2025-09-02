@@ -16,5 +16,11 @@ pub use scalar_resolver::*;
 pub mod predicate_resolver;
 pub use predicate_resolver::*;
 
+pub mod aggregate_resolver;
+pub use aggregate_resolver::*;
+
+pub mod column_key;
+pub use column_key::*;
+
 pub mod order_by_resolver;
 pub use order_by_resolver::*;

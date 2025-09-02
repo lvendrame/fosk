@@ -75,6 +75,7 @@ impl Column {
                 Some(args) => ScalarExpr::Function(Function {
                     name: format!("{}{}", collection.map_or("".to_string(), |coll| format!("{}.", coll)), name),
                     args,
+                    distinct: false,
                 }),
                 None => match collection {
                     Some(collection) => ScalarExpr::Column(Column::WithCollection { collection, name }),
