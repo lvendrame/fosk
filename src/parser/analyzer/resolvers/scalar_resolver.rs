@@ -33,7 +33,7 @@ impl ScalarResolver {
                     ("upper",  [Literal::String(value)]) => Some(Literal::String(value.to_uppercase())),
                     ("lower",  [Literal::String(value)]) => Some(Literal::String(value.to_lowercase())),
                     ("trim",   [Literal::String(value)]) => Some(Literal::String(value.trim().to_string())),
-                    ("length", [Literal::String(value)]) => Some(Literal::Int(value.chars().count() as i32)),
+                    ("length", [Literal::String(value)]) => Some(Literal::Int(value.chars().count() as i64)),
                     _ => None,
                 };
 

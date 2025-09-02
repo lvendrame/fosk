@@ -4,8 +4,8 @@ pub use column::*;
 pub mod function;
 pub use function::*;
 
-pub mod literal_parsers;
-pub use literal_parsers::*;
+pub mod literals;
+pub use literals::*;
 
 pub mod args_parser;
 pub use args_parser::*;

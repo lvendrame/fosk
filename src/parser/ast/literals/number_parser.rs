@@ -29,8 +29,8 @@ impl NumberParser {
 
         let number = parser.text_from_pivot(pivot);
         let number = match is_float {
-            true => Literal::Float(number.parse::<f32>().map_err(|_| ParseError::new("Invalid number", pivot, parser))?),
-            false => Literal::Int(number.parse::<i32>().map_err(|_| ParseError::new("Invalid number", pivot, parser))?),
+            true => Literal::Float(number.parse::<f64>().map_err(|_| ParseError::new("Invalid number", pivot, parser))?),
+            false => Literal::Int(number.parse::<i64>().map_err(|_| ParseError::new("Invalid number", pivot, parser))?),
         };
 
         Ok(number)

@@ -1,4 +1,4 @@
-use crate::parser::{ast::{ArgsParser, ComparatorOp, ScalarExpr}, ParseError, QueryParser};
+use crate::parser::{ast::{ArgsParser, ComparatorOp, ScalarExpr, Truth}, ParseError, QueryParser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Predicate {
@@ -12,7 +12,7 @@ pub enum Predicate {
     InList  { expr: ScalarExpr, list: Vec<ScalarExpr>, negated: bool },
     Like    { expr: ScalarExpr, pattern: ScalarExpr, negated: bool },
 
-    Const(bool),
+    Const3(Truth),
 }
 
 impl Predicate {

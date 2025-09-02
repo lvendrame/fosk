@@ -1,12 +1,11 @@
-use std::collections::BTreeMap;
-
+use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
 use crate::database::FieldInfo;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SchemaDict {
-    pub fields: BTreeMap<String, FieldInfo>,
+    pub fields: IndexMap<String, FieldInfo>,
 }
 
 impl SchemaDict {
@@ -15,7 +14,7 @@ impl SchemaDict {
     }
 
     pub fn infer_schema_from_object(obj: &Map<String, Value>) -> SchemaDict {
-        let mut fields = BTreeMap::new();
+        let mut fields = IndexMap::new();
         for (k, v) in obj {
             fields.insert(k.clone(), FieldInfo::infer_field_info(v));
         }
@@ -25,21 +24,21 @@ impl SchemaDict {
     pub fn merge_schema(&mut self, obj: &Map<String, Value>) {
         // First, mark missing keys as nullable (they weren't present on this row)
         // (Optional) If you want "missing means nullable", uncomment:
-        for (k, fi) in self.fields.iter_mut() {
-            if !obj.contains_key(k) {
-                fi.nullable = true;
+        for (key, field_info) in self.fields.iter_mut() {
+            if !obj.contains_key(key) {
+                field_info.nullable = true;
             }
         }
 
         // Merge present keys
-        for (k, v) in obj {
-            let new_info = FieldInfo::infer_field_info(v);
-            match self.fields.get_mut(k) {
+        for (key, value) in obj {
+            let new_info = FieldInfo::infer_field_info(value);
+            match self.fields.get_mut(key) {
                 Some(old) => {
                     *old = old.merge_field_info(&new_info);
                 }
                 None => {
-                    self.fields.insert(k.clone(), new_info);
+                    self.fields.insert(key.clone(), new_info);
                 }
             }
         }
