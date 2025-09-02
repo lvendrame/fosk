@@ -7,7 +7,7 @@
 // HAVING COUNT(*) > 3
 // ORDER BY b.description DESC V
 
-use crate::parser::{ast::{Collection, CollectionsParser, Column, GroupBy, HavingParser, Identifier, Join, OrderBy, Predicate, ProjectionParser, WhereParser}, ParseError, Phase, QueryParser};
+use crate::parser::{ast::{Collection, CollectionsParser, Column, GroupBy, HavingParser, Identifier, Join, LimitAndOffsetParser, OrderBy, Predicate, ProjectionParser, WhereParser}, ParseError, Phase, QueryParser};
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Query {
@@ -18,6 +18,8 @@ pub struct Query {
     pub group_by: Vec<Column>,
     pub having: Option<Predicate>,
     pub order_by: Vec<OrderBy>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 impl Query {
@@ -35,6 +37,11 @@ impl Query {
                 Phase::Aggregates => query.group_by = GroupBy::parse(parser)?,
                 Phase::Having => query.having = Some(HavingParser::parse(parser)?),
                 Phase::OrderBy => query.order_by = OrderBy::parse(parser)?,
+                Phase::LimitAndOffset => {
+                    let (limit, offset) = LimitAndOffsetParser::parse(parser)?;
+                    query.limit = limit;
+                    query.offset = offset;
+                },
                 Phase::EOF => todo!(),
             }
         }
@@ -67,6 +74,8 @@ WHERE A.Age > 16 AND (B.city = 'Porto' OR B.city like "Matosinhos")
 GROUP BY a.full_name
 HAVING COUNT(*) > 3
 ORDER BY b.description DESC
+OFFSET 60
+LIMIT 20
         "#;
 
         let query = Query::try_from(text).expect("Failed to parse predicate");
@@ -78,5 +87,7 @@ ORDER BY b.description DESC
         assert_eq!(query.group_by.len(), 1);
         assert!(query.having.is_some());
         assert_eq!(query.order_by.len(), 1);
+        assert_eq!(query.offset.unwrap(), 60);
+        assert_eq!(query.limit.unwrap(), 20);
     }
 }

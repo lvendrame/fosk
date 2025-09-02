@@ -1,22 +1,9 @@
-use crate::parser::{QueryComparers};
+use crate::parser::{Phase, QueryComparers};
 
 #[derive(Debug, Default)]
 pub struct TokenPosition {
     pub pivot: usize,
     pub end: usize,
-}
-
-#[derive(Debug, Default, PartialEq, PartialOrd)]
-pub enum Phase {
-    #[default]
-    Projection = 0,
-    Collections = 1,
-    Joins = 2,
-    Criteria = 3,
-    Aggregates = 4,
-    Having = 5,
-    OrderBy = 6,
-    EOF = 7,
 }
 
 #[derive(Debug, Default)]
@@ -99,14 +86,6 @@ impl QueryParser {
         self.text_from_range(pivot, self.position)
     }
 
-    pub fn parse(&mut self) -> Result<String, String> {
-        while self.phase != Phase::EOF {
-            self.parse_current()?;
-            // self.next();
-        }
-        Ok("".into())
-    }
-
     pub fn check_next_phase(&mut self) -> bool {
         self.next_non_whitespace();
         // Projection = 0,
@@ -118,6 +97,12 @@ impl QueryParser {
         // OrderBy = 6
         if self.eof() {
             self.phase = Phase::EOF;
+            return true;
+        }
+
+        if self.phase < Phase::LimitAndOffset &&
+            (self.comparers.limit.compare(self) || self.comparers.offset.compare(self)) {
+            self.phase = Phase::LimitAndOffset;
             return true;
         }
 
@@ -156,30 +141,12 @@ impl QueryParser {
         false
     }
 
-    fn parse_current(&mut self) -> Result<(), String> {
-        let current = self.current();
-        if current.is_whitespace() || current == '\r' || current == '\n' {
-            self.next();
-            return Ok(());
+    pub fn get_initial_sequence_pos(&self) -> usize {
+        let mut pos = self.position - 1;
+        while pos > 0 && !self.text_v[pos].is_whitespace() {
+            pos -= 1;
         }
-
-        match self.phase {
-            Phase::Projection => {
-                //Proje?;
-            },
-            Phase::Collections => {
-                // let coll =  self.parse_collection()?;
-                // self.query.collections.push(coll);
-            },
-            Phase::Joins => {self.next();},
-            Phase::Criteria => {},
-            Phase::Aggregates => {},
-            Phase::Having => {},
-            Phase::OrderBy => {},
-            Phase::EOF => {},
-        };
-
-        Ok(())
+        pos + 1
     }
 
 }

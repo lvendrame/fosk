@@ -205,6 +205,7 @@ mod tests {
             group_by,
             having,
             order_by,
+            ..Default::default()
         }
     }
 
@@ -392,6 +393,7 @@ mod tests {
             group_by: vec![],
             having: None,
             order_by: vec![],
+            ..Default::default()
         };
 
         // build ctx & expand (indirectly via analyze)
@@ -463,6 +465,7 @@ mod tests {
             group_by: vec![],
             having: None,
             order_by: vec![],
+            ..Default::default()
         };
         let ctx = simple_ctx_for(&q_base, &sp);
 

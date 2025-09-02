@@ -12,4 +12,7 @@ pub use word_comparer::*;
 pub mod query_comparers;
 pub use query_comparers::*;
 
+pub mod phase;
+pub use phase::*;
+
 pub mod analyzer;

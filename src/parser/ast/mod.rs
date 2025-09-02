@@ -49,5 +49,8 @@ pub use group_by::*;
 pub mod having_parser;
 pub use having_parser::*;
 
+pub mod limit_offset_parser;
+pub use limit_offset_parser::*;
+
 pub mod query;
 pub use query::*;
