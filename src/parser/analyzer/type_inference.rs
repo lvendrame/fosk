@@ -73,7 +73,7 @@ impl TypeInference {
 
 #[cfg(test)]
 mod tests {
-    use crate::{database::{FieldInfo, SchemaProvider}, parser::ast::Column, SchemaDict};
+    use crate::{database::{FieldInfo, SchemaProvider}, parser::{aggregators_helper::AggregateRegistry, ast::Column}, SchemaDict};
 
     use super::*;
     use indexmap::IndexMap;
@@ -335,5 +335,37 @@ mod tests {
         let err_max = TypeInference::infer_scalar(&agg("max", vec![]), &ctx);
         assert!(matches!(err_min, Err(AnalyzerError::FunctionArgMismatch{ name, .. }) if name.eq_ignore_ascii_case("min")));
         assert!(matches!(err_max, Err(AnalyzerError::FunctionArgMismatch{ name, .. }) if name.eq_ignore_ascii_case("max")));
+    }
+
+    struct SP { by: std::collections::HashMap<String, SchemaDict> }
+    impl SP {
+        fn new() -> Self { Self { by: Default::default() } }
+        fn with(mut self, name: &str, fields: Vec<(&str, JsonPrimitive, bool)>) -> Self {
+            let mut m = IndexMap::new();
+            for (k,t,n) in fields { m.insert(k.to_string(), FieldInfo { ty: t, nullable: n }); }
+            self.by.insert(name.to_string(), SchemaDict { fields: m }); self
+        }
+    }
+    impl SchemaProvider for SP {
+        fn schema_of(&self, s: &str) -> Option<SchemaDict> { self.by.get(s).cloned() }
+    }
+
+    #[test]
+    fn type_inference_uses_registry_for_aggregates() {
+        // schema t(i int)
+        let sp = SP::new().with("t", vec![("i", JsonPrimitive::Int, false)]);
+        let regs = AggregateRegistry::default_aggregate_registry();
+        let mut ctx = AnalysisContext::new_with_aggregates(&sp, &regs);
+        ctx.add_collection("t", "t");
+
+        // SUM(t.i) should route via registry and return (Int, true)
+        let fun = Function {
+            name: "SUM".into(),
+            distinct: false,
+            args: vec![ScalarExpr::Column(Column::WithCollection { collection: "t".into(), name: "i".into() })],
+        };
+        let (ty, nullable) = TypeInference::infer_function_type(&fun, &ctx).unwrap();
+        assert_eq!(ty, JsonPrimitive::Int);
+        assert!(nullable);
     }
 }
