@@ -16,14 +16,18 @@ impl Collection {
 
 
         let mut alias: Option<String> = None;
-        if parser.current() != ',' && !parser.check_next_phase() && !parser.comparers.on.compare(parser) {
+        let next_phase = parser.check_next_phase();
+        if parser.current() != ',' && !next_phase && !parser.comparers.on.compare(parser) {
             alias = Some(TextCollector::collect(parser)?)
         }
 
         parser.next_non_whitespace();
 
+
+        let next_phase = next_phase || parser.check_next_phase();
+
         let pivot = parser.position;
-        if parser.current() == ',' || parser.check_next_phase() || parser.comparers.on.compare(parser) {
+        if parser.current() == ',' || next_phase || parser.comparers.on.compare(parser) {
             return Ok(Collection::Table { name, alias });
         }
 
