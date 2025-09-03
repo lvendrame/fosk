@@ -26,9 +26,6 @@ fosk = "0.1.0"
 serde_json = "1"
 ```
 
-If `fosk` is published to crates.io, replace the path with the published
-version.
-
 ## Quick example (use `Db` + `Db::create`)
 
 This example follows the pattern used in the repository tests: create a
