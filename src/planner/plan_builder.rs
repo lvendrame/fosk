@@ -1,12 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 
-use crate::{parser::{analyzer::{AggregateResolver, AnalyzedQuery, AnalyzerError}, ast::{Column, JoinType, Predicate, ScalarExpr, Truth}}, planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan}};
+use crate::{parser::{analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError}, ast::{JoinType, Predicate, ScalarExpr, Truth}}, planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan}};
 
 pub struct PlanBuilder;
 
 impl PlanBuilder {
     pub fn from_analyzed(aq: &AnalyzedQuery) -> Result<LogicalPlan, AnalyzerError> {
-        // Source: single collection only (joins later)
+        // Source: single collection only (joins later) ----
         if aq.collections.is_empty() {
             return Err(AnalyzerError::Other("Planner: no collections to scan".into()));
         }
@@ -14,19 +14,20 @@ impl PlanBuilder {
         let (visible0, backing0) = aq.collections[0].clone();
         let mut from: LogicalPlan = LogicalPlan::Scan { backing: backing0, visible: visible0 };
 
+        // --- support implicit CROSS JOINs for multiple FROM items (A, B, C, ...) ---
         if aq.collections.len() > 1 {
             for (visible, backing) in aq.collections.iter().skip(1).cloned() {
                 let right = LogicalPlan::Scan { backing, visible };
                 from = LogicalPlan::Join {
                     left: Box::new(from),
                     right: Box::new(right),
-                    join_type: JoinType::Inner,                    // CROSS JOIN semantics
-                    on: Predicate::Const3(Truth::True),            // always true
+                    join_type: JoinType::Inner,                 // CROSS JOIN semantics
+                    on: Predicate::Const3(Truth::True),
                 };
             }
         }
 
-        // Apply joins in order they appear
+        // Apply explicit JOINs in order they appear ----
         for j in &aq.joins {
             let (visible, backing) = match &j.collection {
                 crate::parser::ast::Collection::Table { name, alias } => {
@@ -37,6 +38,7 @@ impl PlanBuilder {
                     return Err(AnalyzerError::Other("Planner: subquery in JOIN not supported".into()));
                 }
             };
+
             let right = LogicalPlan::Scan { backing, visible };
             from = LogicalPlan::Join {
                 left: Box::new(from),
@@ -48,129 +50,87 @@ impl PlanBuilder {
 
         let mut plan = from;
 
-        // WHERE (criteria)
+        // WHERE (criteria) ----
         if let Some(pred) = &aq.criteria {
             plan = LogicalPlan::Filter { input: Box::new(plan), predicate: pred.clone() };
         }
 
-        // Decide if we need aggregation
-        let needs_agg =
-            !aq.group_by.is_empty()
+        // Do we need aggregation? ----
+        let needs_agg = !aq.group_by.is_empty()
             || aq.projection.iter().any(|id| AggregateResolver::contains_aggregate(&id.expression))
             || aq.having.as_ref().map(AggregateResolver::predicate_contains_aggregate).unwrap_or(false);
 
-        // If not an aggregate query, proceed with projection/sort/limit directly
-        if !needs_agg {
-            // Project
-            plan = LogicalPlan::Project { input: Box::new(plan), exprs: aq.projection.clone() };
-            // ORDER BY
-            if !aq.order_by.is_empty() {
-                plan = LogicalPlan::Sort { input: Box::new(plan), keys: aq.order_by.clone() };
+        if needs_agg {
+            use std::collections::{HashMap, HashSet};
+
+            // 1) collect aggregate calls from projection and having
+            let mut calls: Vec<AggregateCall> = Vec::new();
+            let mut index_by_call: HashMap<AggregateCall, usize> = HashMap::new();
+
+            // from SELECT list
+            for id in &aq.projection {
+                PlanBuilder::collect_aggregates_in_scalar(&id.expression, &mut index_by_call, &mut calls);
             }
-            // LIMIT/OFFSET
-            if aq.limit.is_some() || aq.offset.is_some() {
-                plan = LogicalPlan::Limit {
-                    input: Box::new(plan),
-                    limit: aq.limit,
-                    offset: aq.offset,
-                };
+
+            // from HAVING
+            if let Some(h) = &aq.having {
+                PlanBuilder::collect_aggregates_in_predicate(h, &mut index_by_call, &mut calls);
             }
-            return Ok(plan);
-        }
 
-        // ---- Aggregate path ----
-
-        // 1) Collect aggregate calls from SELECT and HAVING (deduplicated)
-        let mut calls: Vec<AggregateCall> = Vec::new();
-        let mut call_to_index: HashMap<AggregateCall, usize> = HashMap::new();
-
-        // from SELECT projection
-        for id in &aq.projection {
-            Self::collect_aggregates_in_scalar(&id.expression, &mut call_to_index, &mut calls);
-        }
-        // from HAVING, if present
-        if let Some(h) = &aq.having {
-            Self::collect_aggregates_in_predicate(h, &mut call_to_index, &mut calls);
-        }
-
-        // 2) Assign output names per call (avoid clashes with group key names)
-        let mut used: HashSet<String> = HashSet::new();
-        for c in &aq.group_by {
-            let key = match c {
-                Column::WithCollection { collection, name } => format!("{}.{}", collection, name),
-                Column::Name { name } => name.clone(),
-            };
-            used.insert(key);
-        }
-
-        // Prefer SELECT aliases for matching calls; otherwise func, func_1, ...
-        let mut call_to_name: HashMap<AggregateCall, String> = HashMap::new();
-
-        // Prefer aliases from projection if provided
-        for id in &aq.projection {
-            if let ScalarExpr::Function(f) = &id.expression {
-                if AggregateResolver::is_aggregate_name(&f.name) {
-                    let key: AggregateCall = f.into();
-                    if call_to_index.contains_key(&key) {
-                        let base = if let Some(a) = &id.alias {
-                            a.to_ascii_lowercase()
-                        } else {
-                            key.func.clone()
-                        };
-                        let mut name = base.clone();
-                        let mut k = 1usize;
-                        while used.contains(&name) {
-                            name = format!("{}_{}", base, k);
-                            k += 1;
-                        }
-                        used.insert(name.clone());
-                        call_to_name.insert(key.clone(), name);
-                    }
-                }
-            }
-        }
-
-        // For any calls not named yet (e.g., only appear in HAVING), assign names
-        for key in call_to_index.keys() {
-            if !call_to_name.contains_key(key) {
-                let base = key.func.clone();
+            // 2) assign output names that the Aggregate executor will produce
+            //    base = func name lowercased; suffix _1, _2… if repeated
+            let mut used_names: HashSet<String> = HashSet::new();
+            let mut name_map: HashMap<AggregateCall, String> = HashMap::new();
+            for call in &calls {
+                let base = call.func.to_ascii_lowercase();
                 let mut name = base.clone();
                 let mut k = 1usize;
-                while used.contains(&name) {
+                while used_names.contains(&name) {
                     name = format!("{}_{}", base, k);
                     k += 1;
                 }
-                used.insert(name.clone());
-                call_to_name.insert(key.clone(), name);
+                used_names.insert(name.clone());
+                name_map.insert(call.clone(), name);
             }
+
+            // 3) rewrite SELECT expressions that contain aggregates to refer to these names
+            let mut rewritten_projection: Vec<AnalyzedIdentifier> = Vec::with_capacity(aq.projection.len());
+            for id in &aq.projection {
+                let new_expr = AggregateCall::rewrite_scalar_using_call_names(&id.expression, &name_map);
+                rewritten_projection.push(AnalyzedIdentifier {
+                    expression: new_expr,
+                    alias: id.alias.clone(),
+                    ty: id.ty,
+                    nullable: id.nullable,
+                });
+            }
+
+            // 4) plan Aggregate with the collected calls
+            plan = LogicalPlan::Aggregate {
+                input: Box::new(plan),
+                group_keys: aq.group_by.clone(),
+                aggs: calls,
+            };
+
+            // 5) HAVING (after aggregate) — rewrite to use aggregate column names
+            if let Some(h) = &aq.having {
+                let rewritten_having = AggregateCall::rewrite_predicate_using_call_names(h, &name_map);
+                plan = LogicalPlan::Filter { input: Box::new(plan), predicate: rewritten_having };
+            }
+
+            // 6) Project (now reading the aggregate columns by the assigned names, then aliasing)
+            plan = LogicalPlan::Project { input: Box::new(plan), exprs: rewritten_projection };
+        } else {
+            // No aggregation: simple Project
+            plan = LogicalPlan::Project { input: Box::new(plan), exprs: aq.projection.clone() };
         }
 
-        // 3) Build the Aggregate node
-        plan = LogicalPlan::Aggregate {
-            input: Box::new(plan),
-            group_keys: aq.group_by.clone(),
-            aggs: calls.clone(), // executor uses func/args/distinct
-        };
-
-        // 4) HAVING: rewrite to refer to aggregate outputs, then Filter
-        if let Some(pred) = &aq.having {
-            let having_rewritten = AggregateCall::rewrite_predicate_using_call_names(pred, &call_to_name);
-            plan = LogicalPlan::Filter { input: Box::new(plan), predicate: having_rewritten };
-        }
-
-        // 5) Project: rewrite aggregate functions in SELECT to Column(Name)
-        let mut final_proj = aq.projection.clone();
-        for id in &mut final_proj {
-            id.expression = AggregateCall::rewrite_scalar_using_call_names(&id.expression, &call_to_name);
-        }
-        plan = LogicalPlan::Project { input: Box::new(plan), exprs: final_proj };
-
-        // 6) ORDER BY (unchanged; analyzer already qualified them)
+        // ORDER BY (stable, NULLS LAST in executor) ----
         if !aq.order_by.is_empty() {
             plan = LogicalPlan::Sort { input: Box::new(plan), keys: aq.order_by.clone() };
         }
 
-        // 7) LIMIT/OFFSET
+        // LIMIT/OFFSET ----
         if aq.limit.is_some() || aq.offset.is_some() {
             plan = LogicalPlan::Limit {
                 input: Box::new(plan),
