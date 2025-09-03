@@ -2,6 +2,13 @@
 name = "fosk"
 version = "0.1.0"
 edition = "2024"
+description = "In-memory SQL-like query engine and lightweight data store for testing and prototyping."
+readme = "README.md"
+repository = "https://github.com/lvendrame/fosk"
+documentation = "https://docs.rs/fosk"
+license = "MIT"
+keywords = ["sql", "in-memory", "database", "query", "joins", "rust"]
+categories = ["database", "parsing"]
 
 [dependencies]
 regex = "1.11.1"
