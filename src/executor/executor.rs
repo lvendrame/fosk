@@ -1,11 +1,13 @@
+use std::collections::BTreeSet;
+
 use serde_json::{Map, Value};
 
 use crate::{
     database::{DbCollection, DbCommon},
     executor::{eval::Eval, helpers::Helpers},
     parser::{
-        aggregators_helper::{AggregateRegistry, Accumulator as AggAcc},
-        analyzer::AnalyzerError, ast::{Column, ScalarExpr, Truth}
+        aggregators_helper::{Accumulator as AggAcc, AggregateRegistry},
+        analyzer::AnalyzerError, ast::{Column, JoinType, ScalarExpr, Truth}
     },
     planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan},
     Db
@@ -103,8 +105,135 @@ impl PlanExecutor {
                 if let Some(lim) = limit { end = (start + (*lim).max(0) as usize).min(rows.len()); }
                 Ok(rows.get(start..end).unwrap_or(&[]).to_vec())
             }
-            LogicalPlan::Join { .. } => {
-                Err(AnalyzerError::Other("JOIN executor not yet implemented (next step)".into()))
+            LogicalPlan::Join { left, right, join_type, on } => {
+                // Execute children
+                let left_rows  = Self::run_plan(left,  db)?;
+                let right_rows = Self::run_plan(right, db)?;
+
+                // Collect key sets for null-extension (derived from observed rows)
+                let mut left_keys: BTreeSet<String>  = BTreeSet::new();
+                let mut right_keys: BTreeSet<String> = BTreeSet::new();
+                for v in &left_rows {
+                    if let Some(m) = v.as_object() {
+                        for k in m.keys() { left_keys.insert(k.clone()); }
+                    }
+                }
+                for v in &right_rows {
+                    if let Some(m) = v.as_object() {
+                        for k in m.keys() { right_keys.insert(k.clone()); }
+                    }
+                }
+
+                // helpers
+                let merge_objs = |lo: &Map<String, Value>, ro: &Map<String, Value>| -> Value {
+                    let mut out = Map::new();
+                    for (k, v) in lo { out.insert(k.clone(), v.clone()); }
+                    for (k, v) in ro { out.insert(k.clone(), v.clone()); }
+                    Value::Object(out)
+                };
+
+                let null_extended = |obj: &Map<String, Value>, all_keys: &BTreeSet<String>| -> Map<String, Value> {
+                    let mut out = Map::new();
+                    for k in all_keys {
+                        if let Some(v) = obj.get(k) {
+                            out.insert(k.clone(), v.clone());
+                        } else {
+                            out.insert(k.clone(), Value::Null);
+                        }
+                    }
+                    out
+                };
+
+                let mut out: Vec<Value> = Vec::new();
+
+                match join_type {
+                    JoinType::Inner => {
+                        for l in &left_rows {
+                            let lo = l.as_object().unwrap();
+                            for r in &right_rows {
+                                let ro = r.as_object().unwrap();
+                                // evaluate ON over merged row
+                                let merged = merge_objs(lo, ro);
+                                let mref = merged.as_object().unwrap();
+                                if matches!(crate::executor::eval::Eval::eval_predicate3(on, mref), Truth::True) {
+                                    out.push(merged);
+                                }
+                            }
+                        }
+                    }
+                    JoinType::Left => {
+                        for l in &left_rows {
+                            let lo = l.as_object().unwrap();
+                            let mut matched = false;
+                            for r in &right_rows {
+                                let ro = r.as_object().unwrap();
+                                let merged = merge_objs(lo, ro);
+                                let mref = merged.as_object().unwrap();
+                                if matches!(crate::executor::eval::Eval::eval_predicate3(on, mref), Truth::True) {
+                                    out.push(merged);
+                                    matched = true;
+                                }
+                            }
+                            if !matched {
+                                // left row with right side null-extended
+                                let right_nulls = null_extended(&Map::new(), &right_keys);
+                                out.push(Value::Object(merge_objs(lo, &right_nulls).as_object().unwrap().clone()));
+                            }
+                        }
+                    }
+                    JoinType::Right => {
+                        for r in &right_rows {
+                            let ro = r.as_object().unwrap();
+                            let mut matched = false;
+                            for l in &left_rows {
+                                let lo = l.as_object().unwrap();
+                                let merged = merge_objs(lo, ro);
+                                let mref = merged.as_object().unwrap();
+                                if matches!(crate::executor::eval::Eval::eval_predicate3(on, mref), Truth::True) {
+                                    out.push(merged);
+                                    matched = true;
+                                }
+                            }
+                            if !matched {
+                                let left_nulls = null_extended(&Map::new(), &left_keys);
+                                out.push(Value::Object(merge_objs(&left_nulls, ro).as_object().unwrap().clone()));
+                            }
+                        }
+                    }
+                    JoinType::Full => {
+                        let mut right_matched: Vec<bool> = vec![false; right_rows.len()];
+
+                        for l in &left_rows {
+                            let lo = l.as_object().unwrap();
+                            let mut matched_any = false;
+                            for (i, r) in right_rows.iter().enumerate() {
+                                let ro = r.as_object().unwrap();
+                                let merged = merge_objs(lo, ro);
+                                let mref = merged.as_object().unwrap();
+                                if matches!(crate::executor::eval::Eval::eval_predicate3(on, mref), Truth::True) {
+                                    out.push(merged);
+                                    right_matched[i] = true;
+                                    matched_any = true;
+                                }
+                            }
+                            if !matched_any {
+                                let right_nulls = null_extended(&Map::new(), &right_keys);
+                                out.push(Value::Object(merge_objs(lo, &right_nulls).as_object().unwrap().clone()));
+                            }
+                        }
+
+                        // emit right-only rows not matched
+                        for (i, r) in right_rows.iter().enumerate() {
+                            if !right_matched[i] {
+                                let ro = r.as_object().unwrap();
+                                let left_nulls = null_extended(&Map::new(), &left_keys);
+                                out.push(Value::Object(merge_objs(&left_nulls, ro).as_object().unwrap().clone()));
+                            }
+                        }
+                    }
+                }
+
+                Ok(out)
             }
         }
     }
@@ -618,16 +747,73 @@ mod tests {
     // ---------- Error path: JOIN not implemented ----------------------------
 
     #[test]
-    fn join_node_returns_not_implemented_error() {
-        let db = mk_db_simple();
+    fn join_node_executes_inner_cross_join() {
+        use serde_json::json;
+
+        // Build a tiny DB with two tables
+        let mut db = InternalDb::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() }).into_protected();
+        let mut t = db.create("t");
+        let mut u = db.create("u");
+
+        t.add_batch(json!([
+            { "id": 1, "x": "A" },
+            { "id": 2, "x": "B" }
+        ]));
+        u.add_batch(json!([
+            { "id": 10, "y": true  },
+            { "id": 20, "y": false }
+        ]));
+
+        // Plan: INNER JOIN with ON TRUE (i.e., cross join)
         let plan = LogicalPlan::Join {
             left: Box::new(LogicalPlan::Scan { backing: "t".into(), visible: "t".into() }),
             right: Box::new(LogicalPlan::Scan { backing: "u".into(), visible: "u".into() }),
             join_type: JoinType::Inner,
             on: Predicate::Const3(Truth::True),
         };
-        let err = PlanExecutor::run_plan(&plan, &db).unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(msg.contains("JOIN executor not yet implemented"));
+
+        let rows = PlanExecutor::run_plan(&plan, &db).expect("join should execute");
+        // 2 x 2 = 4 rows
+        assert_eq!(rows.len(), 4);
+
+        // Verify merged/prefixed columns exist and are correct for at least one row
+        // (Scan prefixes with visible name, so keys look like "t.id", "t.x", "u.id", "u.y")
+        let r0 = rows[0].as_object().expect("object row");
+        assert!(r0.contains_key("t.id"));
+        assert!(r0.contains_key("t.x"));
+        assert!(r0.contains_key("u.id"));
+        assert!(r0.contains_key("u.y"));
+    }
+
+    #[test]
+    fn left_join_emits_unmatched_left_rows_with_null_right_side() {
+        let mut db = InternalDb::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() }).into_protected();
+        let mut t = db.create("t");
+        let _u = db.create("u"); // keep it empty
+
+        t.add_batch(json!([
+            { "id": 1, "x": "A" },
+            { "id": 2, "x": "B" }
+        ]));
+
+        let plan = LogicalPlan::Join {
+            left: Box::new(LogicalPlan::Scan { backing: "t".into(), visible: "t".into() }),
+            right: Box::new(LogicalPlan::Scan { backing: "u".into(), visible: "u".into() }),
+            join_type: JoinType::Left,
+            on: Predicate::Const3(Truth::True),
+        };
+
+        let rows = PlanExecutor::run_plan(&plan, &db).expect("left join should execute");
+        // Expect as many rows as left input
+        assert_eq!(rows.len(), 2);
+
+        // Each output row has t.* keys, and (because right is truly empty and we
+        // can't infer its schema here) there are no u.* keys present.
+        for row in rows {
+            let obj = row.as_object().unwrap();
+            assert!(obj.contains_key("t.id"));
+            assert!(obj.contains_key("t.x"));
+            assert!(obj.keys().all(|k| !k.starts_with("u.")));
+        }
     }
 }
