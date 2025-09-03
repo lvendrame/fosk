@@ -1,9 +1,9 @@
-use std::{collections::HashMap, ffi::OsString, fs, sync::{Arc, RwLock}};
+use std::{collections::HashMap, ffi::OsString, fs, sync::RwLock};
 use serde_json::Value;
 
 use crate::database::{Config, IdManager, IdType, IdValue, SchemaDict};
 
-pub type MemoryCollection = Arc<RwLock<InternalMemoryCollection>>;
+pub type MemoryCollection = RwLock<InternalMemoryCollection>;
 
 pub struct InternalMemoryCollection {
     collection: HashMap<String, Value>,
@@ -27,7 +27,7 @@ impl InternalMemoryCollection {
     }
 
     pub fn into_protected(self) -> MemoryCollection {
-        Arc::new(RwLock::new(self))
+        RwLock::new(self)
     }
 
     pub fn schema(&self) -> Option<SchemaDict> {
