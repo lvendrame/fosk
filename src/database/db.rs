@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::{Arc, RwLock}};
 
-use crate::{database::{Config, DbCollection, MemoryCollection, SchemaProvider}, executor::executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
+use crate::{database::{Config, DbCollection, MemoryCollection, SchemaProvider}, executor::plan_executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
 
 pub type Db = Arc<RwLock<InternalDb>>;
 
@@ -26,7 +26,7 @@ pub trait DbCommon {
     fn list_collections(&self) -> Vec<String>;
 }
 
-impl DbCommon for InternalDb {
+impl InternalDb {
 
     fn new_db() -> Self {
         Self::new_db_with_config(Config::default())
@@ -39,22 +39,22 @@ impl DbCommon for InternalDb {
         }
     }
 
-    fn create(&mut self, coll_name: &str) -> MemoryCollection {
+    pub fn create(&mut self, coll_name: &str) -> MemoryCollection {
         self.create_with_config(coll_name, self.config.clone())
     }
 
-    fn create_with_config(&mut self, coll_name: &str, config: Config) -> MemoryCollection {
+    pub fn create_with_config(&mut self, coll_name: &str, config: Config) -> MemoryCollection {
         let collection = MemoryCollection::new_coll(coll_name, config);
         self.collections.insert(coll_name.to_string(), Arc::clone(&collection));
 
         collection
     }
 
-    fn get(&self, col_name: &str) -> Option<MemoryCollection> {
+    pub fn get(&self, col_name: &str) -> Option<MemoryCollection> {
         self.collections.get(col_name).map(Arc::clone)
     }
 
-    fn list_collections(&self) -> Vec<String> {
+    pub fn list_collections(&self) -> Vec<String> {
         self.collections.keys().cloned().collect::<Vec<_>>()
     }
 
@@ -91,7 +91,7 @@ impl SchemaProvider for Db {
     fn schema_of(&self, collection_ref: &str) -> Option<super::SchemaDict> {
         let guard = self.read().ok()?;
         let coll = guard.get(collection_ref)?;
-        coll.read().ok()?.schema().cloned()
+        coll.read().ok()?.schema()
     }
 }
 

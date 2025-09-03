@@ -30,8 +30,12 @@ impl InternalMemoryCollection {
         Arc::new(RwLock::new(self))
     }
 
-    pub fn schema(&self) -> Option<&SchemaDict> {
+    pub fn schema_ref(&self) -> Option<&SchemaDict> {
         self.schema.as_ref()
+    }
+
+    pub fn schema(&self) -> Option<SchemaDict> {
+        self.schema_ref().cloned()
     }
 
     pub fn ensure_update_schema_for_item(&mut self, item: &Value) {
@@ -44,7 +48,7 @@ impl InternalMemoryCollection {
         }
     }
 
-    fn merge_json_values(mut base: Value, update: Value) -> Value {
+    pub fn merge_json_values(mut base: Value, update: Value) -> Value {
         match (&mut base, update) {
             (Value::Object(base_map), Value::Object(update_map)) => {
                 // Merge object fields
@@ -64,50 +68,16 @@ impl InternalMemoryCollection {
             (_, update_value) => update_value,
         }
     }
-}
 
-pub trait DbCollection {
-    fn schema(&self) -> Option<SchemaDict>;
-
-    fn new_coll(name: &str, config: Config) -> Self;
-
-    fn get_all(&self) -> Vec<Value>;
-
-    fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value>;
-
-    fn get(&self, id: &str) -> Option<Value>;
-
-    fn exists(&self, id: &str) -> bool;
-
-    fn count(&self) -> usize;
-
-    fn add(&mut self, item: Value) -> Option<Value>;
-
-    fn add_batch(&mut self, items: Value) -> Vec<Value>;
-
-    fn update(&mut self, id: &str, item: Value) -> Option<Value>;
-
-    fn update_partial(&mut self, id: &str, partial_item: Value) -> Option<Value>;
-
-    fn delete(&mut self, id: &str) -> Option<Value>;
-
-    fn clear(&mut self) -> usize;
-
-    fn load_from_json(&mut self, json_value: Value) -> Result<Vec<Value>, String>;
-
-    fn load_from_file(&mut self, file_path: &OsString) -> Result<String, String>;
-}
-
-impl DbCollection for InternalMemoryCollection {
-    fn new_coll(name: &str, config: Config) -> Self {
+    pub fn new_coll(name: &str, config: Config) -> Self {
         Self::new(name, config)
     }
 
-    fn get_all(&self) -> Vec<Value> {
+    pub fn get_all(&self) -> Vec<Value> {
         self.collection.values().cloned().collect::<Vec<Value>>()
     }
 
-    fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
+    pub fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
         self.collection.values()
             .skip(offset)
             .take(limit)
@@ -115,19 +85,19 @@ impl DbCollection for InternalMemoryCollection {
             .collect::<Vec<Value>>()
     }
 
-    fn get(&self, id: &str) -> Option<Value> {
+    pub fn get(&self, id: &str) -> Option<Value> {
         self.collection.get(id).cloned()
     }
 
-    fn exists(&self, id: &str) -> bool {
+    pub fn exists(&self, id: &str) -> bool {
         self.collection.contains_key(id)
     }
 
-    fn count(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.collection.len()
     }
 
-    fn add(&mut self, item: Value) -> Option<Value> {
+    pub fn add(&mut self, item: Value) -> Option<Value> {
         let next_id = {
             self.id_manager.next()
         };
@@ -161,7 +131,7 @@ impl DbCollection for InternalMemoryCollection {
         None
     }
 
-    fn add_batch(&mut self, items: Value) -> Vec<Value> {
+    pub fn add_batch(&mut self, items: Value) -> Vec<Value> {
         let mut added_items = Vec::new();
 
         if let Value::Array(items_array) = items {
@@ -219,7 +189,7 @@ impl DbCollection for InternalMemoryCollection {
         added_items
     }
 
-    fn update(&mut self, id: &str, item: Value) -> Option<Value> {
+    pub fn update(&mut self, id: &str, item: Value) -> Option<Value> {
         let mut item = item;
 
         // Add the ID to the item using the configured id_key
@@ -236,7 +206,7 @@ impl DbCollection for InternalMemoryCollection {
         }
     }
 
-    fn update_partial(&mut self, id: &str, partial_item: Value) -> Option<Value> {
+    pub fn update_partial(&mut self, id: &str, partial_item: Value) -> Option<Value> {
         if let Some(existing_item) = self.collection.get(id).cloned() {
             // Merge the partial update with the existing item
             let updated_item = Self::merge_json_values(existing_item, partial_item);
@@ -257,17 +227,17 @@ impl DbCollection for InternalMemoryCollection {
         }
     }
 
-    fn delete(&mut self, id: &str) -> Option<Value> {
+    pub fn delete(&mut self, id: &str) -> Option<Value> {
         self.collection.remove(id)
     }
 
-    fn clear(&mut self) -> usize {
+    pub fn clear(&mut self) -> usize {
         let count = self.collection.len();
         self.collection.clear();
         count
     }
 
-    fn load_from_json(&mut self, json_value: Value) -> Result<Vec<Value>, String> {
+    pub fn load_from_json(&mut self, json_value: Value) -> Result<Vec<Value>, String> {
         // Guard: Check if it's a JSON Array
         let Value::Array(_) = json_value else {
             return Err("⚠️ Informed JSON does not contain a JSON array in the root, skipping initial data load".to_string());
@@ -278,7 +248,7 @@ impl DbCollection for InternalMemoryCollection {
         Ok(added_items)
     }
 
-    fn load_from_file(&mut self, file_path: &OsString) -> Result<String, String> {
+    pub fn load_from_file(&mut self, file_path: &OsString) -> Result<String, String> {
         let file_path_lossy = file_path.to_string_lossy();
 
         // Guard: Try to read the file content
@@ -294,10 +264,38 @@ impl DbCollection for InternalMemoryCollection {
             Err(error) => Err(format!("Error to process the file {}. Details: {}", file_path_lossy, error)),
         }
     }
+}
 
-    fn schema(&self) -> Option<SchemaDict> {
-        self.schema().cloned()
-    }
+pub trait DbCollection {
+    fn schema(&self) -> Option<SchemaDict>;
+
+    fn new_coll(name: &str, config: Config) -> Self;
+
+    fn get_all(&self) -> Vec<Value>;
+
+    fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value>;
+
+    fn get(&self, id: &str) -> Option<Value>;
+
+    fn exists(&self, id: &str) -> bool;
+
+    fn count(&self) -> usize;
+
+    fn add(&mut self, item: Value) -> Option<Value>;
+
+    fn add_batch(&mut self, items: Value) -> Vec<Value>;
+
+    fn update(&mut self, id: &str, item: Value) -> Option<Value>;
+
+    fn update_partial(&mut self, id: &str, partial_item: Value) -> Option<Value>;
+
+    fn delete(&mut self, id: &str) -> Option<Value>;
+
+    fn clear(&mut self) -> usize;
+
+    fn load_from_json(&mut self, json_value: Value) -> Result<Vec<Value>, String>;
+
+    fn load_from_file(&mut self, file_path: &OsString) -> Result<String, String>;
 }
 
 impl DbCollection for MemoryCollection {
@@ -358,7 +356,7 @@ impl DbCollection for MemoryCollection {
     }
 
     fn schema(&self) -> Option<SchemaDict> {
-        self.read().ok().and_then(|g| g.schema().cloned())
+        self.read().ok().and_then(|g| g.schema())
     }
 }
 
@@ -1157,438 +1155,4 @@ mod tests {
         assert_eq!(item1.get("customId").unwrap(), 1);
         assert_eq!(item1.get("name").unwrap(), "Item 1");
     }
-
-    // // Tests for get_from_criteria method
-    // #[test]
-    // fn test_get_from_criteria_equal() {
-    //     let mut collection = create_test_collection();
-
-    //     // Add test data
-    //     collection.add(json!({"name": "Alice", "age": 25, "city": "New York"}));
-    //     collection.add(json!({"name": "Bob", "age": 30, "city": "Boston"}));
-    //     collection.add(json!({"name": "Alice", "age": 28, "city": "Seattle"}));
-    //     collection.add(json!({"name": "Charlie", "age": 25, "city": "New York"}));
-
-    //     // Test equal comparison for string
-    //     let constraint = Constraint::try_new(
-    //         "name".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!("Alice"))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2);
-
-    //     for result in &results {
-    //         assert_eq!(result.get("name").unwrap(), "Alice");
-    //     }
-
-    //     // Test equal comparison for number
-    //     let constraint = Constraint::try_new(
-    //         "age".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!(25))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2);
-
-    //     for result in &results {
-    //         assert_eq!(result.get("age").unwrap(), 25);
-    //     }
-    // }
-
-    // #[test]
-    // fn test_get_from_criteria_different() {
-    //     let mut collection = create_test_collection();
-
-    //     // Add test data
-    //     collection.add(json!({"name": "Alice", "age": 25, "active": true}));
-    //     collection.add(json!({"name": "Bob", "age": 30, "active": false}));
-    //     collection.add(json!({"name": "Charlie", "age": 25, "active": true}));
-
-    //     // Test different comparison for string
-    //     let constraint = Constraint::try_new(
-    //         "name".to_string(),
-    //         Comparer::Different,
-    //         Some(json!("Alice"))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2);
-
-    //     for result in &results {
-    //         assert_ne!(result.get("name").unwrap(), "Alice");
-    //     }
-
-    //     // Test different comparison for boolean
-    //     let constraint = Constraint::try_new(
-    //         "active".to_string(),
-    //         Comparer::Different,
-    //         Some(json!(true))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 1);
-    //     assert_eq!(results[0].get("name").unwrap(), "Bob");
-    // }
-
-    // #[test]
-    // fn test_get_from_criteria_numeric_comparisons() {
-    //     let mut collection = create_test_collection();
-
-    //     // Add test data with different ages and scores
-    //     collection.add(json!({"name": "Alice", "age": 25, "score": 85.5}));
-    //     collection.add(json!({"name": "Bob", "age": 30, "score": 92.0}));
-    //     collection.add(json!({"name": "Charlie", "age": 35, "score": 78.5}));
-    //     collection.add(json!({"name": "David", "age": 20, "score": 95.0}));
-
-    //     // Test greater than
-    //     let constraint = Constraint::try_new(
-    //         "age".to_string(),
-    //         Comparer::GreaterThan,
-    //         Some(json!(25))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Bob (30) and Charlie (35)
-
-    //     let ages: Vec<i64> = results.iter()
-    //         .map(|r| r.get("age").unwrap().as_i64().unwrap())
-    //         .collect();
-    //     assert!(ages.contains(&30));
-    //     assert!(ages.contains(&35));
-
-    //     // Test greater than or equal
-    //     let constraint = Constraint::try_new(
-    //         "age".to_string(),
-    //         Comparer::GreaterThanOrEqual,
-    //         Some(json!(30))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Bob (30) and Charlie (35)
-
-    //     // Test less than
-    //     let constraint = Constraint::try_new(
-    //         "score".to_string(),
-    //         Comparer::LessThan,
-    //         Some(json!(90.0))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Alice (85.5) and Charlie (78.5)
-
-    //     // Test less than or equal
-    //     let constraint = Constraint::try_new(
-    //         "score".to_string(),
-    //         Comparer::LessThanOrEqual,
-    //         Some(json!(85.5))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Alice (85.5) and Charlie (78.5)
-    // }
-
-    // #[test]
-    // fn test_get_from_criteria_like_patterns() {
-    //     let mut collection = create_test_collection();
-
-    //     // Add test data with email addresses
-    //     collection.add(json!({"name": "Alice", "email": "alice@gmail.com"}));
-    //     collection.add(json!({"name": "Bob", "email": "bob@company.com"}));
-    //     collection.add(json!({"name": "Charlie", "email": "charlie@gmail.com"}));
-    //     collection.add(json!({"name": "David", "email": "david@yahoo.com"}));
-
-    //     // Test LIKE with % wildcard
-    //     let constraint = Constraint::try_new(
-    //         "email".to_string(),
-    //         Comparer::Like,
-    //         Some(json!("%@gmail.com"))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Alice and Charlie
-
-    //     let names: Vec<&str> = results.iter()
-    //         .map(|r| r.get("name").unwrap().as_str().unwrap())
-    //         .collect();
-    //     assert!(names.contains(&"Alice"));
-    //     assert!(names.contains(&"Charlie"));
-
-    //     // Test LIKE with _ wildcard
-    //     let constraint = Constraint::try_new(
-    //         "name".to_string(),
-    //         Comparer::Like,
-    //         Some(json!("B_b"))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 1);
-    //     assert_eq!(results[0].get("name").unwrap(), "Bob");
-
-    //     // Test complex pattern
-    //     let constraint = Constraint::try_new(
-    //         "email".to_string(),
-    //         Comparer::Like,
-    //         Some(json!("%@%.com"))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 4); // All emails end with .com
-    // }
-
-    // #[test]
-    // fn test_get_from_criteria_null_checks() {
-    //     let mut collection = create_test_collection();
-
-    //     // Add test data with some null values
-    //     collection.add(json!({"name": "Alice", "phone": "123-456-7890", "notes": null}));
-    //     collection.add(json!({"name": "Bob", "phone": null, "notes": "Important client"}));
-    //     collection.add(json!({"name": "Charlie", "phone": "987-654-3210", "notes": null}));
-
-    //     // Test IS NULL
-    //     let constraint = Constraint::try_new(
-    //         "phone".to_string(),
-    //         Comparer::IsNull,
-    //         None
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 1);
-    //     assert_eq!(results[0].get("name").unwrap(), "Bob");
-
-    //     // Test IS NOT NULL
-    //     let constraint = Constraint::try_new(
-    //         "phone".to_string(),
-    //         Comparer::IsNotNull,
-    //         None
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Alice and Charlie
-
-    //     let names: Vec<&str> = results.iter()
-    //         .map(|r| r.get("name").unwrap().as_str().unwrap())
-    //         .collect();
-    //     assert!(names.contains(&"Alice"));
-    //     assert!(names.contains(&"Charlie"));
-
-    //     // Test IS NULL for notes
-    //     let constraint = Constraint::try_new(
-    //         "notes".to_string(),
-    //         Comparer::IsNull,
-    //         None
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Alice and Charlie
-    // }
-
-    // #[test]
-    // fn test_get_from_criteria_no_matches() {
-    //     let mut collection = create_test_collection();
-
-    //     // Add test data
-    //     collection.add(json!({"name": "Alice", "age": 25}));
-    //     collection.add(json!({"name": "Bob", "age": 30}));
-
-    //     // Test with criteria that matches nothing
-    //     let constraint = Constraint::try_new(
-    //         "name".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!("NonExistent"))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert!(results.is_empty());
-
-    //     // Test with field that doesn't exist
-    //     let constraint = Constraint::try_new(
-    //         "salary".to_string(),
-    //         Comparer::GreaterThan,
-    //         Some(json!(50000))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert!(results.is_empty());
-    // }
-
-    // #[test]
-    // fn test_get_from_criteria_empty_collection() {
-    //     let collection = create_test_collection();
-
-    //     let constraint = Constraint::try_new(
-    //         "name".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!("Alice"))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert!(results.is_empty());
-    // }
-
-    // #[test]
-    // fn test_get_from_criteria_with_non_object_values() {
-    //     let mut collection = InternalMemoryCollection::new(
-    //         CollectionConfig::none("id", "test_collection")
-    //     );
-
-    //     // Manually insert some non-object values (this shouldn't happen in normal usage)
-    //     collection.collection.insert("1".to_string(), json!("string_value"));
-    //     collection.collection.insert("2".to_string(), json!(42));
-    //     collection.collection.insert("3".to_string(), json!({"name": "Alice", "age": 25}));
-
-    //     let constraint = Constraint::try_new(
-    //         "name".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!("Alice"))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 1); // Only the object should match
-    //     assert_eq!(results[0].get("name").unwrap(), "Alice");
-    // }
-
-    // #[test]
-    // fn test_get_from_criteria_complex_data() {
-    //     let mut collection = create_test_collection();
-
-    //     // Add complex test data
-    //     collection.add(json!({
-    //         "name": "Alice",
-    //         "age": 25,
-    //         "department": "Engineering",
-    //         "salary": 75000.50,
-    //         "active": true,
-    //         "skills": ["Rust", "JavaScript", "Python"],
-    //         "address": {
-    //             "city": "New York",
-    //             "state": "NY"
-    //         }
-    //     }));
-
-    //     collection.add(json!({
-    //         "name": "Bob",
-    //         "age": 30,
-    //         "department": "Marketing",
-    //         "salary": 65000.00,
-    //         "active": false,
-    //         "skills": ["Marketing", "Analytics"],
-    //         "address": {
-    //             "city": "Boston",
-    //             "state": "MA"
-    //         }
-    //     }));
-
-    //     collection.add(json!({
-    //         "name": "Charlie",
-    //         "age": 35,
-    //         "department": "Engineering",
-    //         "salary": 85000.75,
-    //         "active": true,
-    //         "skills": ["Java", "Python", "SQL"],
-    //         "address": {
-    //             "city": "Seattle",
-    //             "state": "WA"
-    //         }
-    //     }));
-
-    //     // Test filtering by department
-    //     let constraint = Constraint::try_new(
-    //         "department".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!("Engineering"))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Alice and Charlie
-
-    //     // Test filtering by salary range
-    //     let constraint = Constraint::try_new(
-    //         "salary".to_string(),
-    //         Comparer::GreaterThan,
-    //         Some(json!(70000.0))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Alice and Charlie
-
-    //     // Test filtering by active status
-    //     let constraint = Constraint::try_new(
-    //         "active".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!(true))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2); // Alice and Charlie
-
-    //     let names: Vec<&str> = results.iter()
-    //         .map(|r| r.get("name").unwrap().as_str().unwrap())
-    //         .collect();
-    //     assert!(names.contains(&"Alice"));
-    //     assert!(names.contains(&"Charlie"));
-    // }
-
-    // #[test]
-    // fn test_get_from_criteria_edge_cases() {
-    //     let mut collection = create_test_collection();
-
-    //     // Add data with edge case values
-    //     collection.add(json!({"name": "", "score": 0, "flag": false}));
-    //     collection.add(json!({"name": " ", "score": 0.0, "flag": true}));
-    //     collection.add(json!({"name": "Test", "score": -1, "flag": false}));
-
-    //     // Test empty string
-    //     let constraint = Constraint::try_new(
-    //         "name".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!(""))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 1);
-
-    //     // Test zero values - note that JSON treats 0 and 0.0 differently
-    //     let constraint = Constraint::try_new(
-    //         "score".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!(0))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 1); // Only the integer 0 should match
-
-    //     // Test with 0.0 specifically
-    //     let constraint = Constraint::try_new(
-    //         "score".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!(0.0))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 1); // Only the float 0.0 should match
-
-    //     // Test false boolean
-    //     let constraint = Constraint::try_new(
-    //         "flag".to_string(),
-    //         Comparer::Equal,
-    //         Some(json!(false))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 2);
-
-    //     // Test negative numbers
-    //     let constraint = Constraint::try_new(
-    //         "score".to_string(),
-    //         Comparer::LessThan,
-    //         Some(json!(0))
-    //     ).unwrap();
-
-    //     let results = collection.get_from_constraint(&constraint);
-    //     assert_eq!(results.len(), 1);
-    //     assert_eq!(results[0].get("name").unwrap(), "Test");
-    // }
 }

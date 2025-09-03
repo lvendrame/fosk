@@ -3,7 +3,6 @@ use std::collections::BTreeSet;
 use serde_json::{Map, Value};
 
 use crate::{
-    database::{DbCollection, DbCommon},
     executor::{eval::Eval, helpers::Helpers},
     parser::{
         aggregators_helper::{Accumulator as AggAcc, AggregateRegistry},
@@ -346,7 +345,7 @@ impl PlanExecutor {
 mod tests {
     use super::*;
     use serde_json::json;
-    use crate::database::{DbCommon, InternalDb, Config, IdType};
+    use crate::database::{Config, DbCollection, DbCommon, IdType};
     use crate::planner::plan_builder::PlanBuilder;
     use crate::parser::analyzer::AnalyzedQuery;
     use crate::parser::ast::{Column, ComparatorOp, Function, JoinType, Literal, OrderBy, Predicate, ScalarExpr};
@@ -355,7 +354,7 @@ mod tests {
     use crate::planner::logical_plan::LogicalPlan;
 
     fn mk_db() -> Db {
-        let mut db = InternalDb::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() }).into_protected();
+        let mut db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
         let mut t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "cat": "a", "amt": 10.0 },
@@ -433,7 +432,7 @@ mod tests {
 
     fn mk_db_simple() -> Db {
         // id_type None so we keep provided ids
-        InternalDb::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() }).into_protected()
+        Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() })
     }
 
     fn mk_db_for_scan() -> Db {
@@ -751,7 +750,7 @@ mod tests {
         use serde_json::json;
 
         // Build a tiny DB with two tables
-        let mut db = InternalDb::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() }).into_protected();
+        let mut db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
         let mut t = db.create("t");
         let mut u = db.create("u");
 
@@ -787,7 +786,7 @@ mod tests {
 
     #[test]
     fn left_join_emits_unmatched_left_rows_with_null_right_side() {
-        let mut db = InternalDb::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() }).into_protected();
+        let mut db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
         let mut t = db.create("t");
         let _u = db.create("u"); // keep it empty
 
