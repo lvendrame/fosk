@@ -3,13 +3,20 @@ use serde_json::Value;
 
 use crate::database::{Config, IdManager, IdType, IdValue, SchemaDict};
 
+/// Thread-safe handle to an in-memory collection protected by a RwLock.
 pub type MemoryCollection = RwLock<InternalMemoryCollection>;
 
+/// Internal in-memory collection representation.
+///
+/// Stores items keyed by string ids and maintains an `IdManager` plus an
+/// optional inferred `SchemaDict` for the collection.
 pub struct InternalMemoryCollection {
     collection: HashMap<String, Value>,
     id_manager: IdManager,
     config: Config,
+    /// collection name
     pub name: String,
+    /// optional inferred schema for the collection
     pub schema: Option<SchemaDict>,
 }
 
@@ -262,69 +269,117 @@ impl InternalMemoryCollection {
     }
 }
 
+/// Thread-safe, user-facing handle to a collection.
+///
+/// `DbCollection` wraps an internal in-memory collection protected by a
+/// `RwLock` (`MemoryCollection`) and exposes convenient, high-level methods
+/// for common operations: retrieval (`get`, `get_all`, `get_paginated`),
+/// mutation (`add`, `add_batch`, `update`, `update_partial`, `delete`,
+/// `clear`), and bulk loads (`load_from_json`, `load_from_file`).
+///
+/// Prefer using the provided methods which acquire locks internally. If you
+/// need lower-level access to the underlying collection, the `collection`
+/// field is public so callers can acquire a read or write lock directly with
+/// `.read()` / `.write()`, but doing so bypasses the convenience methods and
+/// should be done with care.
 pub struct DbCollection {
+    /// The internal protected memory collection. Callers may acquire a lock
+    /// directly (e.g. `dbcoll.collection.read().unwrap()`) but prefer the
+    /// high-level methods on `DbCollection` when possible.
     pub collection: MemoryCollection,
 }
 
 impl DbCollection {
+    /// Create a new `DbCollection` backed by an internal in-memory collection.
+    ///
+    /// `name` is the collection name and `config` controls id strategy and key.
     pub fn new_coll(name: &str, config: Config) -> Self {
         Self {
             collection: InternalMemoryCollection::new_coll(name, config).into_protected()
         }
     }
 
+    /// Return all documents in the collection as a `Vec<Value>`.
+    ///
+    /// This clones stored JSON values and is intended for small collections or
+    /// tests; prefer paginated access for large datasets.
     pub fn get_all(&self) -> Vec<Value> {
         self.collection.read().unwrap().get_all()
     }
 
+    /// Return a page of documents starting at `offset` with at most `limit`
+    /// items.
     pub fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
         self.collection.read().unwrap().get_paginated(offset, limit)
     }
 
+    /// Retrieve a single document by its string id.
     pub fn get(&self, id: &str) -> Option<Value> {
         self.collection.read().unwrap().get(id)
     }
 
+    /// Check whether a document with `id` exists in the collection.
     pub fn exists(&self, id: &str) -> bool {
         self.collection.read().unwrap().exists(id)
     }
 
+    /// Return the number of documents currently stored in the collection.
     pub fn count(&self) -> usize {
         self.collection.read().unwrap().count()
     }
 
+    /// Add a document to the collection.
+    ///
+    /// Depending on the configured `id_type`, the collection may generate an
+    /// id and insert it into the document. Returns the stored document on
+    /// success (with id populated) or `None` if the item could not be added
+    /// (for example when ids are required but missing).
     pub fn add(&self, item: Value) -> Option<Value> {
         self.collection.write().unwrap().add(item)
     }
 
+    /// Add multiple items from a JSON array value; returns the subset of
+    /// items that were actually added.
     pub fn add_batch(&self, items: Value) -> Vec<Value> {
         self.collection.write().unwrap().add_batch(items)
     }
 
+    /// Replace the document with id `id` with `item`. Returns the stored
+    /// document on success or `None` if the id was not present.
     pub fn update(&self, id: &str, item: Value) -> Option<Value> {
         self.collection.write().unwrap().update(id, item)
     }
 
+    /// Apply a partial update to the document with `id` by merging JSON
+    /// values; returns the updated document or `None` if the id is not found.
     pub fn update_partial(&self, id: &str, partial_item: Value) -> Option<Value> {
         self.collection.write().unwrap().update_partial(id, partial_item)
     }
 
+    /// Remove and return the document with `id` if it exists.
     pub fn delete(&self, id: &str) -> Option<Value> {
         self.collection.write().unwrap().delete(id)
     }
 
+    /// Remove all documents and return the number of removed items.
     pub fn clear(&self) -> usize {
         self.collection.write().unwrap().clear()
     }
 
+    /// Load documents from a serde_json `Value` (must be an array) and return
+    /// the list of items actually added. Errors if the value is not an array.
     pub fn load_from_json(&self, json_value: Value) -> Result<Vec<Value>, String> {
         self.collection.write().unwrap().load_from_json(json_value)
     }
 
+    /// Load documents from a file path. Returns a human-readable status on
+    /// success or an error string on failure.
     pub fn load_from_file(&self, file_path: &OsString) -> Result<String, String> {
         self.collection.write().unwrap().load_from_file(file_path)
     }
 
+    /// Return the optionally-inferred `SchemaDict` for this collection (if
+    /// any documents have been added that allowed schema inference).
     pub fn schema(&self) -> Option<SchemaDict> {
         self.collection.read().ok().and_then(|g| g.schema())
     }

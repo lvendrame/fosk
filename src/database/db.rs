@@ -2,8 +2,10 @@ use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use crate::{database::{Config, DbCollection, SchemaProvider}, executor::plan_executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
 
+/// Thread-safe pointer to the internal database state.
 pub type ProtectedDb = Arc<RwLock<InternalDb>>;
 
+/// Internal database holding configuration and named collections.
 #[derive(Default)]
 pub struct InternalDb {
     config: Config,
@@ -12,6 +14,7 @@ pub struct InternalDb {
 
 impl InternalDb {
 
+    /// Convert the internal DB into a thread-safe `ProtectedDb`.
     pub fn into_protected(self) -> ProtectedDb {
         Arc::new(RwLock::new(self))
     }
@@ -27,10 +30,12 @@ impl InternalDb {
         }
     }
 
+    /// Create or register a new collection using the DB's default `Config`.
     pub fn create(&mut self, coll_name: &str) -> Arc<DbCollection> {
         self.create_with_config(coll_name, self.config.clone())
     }
 
+    /// Create or register a new collection with a specific `Config`.
     pub fn create_with_config(&mut self, coll_name: &str, config: Config) -> Arc<DbCollection> {
         let collection = Arc::new(DbCollection::new_coll(coll_name, config));
         self.collections.insert(coll_name.to_string(), Arc::clone(&collection));
@@ -38,50 +43,63 @@ impl InternalDb {
         collection
     }
 
+    /// Get a shared handle to a collection by name.
     pub fn get(&self, col_name: &str) -> Option<Arc<DbCollection>> {
         self.collections.get(col_name).map(Arc::clone)
     }
 
+    /// List collection names registered in this database instance.
     pub fn list_collections(&self) -> Vec<String> {
         self.collections.keys().cloned().collect::<Vec<_>>()
     }
 
 }
 
+/// Public database handle exposing higher-level APIs.
 pub struct Db {
+    /// Internal protected database state
     pub internal_db: ProtectedDb,
 }
 
 impl Db {
 
+    /// Create a new in-memory database with default configuration.
     pub fn new_db() -> Self {
         Self{
             internal_db: InternalDb::new_db().into_protected(),
         }
     }
 
+    /// Create a new in-memory database with an explicit `Config`.
     pub fn new_db_with_config(config: Config) -> Self {
         Self{
             internal_db: InternalDb::new_db_with_config(config).into_protected(),
         }
     }
 
+    /// Create a collection using the DB's internal lock (concurrent-safe).
     pub fn create(&self, coll_name: &str) -> Arc<DbCollection> {
         self.internal_db.write().unwrap().create(coll_name)
     }
 
+    /// Create a collection with explicit `Config` using the DB's internal lock.
     pub fn create_with_config(&self, coll_name: &str, config: Config) -> Arc<DbCollection> {
         self.internal_db.write().unwrap().create_with_config(coll_name, config)
     }
 
+    /// Get a shared handle to a collection by name.
     pub fn get(&self, col_name: &str) -> Option<Arc<DbCollection>> {
         self.internal_db.read().unwrap().get(col_name)
     }
 
+    /// List registered collection names.
     pub fn list_collections(&self) -> Vec<String> {
         self.internal_db.read().unwrap().list_collections()
     }
 
+    /// Execute a SQL query through the parser, analyzer, planner and executor.
+    ///
+    /// Returns a vector of JSON `Value` rows on success or an `AnalyzerError`.
     pub fn query(&self, sql: &str) -> Result<Vec<serde_json::Value>, AnalyzerError> {
         // 1) Parse
         let q = Query::try_from(sql)

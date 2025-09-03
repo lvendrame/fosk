@@ -3,16 +3,25 @@ use serde_json::{Map, Value};
 
 use crate::database::FieldInfo;
 
+/// A small dictionary describing the inferred schema for a collection.
+///
+/// The `fields` map stores `FieldInfo` entries keyed by field name. This type
+/// is used by the in-memory collection to track types and nullability across
+/// multiple documents.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SchemaDict {
+    /// Map of field name -> field metadata
     pub fields: IndexMap<String, FieldInfo>,
 }
 
 impl SchemaDict {
+    /// Return the `FieldInfo` for a field name if present.
     pub fn get(&self, name: &str) -> Option<&FieldInfo> {
         self.fields.get(name)
     }
 
+    /// Build a `SchemaDict` from a single JSON object by inferring each field's
+    /// primitive type and nullability.
     pub fn infer_schema_from_object(obj: &Map<String, Value>) -> SchemaDict {
         let mut fields = IndexMap::new();
         for (k, v) in obj {
@@ -21,6 +30,9 @@ impl SchemaDict {
         SchemaDict { fields }
     }
 
+    /// Merge a new JSON object into the schema, promoting types where
+    /// necessary and marking fields as nullable if they are absent or null in
+    /// the new object.
     pub fn merge_schema(&mut self, obj: &Map<String, Value>) {
         // First, mark missing keys as nullable (they weren't present on this row)
         // (Optional) If you want "missing means nullable", uncomment:
