@@ -30,12 +30,8 @@ impl InternalMemoryCollection {
         Arc::new(RwLock::new(self))
     }
 
-    pub fn schema_ref(&self) -> Option<&SchemaDict> {
-        self.schema.as_ref()
-    }
-
     pub fn schema(&self) -> Option<SchemaDict> {
-        self.schema_ref().cloned()
+        self.schema.as_ref().cloned()
     }
 
     pub fn ensure_update_schema_for_item(&mut self, item: &Value) {
@@ -266,97 +262,71 @@ impl InternalMemoryCollection {
     }
 }
 
-pub trait DbCollection {
-    fn schema(&self) -> Option<SchemaDict>;
-
-    fn new_coll(name: &str, config: Config) -> Self;
-
-    fn get_all(&self) -> Vec<Value>;
-
-    fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value>;
-
-    fn get(&self, id: &str) -> Option<Value>;
-
-    fn exists(&self, id: &str) -> bool;
-
-    fn count(&self) -> usize;
-
-    fn add(&mut self, item: Value) -> Option<Value>;
-
-    fn add_batch(&mut self, items: Value) -> Vec<Value>;
-
-    fn update(&mut self, id: &str, item: Value) -> Option<Value>;
-
-    fn update_partial(&mut self, id: &str, partial_item: Value) -> Option<Value>;
-
-    fn delete(&mut self, id: &str) -> Option<Value>;
-
-    fn clear(&mut self) -> usize;
-
-    fn load_from_json(&mut self, json_value: Value) -> Result<Vec<Value>, String>;
-
-    fn load_from_file(&mut self, file_path: &OsString) -> Result<String, String>;
+pub struct DbCollection {
+    pub collection: MemoryCollection,
 }
 
-impl DbCollection for MemoryCollection {
-    fn new_coll(name: &str, config: Config) -> Self {
-        InternalMemoryCollection::new_coll(name, config).into_protected()
+impl DbCollection {
+    pub fn new_coll(name: &str, config: Config) -> Self {
+        Self {
+            collection: InternalMemoryCollection::new_coll(name, config).into_protected()
+        }
     }
 
-    fn get_all(&self) -> Vec<Value> {
-        self.read().unwrap().get_all()
+    pub fn get_all(&self) -> Vec<Value> {
+        self.collection.read().unwrap().get_all()
     }
 
-    fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
-        self.read().unwrap().get_paginated(offset, limit)
+    pub fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
+        self.collection.read().unwrap().get_paginated(offset, limit)
     }
 
-    fn get(&self, id: &str) -> Option<Value> {
-        self.read().unwrap().get(id)
+    pub fn get(&self, id: &str) -> Option<Value> {
+        self.collection.read().unwrap().get(id)
     }
 
-    fn exists(&self, id: &str) -> bool {
-        self.read().unwrap().exists(id)
+    pub fn exists(&self, id: &str) -> bool {
+        self.collection.read().unwrap().exists(id)
     }
 
-    fn count(&self) -> usize {
-        self.read().unwrap().count()
+    pub fn count(&self) -> usize {
+        self.collection.read().unwrap().count()
     }
 
-    fn add(&mut self, item: Value) -> Option<Value> {
-        self.write().unwrap().add(item)
+    pub fn add(&self, item: Value) -> Option<Value> {
+        self.collection.write().unwrap().add(item)
     }
 
-    fn add_batch(&mut self, items: Value) -> Vec<Value> {
-        self.write().unwrap().add_batch(items)
+    pub fn add_batch(&self, items: Value) -> Vec<Value> {
+        self.collection.write().unwrap().add_batch(items)
     }
 
-    fn update(&mut self, id: &str, item: Value) -> Option<Value> {
-        self.write().unwrap().update(id, item)
+    pub fn update(&self, id: &str, item: Value) -> Option<Value> {
+        self.collection.write().unwrap().update(id, item)
     }
 
-    fn update_partial(&mut self, id: &str, partial_item: Value) -> Option<Value> {
-        self.write().unwrap().update_partial(id, partial_item)
+    pub fn update_partial(&self, id: &str, partial_item: Value) -> Option<Value> {
+        self.collection.write().unwrap().update_partial(id, partial_item)
     }
 
-    fn delete(&mut self, id: &str) -> Option<Value> {
-        self.write().unwrap().delete(id)
+    pub fn delete(&self, id: &str) -> Option<Value> {
+        self.collection.write().unwrap().delete(id)
     }
 
-    fn clear(&mut self) -> usize {
-        self.write().unwrap().clear()
+    pub fn clear(&self) -> usize {
+        self.collection.write().unwrap().clear()
     }
 
-    fn load_from_json(&mut self, json_value: Value) -> Result<Vec<Value>, String> {
-        self.write().unwrap().load_from_json(json_value)
+    pub fn load_from_json(&self, json_value: Value) -> Result<Vec<Value>, String> {
+        self.collection.write().unwrap().load_from_json(json_value)
     }
 
-    fn load_from_file(&mut self, file_path: &OsString) -> Result<String, String> {
-        self.write().unwrap().load_from_file(file_path)
+    pub fn load_from_file(&self, file_path: &OsString) -> Result<String, String> {
+        self.collection.write().unwrap().load_from_file(file_path)
     }
 
-    fn schema(&self) -> Option<SchemaDict> {
-        self.read().ok().and_then(|g| g.schema())
+    pub fn schema(&self) -> Option<SchemaDict> {
+        self.collection.read().ok().and_then(|g| g.schema())
     }
 }
 

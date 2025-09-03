@@ -31,10 +31,10 @@ impl PlanExecutor {
     pub fn run_plan(plan: &LogicalPlan, db: &Db) -> Result<Vec<Value>, AnalyzerError> {
         match plan {
             LogicalPlan::Scan { backing, visible } => {
-                let coll = db.read().unwrap().get(backing)
+                let coll = db.get(backing)
                     .ok_or_else(|| AnalyzerError::Other(format!("unknown collection {backing}")))?;
                 let mut out = Vec::new();
-                for v in coll.read().unwrap().get_all() {
+                for v in coll.get_all() {
                     // prefix keys with visible name to match qualified columns
                     if let Value::Object(map) = v {
                         let mut m = Map::new();
@@ -353,7 +353,7 @@ impl PlanExecutor {
 mod tests {
     use super::*;
     use serde_json::json;
-    use crate::database::{Config, DbCollection, DbCommon, IdType};
+    use crate::database::{Config, Db, IdType};
     use crate::planner::plan_builder::PlanBuilder;
     use crate::parser::analyzer::AnalyzedQuery;
     use crate::parser::ast::{Column, ComparatorOp, Function, JoinType, Literal, OrderBy, Predicate, ScalarExpr};
@@ -362,8 +362,8 @@ mod tests {
     use crate::planner::logical_plan::LogicalPlan;
 
     fn mk_db() -> Db {
-        let mut db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
-        let mut t = db.create("t");
+        let db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
+        let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "cat": "a", "amt": 10.0 },
             { "id": 2, "cat": "a", "amt": 15.0 },
@@ -444,8 +444,8 @@ mod tests {
     }
 
     fn mk_db_for_scan() -> Db {
-        let mut db = mk_db_simple();
-        let mut t = db.create("t");
+        let db = mk_db_simple();
+        let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "name": "Ana", "k": 2, "val": 10.0 },
             { "id": 2, "name": "Bob", "k": 1, "val": null }
@@ -578,8 +578,8 @@ mod tests {
     // ---------- Aggregate: SUM/COUNT/MIN/MAX/AVG, DISTINCT, NULLs -----------
 
     fn mk_db_for_agg() -> Db {
-        let mut db = mk_db_simple();
-        let mut t = db.create("t");
+        let db = mk_db_simple();
+        let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "cat": "a", "amt": 10.0 },
             { "id": 2, "cat": "a", "amt": 15.0 },
@@ -672,7 +672,7 @@ mod tests {
     #[test]
     fn aggregate_distinct_count_and_sum_distinct() {
         let db = mk_db_simple();
-        let mut t = db.write().unwrap().create("t");
+        let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "x": 1, "y": 10.0 },
             { "id": 2, "x": 1, "y": 10.0 },
@@ -712,7 +712,7 @@ mod tests {
     #[test]
     fn aggregate_avg_min_max_and_null_only_group() {
         let db = mk_db_simple();
-        let mut t = db.write().unwrap().create("t");
+        let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "g": "a", "v": 2.0 },
             { "id": 2, "g": "a", "v": 4.0 },
@@ -758,9 +758,9 @@ mod tests {
         use serde_json::json;
 
         // Build a tiny DB with two tables
-        let mut db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
-        let mut t = db.create("t");
-        let mut u = db.create("u");
+        let db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
+        let t = db.create("t");
+        let u = db.create("u");
 
         t.add_batch(json!([
             { "id": 1, "x": "A" },
@@ -794,8 +794,8 @@ mod tests {
 
     #[test]
     fn left_join_emits_unmatched_left_rows_with_null_right_side() {
-        let mut db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
-        let mut t = db.create("t");
+        let db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
+        let t = db.create("t");
         let _u = db.create("u"); // keep it empty
 
         t.add_batch(json!([
@@ -827,9 +827,9 @@ mod tests {
     #[test]
     fn left_join_null_ext_uses_schema_even_when_right_is_empty() {
         // Build DB
-        let mut db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
-        let mut t = db.create("t");
-        let mut u = db.create("u");
+        let db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
+        let t = db.create("t");
+        let u = db.create("u");
 
         // Seed left with data
         t.add_batch(json!([
@@ -869,7 +869,7 @@ mod tests {
     #[test]
     fn keyset_for_side_scan_uses_schema_with_visible_prefix() {
         let db = mk_db();
-        let mut t = db.clone().create("t");
+        let t = db.create("t");
         // Seed to register schema (id, x)
         t.add_batch(json!([
             { "id": 1, "x": "A" },
@@ -887,7 +887,7 @@ mod tests {
     #[test]
     fn keyset_for_side_scan_empty_rows_but_schema_known_still_returns_prefixed_keys() {
         let db = mk_db();
-        let mut u = db.clone().create("u");
+        let u = db.create("u");
         // register schema
         u.add_batch(json!([{ "id": 99, "y": true }]));
         // make it empty for execution but schema remains
@@ -905,7 +905,7 @@ mod tests {
     #[test]
     fn keyset_for_side_non_scan_falls_back_to_observed_row_keys() {
         let db = mk_db();
-        let mut t = db.clone().create("t");
+        let t = db.create("t");
         t.add_batch(json!([{ "id": 1, "x": "A" }]));
 
         // Produce observed rows by executing a scan, then ask keyset for a NON-Scan plan

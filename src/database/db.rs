@@ -1,32 +1,20 @@
 use std::{collections::HashMap, sync::{Arc, RwLock}};
 
-use crate::{database::{Config, DbCollection, MemoryCollection, SchemaProvider}, executor::plan_executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
+use crate::{database::{Config, DbCollection, SchemaProvider}, executor::plan_executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
 
-pub type Db = Arc<RwLock<InternalDb>>;
+pub type ProtectedDb = Arc<RwLock<InternalDb>>;
 
 #[derive(Default)]
 pub struct InternalDb {
     config: Config,
-    collections: HashMap<String, MemoryCollection>,
+    collections: HashMap<String, Arc<DbCollection>>,
 }
 
 impl InternalDb {
 
-    pub fn into_protected(self) -> Db {
+    pub fn into_protected(self) -> ProtectedDb {
         Arc::new(RwLock::new(self))
     }
-}
-
-pub trait DbCommon {
-    fn new_db() -> Self;
-    fn new_db_with_config(config: Config) -> Self;
-    fn create(&mut self, coll_name: &str) -> MemoryCollection;
-    fn create_with_config(&mut self, coll_name: &str, config: Config) -> MemoryCollection;
-    fn get(&self, coll_name: &str) -> Option<MemoryCollection>;
-    fn list_collections(&self) -> Vec<String>;
-}
-
-impl InternalDb {
 
     fn new_db() -> Self {
         Self::new_db_with_config(Config::default())
@@ -39,18 +27,18 @@ impl InternalDb {
         }
     }
 
-    pub fn create(&mut self, coll_name: &str) -> MemoryCollection {
+    pub fn create(&mut self, coll_name: &str) -> Arc<DbCollection> {
         self.create_with_config(coll_name, self.config.clone())
     }
 
-    pub fn create_with_config(&mut self, coll_name: &str, config: Config) -> MemoryCollection {
-        let collection = MemoryCollection::new_coll(coll_name, config);
+    pub fn create_with_config(&mut self, coll_name: &str, config: Config) -> Arc<DbCollection> {
+        let collection = Arc::new(DbCollection::new_coll(coll_name, config));
         self.collections.insert(coll_name.to_string(), Arc::clone(&collection));
 
         collection
     }
 
-    pub fn get(&self, col_name: &str) -> Option<MemoryCollection> {
+    pub fn get(&self, col_name: &str) -> Option<Arc<DbCollection>> {
         self.collections.get(col_name).map(Arc::clone)
     }
 
@@ -60,48 +48,41 @@ impl InternalDb {
 
 }
 
-impl DbCommon for Db {
-
-    fn new_db() -> Self {
-        InternalDb::new_db().into_protected()
-    }
-
-    fn new_db_with_config(config: Config) -> Self {
-        InternalDb::new_db_with_config(config).into_protected()
-    }
-
-    fn create(&mut self, coll_name: &str) -> MemoryCollection {
-        self.write().unwrap().create(coll_name)
-    }
-
-    fn create_with_config(&mut self, coll_name: &str, config: Config) -> MemoryCollection {
-        self.write().unwrap().create_with_config(coll_name, config)
-    }
-
-    fn get(&self, col_name: &str) -> Option<MemoryCollection> {
-        self.read().unwrap().get(col_name)
-    }
-
-    fn list_collections(&self) -> Vec<String> {
-        self.read().unwrap().list_collections()
-    }
+pub struct Db {
+    pub internal_db: ProtectedDb,
 }
 
-impl SchemaProvider for Db {
-    fn schema_of(&self, collection_ref: &str) -> Option<super::SchemaDict> {
-        let guard = self.read().ok()?;
-        let coll = guard.get(collection_ref)?;
-        coll.read().ok()?.schema()
+impl Db {
+
+    pub fn new_db() -> Self {
+        Self{
+            internal_db: InternalDb::new_db().into_protected(),
+        }
     }
-}
 
-pub trait DbRunner {
-    /// Parse, analyze, plan, and execute a SQL string against this Db.
-    fn query(&self, sql: &str) -> Result<Vec<serde_json::Value>, AnalyzerError>;
-}
+    pub fn new_db_with_config(config: Config) -> Self {
+        Self{
+            internal_db: InternalDb::new_db_with_config(config).into_protected(),
+        }
+    }
 
-impl DbRunner for Db {
-    fn query(&self, sql: &str) -> Result<Vec<serde_json::Value>, AnalyzerError> {
+    pub fn create(&self, coll_name: &str) -> Arc<DbCollection> {
+        self.internal_db.write().unwrap().create(coll_name)
+    }
+
+    pub fn create_with_config(&self, coll_name: &str, config: Config) -> Arc<DbCollection> {
+        self.internal_db.write().unwrap().create_with_config(coll_name, config)
+    }
+
+    pub fn get(&self, col_name: &str) -> Option<Arc<DbCollection>> {
+        self.internal_db.read().unwrap().get(col_name)
+    }
+
+    pub fn list_collections(&self) -> Vec<String> {
+        self.internal_db.read().unwrap().list_collections()
+    }
+
+    pub fn query(&self, sql: &str) -> Result<Vec<serde_json::Value>, AnalyzerError> {
         // 1) Parse
         let q = Query::try_from(sql)
             .map_err(|e| AnalyzerError::Other(format!("parse error: {e}")))?;
@@ -119,16 +100,24 @@ impl DbRunner for Db {
     }
 }
 
+impl SchemaProvider for Db {
+    fn schema_of(&self, collection_ref: &str) -> Option<super::SchemaDict> {
+        let guard = self.internal_db.read().ok()?;
+        let coll = guard.get(collection_ref)?;
+        coll.schema()
+    }
+}
+
 // src/database/db_runner_tests.rs
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-    use crate::database::{DbCommon, InternalDb, Config, IdType};
+    use crate::database::{Config, IdType};
 
     fn mk_db() -> Db {
-        let mut db = InternalDb::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() }).into_protected();
-        let mut t = db.create("t");
+        let db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
+        let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "cat": "a", "amt": 10.0 },
             { "id": 2, "cat": "a", "amt": 15.0 },
@@ -152,7 +141,7 @@ mod tests {
             LIMIT 10
         "#;
 
-        let rows = DbRunner::query(&db, sql).expect("query should succeed");
+        let rows = db.query(sql).expect("query should succeed");
         assert_eq!(rows.len(), 1);
 
         let obj = rows[0].as_object().unwrap();
@@ -169,7 +158,7 @@ mod tests {
             SELECT COUNT(*) AS n
             FROM t a, t b
         "#;
-        let rows = DbRunner::query(&db, sql).expect("query should succeed");
+        let rows = db.query(sql).expect("query should succeed");
         assert_eq!(rows.len(), 1);
         // t has 5 rows -> t × t has 25 rows
         assert_eq!(rows[0]["n"].as_i64().unwrap(), 25);

@@ -1,10 +1,12 @@
 #[cfg(test)]
 pub mod fixtures {
+    use std::{collections::{HashMap, HashSet}, sync::Arc};
+
     use serde_json::{json, Value};
-    use crate::database::{Config, Db, DbCollection, DbCommon, DbRunner, IdType};
+    use crate::database::{Config, Db, DbCollection, IdType};
 
     pub fn create_people(db: &Db) {
-        let mut people = db.clone().create("People");
+        let people = db.create("People");
         let rows = json!([
             { "id": 1,  "full_name": "Alice Johnson",    "age": 29, "city": "Porto",    "vip": true  },
             { "id": 2,  "full_name": "Bruno Martins",    "age": 34, "city": "Lisboa",   "vip": false },
@@ -26,7 +28,7 @@ pub mod fixtures {
     }
 
     pub fn create_products(db: &Db) {
-        let mut products = db.clone().create("Products");
+        let products = db.create("Products");
         let rows = json!([
             { "id": 1,  "name": "Laptop Pro 15",           "category": "Electronics", "price": 1200.50 },
             { "id": 2,  "name": "Wireless Mouse",          "category": "Electronics", "price": 25.99   },
@@ -48,7 +50,7 @@ pub mod fixtures {
     }
 
     pub fn create_orders(db: &Db) {
-        let mut orders = db.clone().create("Orders");
+        let orders = db.create("Orders");
         let rows = json!([
             { "id": 1,  "person_id": 1,  "product_id": 4,  "quantity": 1, "order_date": "2025-02-01", "status": "new" },
             { "id": 2,  "person_id": 2,  "product_id": 1,  "quantity": 1, "order_date": "2025-02-02", "status": "processing" },
@@ -95,7 +97,7 @@ pub mod fixtures {
     }
 
     pub fn create_order_items(db: &Db) {
-        let mut items = db.clone().create("OrderItems");
+        let items = db.create("OrderItems");
         let rows = json!([
             // -- Orders 1..20 -> 3 items each (60 rows) --
             { "id": 1,  "order_id": 1,  "product_id": 4,  "quantity": 1, "unit_price": 699.00  },
@@ -261,7 +263,7 @@ pub mod fixtures {
         db
     }
 
-        fn ids_in(coll: &crate::database::MemoryCollection) -> std::collections::HashSet<i64> {
+    fn ids_in(coll: Arc<DbCollection>) -> HashSet<i64> {
         coll.get_all()
             .into_iter()
             .filter_map(|v| {
@@ -275,7 +277,7 @@ pub mod fixtures {
             .collect()
     }
 
-    fn product_price_map(coll: &crate::database::MemoryCollection) -> std::collections::HashMap<i64, f64> {
+    fn product_price_map(coll: Arc<DbCollection>) -> HashMap<i64, f64> {
         coll.get_all()
             .into_iter()
             .filter_map(|v| {
@@ -333,9 +335,9 @@ pub mod fixtures {
         let orders = db.get("Orders").unwrap();
         let items = db.get("OrderItems").unwrap();
 
-        let person_ids = ids_in(&people);
-        let product_ids = ids_in(&products);
-        let order_ids = ids_in(&orders);
+        let person_ids = ids_in(people.clone());
+        let product_ids = ids_in(products.clone());
+        let order_ids = ids_in(orders.clone());
 
         // Orders.person_id must exist in People
         for o in orders.get_all() {
@@ -367,7 +369,7 @@ pub mod fixtures {
         let products = db.get("Products").unwrap();
         let items = db.get("OrderItems").unwrap();
 
-        let price_by_product = product_price_map(&products);
+        let price_by_product = product_price_map(products);
 
         for it in items.get_all() {
             let pid = it.get("product_id")
