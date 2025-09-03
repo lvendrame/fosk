@@ -1,6 +1,6 @@
 use crate::parser::QueryParser;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ComparatorOp {
     Eq,
     NotEq,
@@ -8,6 +8,27 @@ pub enum ComparatorOp {
     LtEq,
     Gt,
     GtEq
+}
+
+use std::fmt;
+
+impl fmt::Display for ComparatorOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ComparatorOp::Eq => write!(f, "="),
+            ComparatorOp::NotEq => write!(f, "<>"),
+            ComparatorOp::Lt => write!(f, "<"),
+            ComparatorOp::LtEq => write!(f, "<="),
+            ComparatorOp::Gt => write!(f, ">"),
+            ComparatorOp::GtEq => write!(f, ">="),
+        }
+    }
+}
+
+impl fmt::Debug for ComparatorOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ComparatorOp({})", self)
+    }
 }
 
 impl ComparatorOp {

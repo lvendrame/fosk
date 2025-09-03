@@ -3,8 +3,10 @@ use crate::parser::WordComparer;
 #[derive(Debug)]
 pub struct QueryComparers {
     pub select: WordComparer,
+    pub distinct: WordComparer,
     pub alias: WordComparer,
     pub from: WordComparer,
+    pub join: WordComparer,
     pub inner_join: WordComparer,
     pub left_join: WordComparer,
     pub right_join: WordComparer,
@@ -48,8 +50,10 @@ impl QueryComparers {
     pub fn new() -> Self {
         Self {
             select: WordComparer::new("SELECT").with_whitespace_postfix(),
+            distinct: WordComparer::new("DISTINCT").with_whitespace_postfix(),
             alias: WordComparer::new("AS").with_whitespace_postfix(),
             from: WordComparer::new("FROM").with_whitespace_postfix(),
+            join: WordComparer::new("JOIN").with_whitespace_postfix(),
             inner_join: WordComparer::new("INNER JOIN").with_whitespace_postfix(),
             left_join: WordComparer::new("LEFT JOIN").with_whitespace_postfix(),
             right_join: WordComparer::new("RIGHT JOIN").with_whitespace_postfix(),
@@ -76,8 +80,8 @@ impl QueryComparers {
             not_like: WordComparer::new("NOT LIKE").with_whitespace_postfix(),
             is_null: WordComparer::new("IS NULL").with_whitespace_postfix().with_eof(),
             is_not_null: WordComparer::new("IS NOT NULL").with_whitespace_postfix().with_eof(),
-            r#in: WordComparer::new("IN").with_delimiter('('),
-            not_in: WordComparer::new("NOT IN").with_delimiter('('),
+            r#in: WordComparer::new("IN").with_whitespace_postfix().with_delimiter('('),
+            not_in: WordComparer::new("NOT IN").with_whitespace_postfix().with_delimiter('('),
             b_true: WordComparer::new("TRUE").with_any_delimiter_postfix().with_eof(),
             b_false: WordComparer::new("FALSE").with_any_delimiter_postfix().with_eof(),
             null: WordComparer::new("NULL").with_any_delimiter_postfix().with_eof(),

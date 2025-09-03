@@ -69,36 +69,33 @@ impl WordComparer {
             return true;
         }
 
-        let mut next = parser.text_v[parser.position + position];
-
-        let mut result = false;
+        let next = parser.text_v[parser.position + position];
 
         if let Some(delimiter) = self.delimiter {
             if next == delimiter {
-                result = true;
+                return true;
             }
-            next = parser.text_v[parser.position + position + 1];
         }
 
         if self.full_block_delimiter_postfix && Self::is_any_delimiter(next) {
-            result = true;
+            return true;
         }
 
         if self.whitespace_postfix && Self::is_block_delimiter(next) {
-            result = true;
+            return true;
         }
 
         if self.break_line_postfix && Self::is_break_line(next) {
-            result = true;
+            return true;
         }
 
         for value in self.optional_postfix.iter() {
             if *value == next {
-                result = true;
+                return true;
             }
         }
 
-        result
+        false
     }
 
     pub fn with_eof(mut self) -> Self { self.eof = true; self }

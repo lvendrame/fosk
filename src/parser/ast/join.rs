@@ -10,6 +10,11 @@ pub enum JoinType {
 
 impl JoinType {
     pub fn parse(parser: &mut QueryParser) -> Result<JoinType, ParseError> {
+        if parser.comparers.join.compare(parser) {
+            parser.jump(parser.comparers.join.length);
+            return Ok(JoinType::Inner);
+        }
+
         if parser.comparers.inner_join.compare(parser) {
             parser.jump(parser.comparers.inner_join.length);
             return Ok(JoinType::Inner);

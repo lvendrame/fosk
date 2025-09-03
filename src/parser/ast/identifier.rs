@@ -1,6 +1,6 @@
 use crate::parser::{ast::{ScalarExpr, TextCollector}, ParseError, QueryParser};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct  Identifier {
     pub expression: ScalarExpr,
     pub alias: Option<String>,
@@ -42,6 +42,23 @@ impl Identifier {
             expression: scalar,
             alias: Some(TextCollector::collect(parser)?),
         })
+    }
+}
+
+use std::fmt;
+
+impl fmt::Display for Identifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.alias {
+            Some(a) => write!(f, "{} as {}", self.expression, a),
+            None => write!(f, "{}", self.expression),
+        }
+    }
+}
+
+impl fmt::Debug for Identifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Identifier({})", self)
     }
 }
 

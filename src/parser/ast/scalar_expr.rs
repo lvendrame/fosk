@@ -1,6 +1,7 @@
 use crate::parser::{ast::{BoolParser, Column, Function, Literal, NullParser, NumberParser, StringParser}, ParseError, QueryParser};
+use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum ScalarExpr {
     Literal(Literal),
     Column(Column),
@@ -36,6 +37,30 @@ impl ScalarExpr {
         }
 
         Column::parse_general_scalar(parser, allow_wildcard)
+    }
+}
+
+impl fmt::Display for ScalarExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScalarExpr::Literal(l) => write!(f, "lit: {}", l),
+            ScalarExpr::Column(c) => write!(f, "{}", c),
+            ScalarExpr::Function(fun) => write!(f, "{}", fun),
+            ScalarExpr::WildCard => write!(f, "*"),
+            ScalarExpr::WildCardWithCollection(coll) => write!(f, "{}.{}", coll, "*"),
+        }
+    }
+}
+
+impl fmt::Debug for ScalarExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScalarExpr::Literal(_) => write!(f, "Literal({})", self),
+            ScalarExpr::Column(_) => write!(f, "Column({})", self),
+            ScalarExpr::Function(_) => write!(f, "Function({})", self),
+            ScalarExpr::WildCard => write!(f, "WildCard(*)"),
+            ScalarExpr::WildCardWithCollection(coll) => write!(f, "WildCardWithCollection({}.*)", coll),
+        }
     }
 }
 

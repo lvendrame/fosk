@@ -1,6 +1,6 @@
 use crate::parser::{ast::TextCollector, ParseError, QueryParser};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Collection {
     Table { name: String, alias: Option<String> },
     Query,
@@ -32,6 +32,29 @@ impl Collection {
         }
 
         ParseError::new("Invalid collection", pivot, parser).err()
+    }
+}
+
+use std::fmt;
+
+impl fmt::Display for Collection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Collection::Table { name, alias } => {
+                if let Some(a) = alias {
+                    write!(f, "Table({} as {})", name, a)
+                } else {
+                    write!(f, "Table({})", name)
+                }
+            }
+            Collection::Query => write!(f, "Query"),
+        }
+    }
+}
+
+impl fmt::Debug for Collection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Collection({})", self)
     }
 }
 

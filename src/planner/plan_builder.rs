@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{parser::{analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError}, ast::{Column, JoinType, OrderBy, Predicate, ScalarExpr, Truth}}, planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan}};
+use crate::{executor::plan_executor::PlanExecutor, parser::{analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError}, ast::{Column, JoinType, OrderBy, Predicate, ScalarExpr, Truth}}, planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan}};
 
 pub struct PlanBuilder;
 
@@ -132,11 +132,16 @@ impl PlanBuilder {
                 }
             }
 
-            // ---- rewrite ORDER BY using final (post-project) names ----
-            let rewritten_order_by: Vec<OrderBy> = aq.order_by.iter().map(|ob| {
+            // ---- rewrite ORDER BY in two steps ----
+            // (1) rewrite only aggregate calls to internal names (sum, sum_1, ... or alias if exposed)
+            let ob_calls_rewritten: Vec<OrderBy> = aq.order_by.iter().map(|ob| {
                 let new_expr = AggregateCall::rewrite_scalar_using_call_names(&ob.expr, &final_name_map);
                 OrderBy { expr: new_expr, ascending: ob.ascending }
             }).collect();
+
+            // (2) now map ANY remaining column refs (e.g. "p.city") to the projection output names (e.g. "city")
+            let rewritten_order_by: Vec<OrderBy> =
+                Self::rewrite_order_by_to_projection_names(&ob_calls_rewritten, &rewritten_projection);
 
             // ---- build Aggregate node ----
             plan = LogicalPlan::Aggregate {
@@ -163,7 +168,8 @@ impl PlanBuilder {
 
             // ORDER BY (stable, NULLS LAST in executor)
             if !aq.order_by.is_empty() {
-                plan = LogicalPlan::Sort { input: Box::new(plan), keys: aq.order_by.clone() };
+                let ob_for_exec = Self::rewrite_order_by_to_projection_names(&aq.order_by, &aq.projection);
+                plan = LogicalPlan::Sort { input: Box::new(plan), keys: ob_for_exec };
             }
         }
 
@@ -226,6 +232,119 @@ impl PlanBuilder {
             }
             Predicate::Const3(_) => {}
         }
+    }
+
+    fn normalize_col_key(expr: &ScalarExpr) -> Option<(String, String)> {
+        use crate::parser::ast::Column;
+        match expr {
+            ScalarExpr::Column(Column::WithCollection { collection, name }) => {
+                Some((collection.clone(), name.clone()))
+            }
+            ScalarExpr::Column(Column::Name { name }) => {
+                // if it's "c.col", split once; otherwise we don't know the collection
+                if let Some(dot) = name.find('.') {
+                    let (c, n) = name.split_at(dot);
+                    // n still has the leading '.', strip it
+                    let n = &n[1..];
+                    Some((c.to_string(), n.to_string()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Build (projected_expr, output_name, normalized_col_key) tuples.
+    /// output_name is alias or the executor's default name.
+    fn out_cols_from_projection(proj: &[AnalyzedIdentifier]) -> Vec<(ScalarExpr, String, Option<(String,String)>)> {
+        proj.iter()
+            .map(|id| {
+                let out_name = id
+                    .alias
+                    .clone()
+                    .unwrap_or_else(|| PlanExecutor::default_name_for_expr(&id.expression));
+                let key = Self::normalize_col_key(&id.expression);
+                (id.expression.clone(), out_name, key)
+            })
+            .collect()
+    }
+
+    /// Rewrites ORDER BY expressions to refer to the projected row field names.
+    /// This lets the executor evaluate them against the post-Project rows.
+    fn rewrite_order_by_to_projection_names(order_bys: &[OrderBy], projection: &[AnalyzedIdentifier]) -> Vec<OrderBy> {
+        use crate::parser::ast::{Literal, ScalarExpr, Column};
+
+        let outs = Self::out_cols_from_projection(projection);
+        let out_name_set: std::collections::HashSet<String> = outs.iter().map(|(_, n, _)| n.clone()).collect();
+
+        order_bys
+            .iter()
+            .map(|ob| {
+                // 1) positional ORDER BY N (1-based)
+                if let ScalarExpr::Literal(Literal::Int(pos)) = &ob.expr {
+                    let idx = (*pos as isize) - 1;
+                    if idx >= 0 && (idx as usize) < outs.len() {
+                        let name = outs[idx as usize].1.clone();
+                        return OrderBy { expr: ScalarExpr::Column(Column::Name { name }), ascending: ob.ascending };
+                    }
+                    return ob.clone();
+                }
+
+                // 2) already a bare output field name? keep it.
+                if let ScalarExpr::Column(Column::Name { name }) = &ob.expr {
+                    if out_name_set.contains(name) {
+                        return ob.clone();
+                    }
+                }
+
+                // 3) semantic column match via (collection,name)
+                if let Some(ob_key) = Self::normalize_col_key(&ob.expr) {
+                    if let Some((_, out_name, _)) = outs.iter().find(|(_, _, k)| k.as_ref() == Some(&ob_key)) {
+                        return OrderBy {
+                            expr: ScalarExpr::Column(Column::Name { name: out_name.clone() }),
+                            ascending: ob.ascending,
+                        };
+                    }
+                }
+
+                // 4) exact expression match (non-column expressions)
+                if let Some((_, out_name, _)) = outs.iter().find(|(e, _, _)| *e == ob.expr) {
+                    return OrderBy {
+                        expr: ScalarExpr::Column(Column::Name { name: out_name.clone() }),
+                        ascending: ob.ascending,
+                    };
+                }
+
+                // 5) alias-insensitive match: if OB is a Column::Name("Alias")
+                //    and any projection's output field equals that alias, map to it.
+                if let ScalarExpr::Column(Column::Name { name }) = &ob.expr {
+                    if let Some((_, out_name, _)) = outs.iter().find(|(_, n, _)| n.eq_ignore_ascii_case(name)) {
+                        return OrderBy {
+                            expr: ScalarExpr::Column(Column::Name { name: out_name.clone() }),
+                            ascending: ob.ascending,
+                        };
+                    }
+                }
+
+                // 6) **NEW**: qualifier-suffix fallback.
+                //    If OB is "p.city" and there is a projected output field called "city", map to "city".
+                if let ScalarExpr::Column(Column::Name { name }) = &ob.expr {
+                    if let Some(dot) = name.rfind('.') {
+                        let suffix = &name[dot + 1..];
+                        if out_name_set.contains(suffix) {
+                            return OrderBy {
+                                expr: ScalarExpr::Column(Column::Name { name: suffix.to_string() }),
+                                ascending: ob.ascending,
+                            };
+                        }
+                    }
+                }
+
+                // leave it as-is
+                ob.clone()
+            })
+            .collect()
     }
 }
 

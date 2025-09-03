@@ -9,7 +9,7 @@
 
 use crate::parser::{ast::{Collection, CollectionsParser, Column, GroupBy, HavingParser, Identifier, Join, LimitAndOffsetParser, OrderBy, Predicate, ProjectionParser, WhereParser}, ParseError, Phase, QueryParser};
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Default, Clone, PartialEq)]
 pub struct Query {
     pub projection: Vec<Identifier>,
     pub collections: Vec<Collection>,
@@ -56,6 +56,29 @@ impl TryFrom<&str> for Query {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let mut parser = QueryParser::new(value);
         Query::parse(&mut parser)
+    }
+}
+
+use std::fmt;
+
+impl fmt::Display for Query {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let proj = self.projection.iter().map(|p| format!("{:?}", p)).collect::<Vec<_>>().join(", ");
+        let cols = self.collections.iter().map(|c| format!("{:?}", c)).collect::<Vec<_>>().join(", ");
+        let joins = self.joins.iter().map(|j| format!("{:?}", j)).collect::<Vec<_>>().join(", ");
+        let crit = match &self.criteria { Some(c) => format!("{:?}", c), None => "None".to_string() };
+        let group = self.group_by.iter().map(|g| format!("{:?}", g)).collect::<Vec<_>>().join(", ");
+        let having = match &self.having { Some(h) => format!("{:?}", h), None => "None".to_string() };
+        let order = self.order_by.iter().map(|o| format!("{:?}", o)).collect::<Vec<_>>().join(", ");
+
+        write!(f, "Query(projection=[{}], collections=[{}], joins=[{}], criteria={}, group_by=[{}], having={}, order_by=[{}], limit={:?}, offset={:?})",
+               proj, cols, joins, crit, group, having, order, self.limit, self.offset)
+    }
+}
+
+impl fmt::Debug for Query {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Query({})", self)
     }
 }
 

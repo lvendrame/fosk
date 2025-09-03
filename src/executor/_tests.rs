@@ -464,4 +464,158 @@ pub mod fixtures {
         );
     }
 
+    #[test]
+    fn report_top_cities_by_population_and_age_via_sql() {
+        // Seed full sample DB (People, Products, Orders, OrderItems)
+        let db = seed_db();
+
+        // Report: top 3 cities by number of people, with avg/min/max age.
+        // - GROUP BY city
+        // - HAVING COUNT(*) >= 2
+        // - ORDER BY alias "people" DESC, then city ASC
+        // - LIMIT 3
+        //
+        // From the known People dataset:
+        //   Lisboa -> 4 people (ages 34, 30, 36, 39) avg=34.75, min=30, max=39
+        //   Porto  -> 3 people (29, 47, 28)         avg=34.666..., min=28, max=47
+        //   Braga  -> 2 people (41, 27)             avg=34.0,    min=27, max=41
+        let sql = r#"
+            SELECT p.city AS city,
+                   COUNT(*) AS people,
+                   AVG(p.age) AS avg_age,
+                   MIN(p.age) AS min_age,
+                   MAX(p.age) AS max_age
+            FROM People p
+            GROUP BY p.city
+            HAVING COUNT(*) >= 2
+            ORDER BY people DESC, city ASC
+            LIMIT 3
+        "#;
+
+        let rows = db.query(sql).expect("query should succeed");
+        assert_eq!(rows.len(), 3, "expect top 3 cities");
+
+        // Helper to pull number fields safely
+        fn f64_of(v: &Value) -> f64 {
+            v.as_f64().expect("number")
+        }
+        fn i64_of(v: &Value) -> i64 {
+            v.as_i64().expect("integer")
+        }
+
+        // Row 0: Lisboa
+        let r0 = rows[0].as_object().expect("row 0 object");
+        assert_eq!(r0.get("city").unwrap(), "Lisboa");
+        assert_eq!(i64_of(r0.get("people").unwrap()), 4);
+        let avg0 = f64_of(r0.get("avg_age").unwrap());
+        assert!((avg0 - 34.75).abs() < 1e-9, "Lisboa avg_age expected 34.75, got {}", avg0);
+        assert_eq!(i64_of(r0.get("min_age").unwrap()), 30);
+        assert_eq!(i64_of(r0.get("max_age").unwrap()), 39);
+
+        // Row 1: Porto
+        let r1 = rows[1].as_object().expect("row 1 object");
+        assert_eq!(r1.get("city").unwrap(), "Porto");
+        assert_eq!(i64_of(r1.get("people").unwrap()), 3);
+        let avg1 = f64_of(r1.get("avg_age").unwrap());
+        assert!((avg1 - 34.666_666_666_7).abs() < 1e-9, "Porto avg_age expected ~34.6667, got {}", avg1);
+        assert_eq!(i64_of(r1.get("min_age").unwrap()), 28);
+        assert_eq!(i64_of(r1.get("max_age").unwrap()), 47);
+
+        // Row 2: Braga
+        let r2 = rows[2].as_object().expect("row 2 object");
+        assert_eq!(r2.get("city").unwrap(), "Braga");
+        assert_eq!(i64_of(r2.get("people").unwrap()), 2);
+        let avg2 = f64_of(r2.get("avg_age").unwrap());
+        assert!((avg2 - 34.0).abs() < 1e-9, "Braga avg_age expected 34.0, got {}", avg2);
+        assert_eq!(i64_of(r2.get("min_age").unwrap()), 27);
+        assert_eq!(i64_of(r2.get("max_age").unwrap()), 41);
+    }
+
+    fn as_i64(v: &Value) -> i64 { v.as_i64().expect("expected integer") }
+    fn as_str(v: &Value) -> &str { v.as_str().expect("expected string") }
+
+    #[test]
+    fn report_top_categories_by_city_complex_joins() {
+        // Seed DB with People, Products, Orders, OrderItems
+        let db = seed_db();
+
+        // Complex 4-way join report:
+        // - People p
+        // - Orders o               (p.id = o.person_id)
+        // - OrderItems oi          (oi.order_id = o.id)
+        // - Products pr            (pr.id = oi.product_id)
+        //
+        // KPIs per (city, category):
+        // - orders: COUNT(DISTINCT o.id)
+        // - items:  SUM(oi.quantity)         (SUM over numeric column is supported)
+        //
+        // Scope: only Porto/Lisboa
+        // Filters: HAVING SUM(oi.quantity) >= 1
+        // Order: city ASC, items DESC, category ASC (multi-key)
+        // Limit: 10
+        let sql = r#"
+            SELECT
+                p.city AS city,
+                pr.category AS category,
+                COUNT(DISTINCT o.id) AS orders,
+                SUM(oi.quantity) AS items
+            FROM People p
+            JOIN Orders o      ON o.person_id = p.id
+            JOIN OrderItems oi ON oi.order_id = o.id
+            JOIN Products pr   ON pr.id = oi.product_id
+            WHERE p.city IN ('Porto', 'Lisboa')
+            GROUP BY p.city, pr.category
+            HAVING SUM(oi.quantity) >= 1
+            ORDER BY city ASC, items DESC, category ASC
+            LIMIT 10
+        "#;
+
+        let rows = db.query(sql).expect("query should succeed");
+        assert!(!rows.is_empty(), "expected at least one result row");
+        assert!(rows.len() <= 10, "LIMIT 10 should cap the result length");
+
+        // Validate schema & monotonic ordering according to ORDER BY
+        // City must be non-decreasing (ASC). Within the same city, items must be non-increasing (DESC).
+        let mut prev_city: Option<String> = None;
+        let mut prev_items_for_city: Option<i64> = None;
+
+        for (i, row) in rows.iter().enumerate() {
+            let obj = row.as_object().expect("row should be an object");
+            // Columns present
+            assert!(obj.contains_key("city"));
+            assert!(obj.contains_key("category"));
+            assert!(obj.contains_key("orders"));
+            assert!(obj.contains_key("items"));
+
+            let city = as_str(obj.get("city").unwrap()).to_string();
+            let category = as_str(obj.get("category").unwrap());
+            let orders = as_i64(obj.get("orders").unwrap());
+            let items  = as_i64(obj.get("items").unwrap());
+
+            // Domain checks
+            assert!(city == "Porto" || city == "Lisboa", "unexpected city: {}", city);
+            assert!(!category.is_empty(), "category should be non-empty");
+            assert!(orders >= 1, "HAVING + join implies at least one order");
+            assert!(items  >= 1, "HAVING SUM(oi.quantity) >= 1");
+
+            // ORDER BY city ASC
+            if let Some(prev) = &prev_city {
+                assert!(prev <= &city, "rows must be ordered by city ASC ({} <= {})", prev, city);
+                if prev == &city {
+                    // Within same city: items must be DESC
+                    if let Some(prev_items) = prev_items_for_city {
+                        assert!(prev_items >= items,
+                            "within city {}, items must be non-increasing ({} >= {}), row {}",
+                            city, prev_items, items, i);
+                    }
+                } else {
+                    // New city segment: reset the per-city tracker
+                    prev_items_for_city = None;
+                }
+            }
+            prev_city = Some(city);
+            prev_items_for_city = Some(prev_items_for_city.map_or(items, |p| p.min(items))); // track last (DESC)
+        }
+    }
+
 }

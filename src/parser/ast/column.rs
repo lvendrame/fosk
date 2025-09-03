@@ -1,6 +1,7 @@
-use crate::parser::{ast::{ArgsParser, Function, ScalarExpr, TextCollector}, ParseError, QueryParser, WordComparer};
+use crate::parser::{ast::{ArgsExpr, Function, ScalarExpr, TextCollector}, ParseError, QueryParser, WordComparer};
+use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Column {
     Name { name: String },
     WithCollection { collection: String, name: String },
@@ -19,7 +20,7 @@ impl Column {
     pub fn parse_general_scalar(parser: &mut QueryParser, allow_wildcard: bool) -> Result<ScalarExpr, ParseError> {
         let mut pivot = parser.position;
         let mut collection: Option<String> = None;
-        let mut args: Option<Vec<ScalarExpr>> = None;
+        let mut args_expr: Option<ArgsExpr> = None;
         let mut name = "".to_string();
         let mut is_wildcard = false;
 
@@ -30,7 +31,7 @@ impl Column {
         }
 
         while !parser.eof() && !WordComparer::is_any_delimiter(parser.current()) {
-            if args.is_some() {
+            if args_expr.is_some() {
                 return Err(ParseError::new("Invalid function", pivot, parser));
             }
 
@@ -50,8 +51,7 @@ impl Column {
                 parser.next();
             } else if parser.current() == '(' {
                 name = text.clone();
-                args = Some(ArgsParser::parse(parser, allow_wildcard)?);
-                parser.next();
+                args_expr = Some(ArgsExpr::parse(parser, allow_wildcard)?);
             } else if current == '*' {
                 is_wildcard = true;
                 parser.next();
@@ -71,11 +71,11 @@ impl Column {
                 Some(collection) => ScalarExpr::WildCardWithCollection(collection),
                 None => ScalarExpr::WildCard,
             },
-            false => match args {
-                Some(args) => ScalarExpr::Function(Function {
+            false => match args_expr {
+                Some(args_expr) => ScalarExpr::Function(Function {
                     name: format!("{}{}", collection.map_or("".to_string(), |coll| format!("{}.", coll)), name),
-                    args,
-                    distinct: false,
+                    args: args_expr.args,
+                    distinct: args_expr.distinct,
                 }),
                 None => match collection {
                     Some(collection) => ScalarExpr::Column(Column::WithCollection { collection, name }),
@@ -85,6 +85,24 @@ impl Column {
         };
 
         Ok(result)
+    }
+}
+
+impl fmt::Display for Column {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Column::Name { name } => write!(f, "col: {}", name),
+            Column::WithCollection { collection, name } => write!(f, "col: {}.{}", collection, name),
+        }
+    }
+}
+
+impl fmt::Debug for Column {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Column::Name { .. } => write!(f, "Column::Name({})", self),
+            Column::WithCollection { .. } => write!(f, "Column::WithCollection({})", self),
+        }
     }
 }
 

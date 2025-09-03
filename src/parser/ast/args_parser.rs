@@ -1,8 +1,18 @@
 use crate::parser::{ast::{ScalarExpr}, ParseError, QueryParser};
 
-pub struct ArgsParser;
+#[derive(Debug)]
+pub struct ArgsExpr {
+    pub args: Vec<ScalarExpr>,
+    pub distinct: bool,
+}
 
-impl ArgsParser {
+impl Default for ArgsExpr {
+    fn default() -> Self {
+        Self { args: vec![], distinct: false }
+    }
+}
+
+impl ArgsExpr {
     pub fn is_args_start(parser: &QueryParser) -> bool {
         parser.current() == '('
     }
@@ -11,18 +21,27 @@ impl ArgsParser {
         parser.current() == ')'
     }
 
-    pub fn parse(parser: &mut QueryParser, allow_wildcard: bool) -> Result<Vec<ScalarExpr>, ParseError> {
+    pub fn parse(parser: &mut QueryParser, allow_wildcard: bool) -> Result<ArgsExpr, ParseError> {
         let pivot = parser.position;
-        let mut args: Vec<ScalarExpr> = vec![];
+        let mut expr = ArgsExpr::default();
         let mut can_consume = true;
 
-        if !ArgsParser::is_args_start(parser) {
+        if !ArgsExpr::is_args_start(parser) {
             return Err(ParseError::new("Invalid args value", pivot, parser));
         }
         parser.next();
         // pivot = parser.position;
 
-        while !parser.eof() && !ArgsParser::is_args_end(parser) {
+        if parser.comparers.distinct.compare(parser) {
+            if !allow_wildcard {
+                return Err(ParseError::new("Invalid distinct on args value", pivot, parser));
+            }
+            expr.distinct = true;
+            parser.jump(parser.comparers.distinct.length);
+            parser.next_non_whitespace();
+        }
+
+        while !parser.eof() && !ArgsExpr::is_args_end(parser) {
             if parser.current().is_whitespace() {
                 parser.next();
             } else if parser.current() == ',' {
@@ -35,7 +54,7 @@ impl ArgsParser {
                 if !can_consume {
                     return Err(ParseError::new("Invalid args value", pivot, parser));
                 }
-                args.push(ScalarExpr::parse(parser, allow_wildcard)?);
+                expr.args.push(ScalarExpr::parse(parser, allow_wildcard)?);
                 can_consume = false;
             }
         }
@@ -43,14 +62,15 @@ impl ArgsParser {
         if parser.eof() {
             return Err(ParseError::new("Invalid args value", pivot, parser));
         }
+        parser.next();
 
-        Ok(args)
+        Ok(expr)
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::ArgsParser, QueryParser};
+    use crate::parser::{ast::ArgsExpr, QueryParser};
 
     #[test]
     pub fn test_args_empty() {
@@ -58,10 +78,13 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, false);
+        let result = ArgsExpr::parse(&mut parser, false);
 
         match result {
-            Ok(result) => assert_eq!(result.len(), 0),
+            Ok(result) => {
+                assert_eq!(result.args.len(), 0);
+                assert!(!result.distinct);
+            },
             Err(_) => panic!(),
         }
     }
@@ -72,11 +95,12 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, false);
+        let result = ArgsExpr::parse(&mut parser, false);
 
         match result {
             Ok(result) => {
-                assert_eq!(result.len(), 1);
+                assert_eq!(result.args.len(), 1);
+                assert!(!result.distinct);
             },
             Err(_) => panic!(),
         }
@@ -88,11 +112,12 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, false);
+        let result = ArgsExpr::parse(&mut parser, false);
 
         match result {
             Ok(result) => {
-                assert_eq!(result.len(), 2);
+                assert_eq!(result.args.len(), 2);
+                assert!(!result.distinct);
             },
             Err(_) => panic!(),
         }
@@ -104,11 +129,12 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, false);
+        let result = ArgsExpr::parse(&mut parser, false);
 
         match result {
             Ok(result) => {
-                assert_eq!(result.len(), 3);
+                assert_eq!(result.args.len(), 3);
+                assert!(!result.distinct);
             },
             Err(_) => panic!(),
         }
@@ -120,7 +146,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, false);
+        let result = ArgsExpr::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -138,7 +164,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, false);
+        let result = ArgsExpr::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -156,7 +182,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, false);
+        let result = ArgsExpr::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -174,7 +200,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, false);
+        let result = ArgsExpr::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -192,11 +218,12 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, true);
+        let result = ArgsExpr::parse(&mut parser, true);
 
         match result {
             Ok(result) => {
-                assert_eq!(result.len(), 1);
+                assert_eq!(result.args.len(), 1);
+                assert!(!result.distinct);
             },
             Err(_) => panic!(),
         }
@@ -208,7 +235,7 @@ pub mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = ArgsParser::parse(&mut parser, false);
+        let result = ArgsExpr::parse(&mut parser, false);
 
         match result {
             Ok(_) => panic!(),
@@ -216,6 +243,41 @@ pub mod tests {
                 assert_eq!(err.text, "*)");
                 assert_eq!(err.start, 1);
                 assert_eq!(err.end, 2);
+            },
+        }
+    }
+
+    #[test]
+    pub fn test_args_two_distinct() {
+        let text = "(DISTINCT true, 1)";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ArgsExpr::parse(&mut parser, true);
+
+        match result {
+            Ok(result) => {
+                assert_eq!(result.args.len(), 2);
+                assert!(result.distinct);
+            },
+            Err(_) => panic!(),
+        }
+    }
+
+    #[test]
+    pub fn test_args_distinct_not_allowed() {
+        let text = "(DISTINCT true, 1)";
+
+        let mut parser = QueryParser::new(text);
+
+        let result = ArgsExpr::parse(&mut parser, false);
+
+        match result {
+            Ok(_) => panic!(),
+            Err(err) => {
+                assert_eq!(err.text, "(D");
+                assert_eq!(err.start, 0);
+                assert_eq!(err.end, 1);
             },
         }
     }

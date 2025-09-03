@@ -127,8 +127,9 @@ impl QueryParser {
         }
 
         if self.phase <= Phase::Joins &&
-            (self.comparers.inner_join.compare(self) || self.comparers.left_join.compare(self) ||
-                self.comparers.right_join.compare(self) || self.comparers.full_join.compare(self)) {
+            (self.comparers.join.compare(self) || self.comparers.inner_join.compare(self) ||
+                self.comparers.left_join.compare(self) || self.comparers.right_join.compare(self) ||
+                self.comparers.full_join.compare(self)) {
             self.phase = Phase::Joins;
             return true;
         }

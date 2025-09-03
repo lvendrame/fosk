@@ -1,6 +1,6 @@
 use crate::parser::{ast::ScalarExpr, ParseError, Phase, QueryParser};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct OrderBy {
     pub expr: ScalarExpr,
     pub ascending: bool,
@@ -56,6 +56,24 @@ impl OrderBy {
         }
 
         Ok(orders)
+    }
+}
+
+use std::fmt;
+
+impl fmt::Display for OrderBy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.ascending {
+            write!(f, "{} ASC", self.expr)
+        } else {
+            write!(f, "{} DESC", self.expr)
+        }
+    }
+}
+
+impl fmt::Debug for OrderBy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "OrderBy({})", self)
     }
 }
 

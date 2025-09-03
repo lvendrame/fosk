@@ -1,6 +1,6 @@
-use crate::parser::{ast::{ArgsParser, ComparatorOp, ScalarExpr, Truth}, ParseError, QueryParser};
+use crate::parser::{ast::{ArgsExpr, ComparatorOp, ScalarExpr, Truth}, ParseError, QueryParser};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Predicate {
     And(Vec<Predicate>),
     Or(Vec<Predicate>),
@@ -48,14 +48,16 @@ impl Predicate {
 
         if parser.comparers.r#in.compare(parser) {
             parser.jump(parser.comparers.r#in.length);
-            let args = ArgsParser::parse(parser, allow_wildcard)?;
-            return Ok(Self::InList { expr: left, list: args, negated: false });
+            parser.next_non_whitespace();
+            let args_expr = ArgsExpr::parse(parser, allow_wildcard)?;
+            return Ok(Self::InList { expr: left, list: args_expr.args, negated: false });
         }
 
         if parser.comparers.not_in.compare(parser) {
             parser.jump(parser.comparers.not_in.length);
-            let args = ArgsParser::parse(parser, allow_wildcard)?;
-            return Ok(Self::InList { expr: left, list: args, negated: true });
+            parser.next_non_whitespace();
+            let args_expr = ArgsExpr::parse(parser, allow_wildcard)?;
+            return Ok(Self::InList { expr: left, list: args_expr.args, negated: true });
         }
 
         if parser.comparers.like.compare(parser) {
@@ -134,6 +136,41 @@ impl Predicate {
 
     pub fn parse(parser: &mut QueryParser, allow_wildcard: bool) -> Result<Self, ParseError> {
         Self::parse_all(parser, allow_wildcard, 0)
+    }
+}
+
+use std::fmt;
+
+impl fmt::Display for Predicate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Predicate::And(items) => {
+                let s = items.iter().map(|p| format!("{}", p)).collect::<Vec<_>>().join(" AND ");
+                write!(f, "({})", s)
+            }
+            Predicate::Or(items) => {
+                let s = items.iter().map(|p| format!("{}", p)).collect::<Vec<_>>().join(" OR ");
+                write!(f, "({})", s)
+            }
+            Predicate::Compare { left, op, right } => write!(f, "{} {} {}", left, op, right),
+            Predicate::IsNull { expr, negated } => {
+                if *negated { write!(f, "{} IS NOT NULL", expr) } else { write!(f, "{} IS NULL", expr) }
+            }
+            Predicate::InList { expr, list, negated } => {
+                let items = list.iter().map(|s| format!("{}", s)).collect::<Vec<_>>().join(", ");
+                if *negated { write!(f, "{} NOT IN [{}]", expr, items) } else { write!(f, "{} IN [{}]", expr, items) }
+            }
+            Predicate::Like { expr, pattern, negated } => {
+                if *negated { write!(f, "{} NOT LIKE {}", expr, pattern) } else { write!(f, "{} LIKE {}", expr, pattern) }
+            }
+            Predicate::Const3(t) => write!(f, "{}", t),
+        }
+    }
+}
+
+impl fmt::Debug for Predicate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Predicate({})", self)
     }
 }
 
