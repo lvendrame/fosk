@@ -3,13 +3,10 @@ use std::collections::BTreeSet;
 use serde_json::{Map, Value};
 
 use crate::{
-    executor::{eval::Eval, helpers::Helpers},
-    parser::{
+    database::SchemaProvider, executor::{eval::Eval, helpers::Helpers}, parser::{
         aggregators_helper::{Accumulator as AggAcc, AggregateRegistry},
         analyzer::AnalyzerError, ast::{Column, JoinType, ScalarExpr, Truth}
-    },
-    planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan},
-    Db
+    }, planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan}, Db
 };
 
 pub trait Executor {
@@ -110,18 +107,8 @@ impl PlanExecutor {
                 let right_rows = Self::run_plan(right, db)?;
 
                 // Collect key sets for null-extension (derived from observed rows)
-                let mut left_keys: BTreeSet<String>  = BTreeSet::new();
-                let mut right_keys: BTreeSet<String> = BTreeSet::new();
-                for v in &left_rows {
-                    if let Some(m) = v.as_object() {
-                        for k in m.keys() { left_keys.insert(k.clone()); }
-                    }
-                }
-                for v in &right_rows {
-                    if let Some(m) = v.as_object() {
-                        for k in m.keys() { right_keys.insert(k.clone()); }
-                    }
-                }
+                let left_keys  = Self::keyset_for_side(left,  &left_rows,  db);
+                let right_keys = Self::keyset_for_side(right, &right_rows, db);
 
                 // helpers
                 let merge_objs = |lo: &Map<String, Value>, ro: &Map<String, Value>| -> Value {
@@ -235,6 +222,27 @@ impl PlanExecutor {
                 Ok(out)
             }
         }
+    }
+
+
+    // Build key sets for null-extension; prefer schema if the side is a Scan.
+    fn keyset_for_side(side_plan: &LogicalPlan, rows: &Vec<Value>, db: &Db) -> BTreeSet<String> {
+        let mut keys: BTreeSet<String> = BTreeSet::new();
+        if let LogicalPlan::Scan { backing, visible } = side_plan {
+            if let Some(schema) = db.schema_of(backing) {
+                for (col, _fi) in schema.fields {
+                    keys.insert(format!("{}.{}", visible, col));
+                }
+                return keys;
+            }
+        }
+        // fallback to observed row keys
+        for v in rows {
+            if let Some(m) = v.as_object() {
+                for k in m.keys() { keys.insert(k.clone()); }
+            }
+        }
+        keys
     }
 
     // ---- Aggregation runner ----
@@ -814,5 +822,115 @@ mod tests {
             assert!(obj.contains_key("t.x"));
             assert!(obj.keys().all(|k| !k.starts_with("u.")));
         }
+    }
+
+    #[test]
+    fn left_join_null_ext_uses_schema_even_when_right_is_empty() {
+        // Build DB
+        let mut db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
+        let mut t = db.create("t");
+        let mut u = db.create("u");
+
+        // Seed left with data
+        t.add_batch(json!([
+            { "id": 1, "x": "A" },
+            { "id": 2, "x": "B" }
+        ]));
+
+        // Seed right ONCE to register schema, then clear rows to make it empty at execution.
+        u.add_batch(json!([
+            { "id": 999, "y": true }
+        ]));
+        u.clear(); // assumes schema persists; if not, remove this and adjust expectations below.
+
+        // LEFT JOIN with ON TRUE (right yields 0 rows)
+        let plan = LogicalPlan::Join {
+            left: Box::new(LogicalPlan::Scan { backing: "t".into(), visible: "t".into() }),
+            right: Box::new(LogicalPlan::Scan { backing: "u".into(), visible: "u".into() }),
+            join_type: JoinType::Left,
+            on: Predicate::Const3(Truth::True),
+        };
+
+        let rows = PlanExecutor::run_plan(&plan, &db).expect("left join should execute");
+        assert_eq!(rows.len(), 2);
+
+        // Expect t.* keys present and u.* keys present but null
+        for row in rows {
+            let obj = row.as_object().unwrap();
+            assert!(obj.contains_key("t.id"));
+            assert!(obj.contains_key("t.x"));
+
+            // u.id and u.y should exist and be null (schema-based null extension)
+            assert!(obj.contains_key("u.id") && obj.get("u.id").unwrap().is_null());
+            assert!(obj.contains_key("u.y")  && obj.get("u.y").unwrap().is_null());
+        }
+    }
+
+    #[test]
+    fn keyset_for_side_scan_uses_schema_with_visible_prefix() {
+        let db = mk_db();
+        let mut t = db.clone().create("t");
+        // Seed to register schema (id, x)
+        t.add_batch(json!([
+            { "id": 1, "x": "A" },
+            { "id": 2, "x": "B" }
+        ]));
+
+        let plan = LogicalPlan::Scan { backing: "t".into(), visible: "tt".into() };
+        let rows: Vec<serde_json::Value> = vec![]; // no observed rows needed
+
+        let keys = PlanExecutor::keyset_for_side(&plan, &rows, &db);
+        let expected = BTreeSet::from_iter(["tt.id".to_string(), "tt.x".to_string()]);
+        assert_eq!(keys, expected);
+    }
+
+    #[test]
+    fn keyset_for_side_scan_empty_rows_but_schema_known_still_returns_prefixed_keys() {
+        let db = mk_db();
+        let mut u = db.clone().create("u");
+        // register schema
+        u.add_batch(json!([{ "id": 99, "y": true }]));
+        // make it empty for execution but schema remains
+        // NOTE: if your clear() also clears schema, remove this line and adapt expectations.
+        let _ = u.clear();
+
+        let plan = LogicalPlan::Scan { backing: "u".into(), visible: "uuu".into() };
+        let rows: Vec<serde_json::Value> = vec![];
+
+        let keys = PlanExecutor::keyset_for_side(&plan, &rows, &db);
+        let expected = BTreeSet::from_iter(["uuu.id".to_string(), "uuu.y".to_string()]);
+        assert_eq!(keys, expected);
+    }
+
+    #[test]
+    fn keyset_for_side_non_scan_falls_back_to_observed_row_keys() {
+        let db = mk_db();
+        let mut t = db.clone().create("t");
+        t.add_batch(json!([{ "id": 1, "x": "A" }]));
+
+        // Produce observed rows by executing a scan, then ask keyset for a NON-Scan plan
+        let scan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let observed = PlanExecutor::run_plan(&scan, &db).unwrap();
+
+        // Non-scan node (e.g., Project), so helper must use observed keys
+        let non_scan = LogicalPlan::Project {
+            input: Box::new(scan),
+            exprs: vec![], // irrelevant here
+        };
+
+        let keys = PlanExecutor::keyset_for_side(&non_scan, &observed, &db);
+        let expected = BTreeSet::from_iter(["t.id".to_string(), "t.x".to_string()]);
+        assert_eq!(keys, expected);
+    }
+
+    #[test]
+    fn keyset_for_side_no_schema_and_no_rows_returns_empty_set() {
+        let db = mk_db();
+        // Intentionally do NOT create the table → no schema known
+        let plan = LogicalPlan::Scan { backing: "missing".into(), visible: "m".into() };
+        let rows: Vec<Value> = vec![];
+
+        let keys = PlanExecutor::keyset_for_side(&plan, &rows, &db);
+        assert!(keys.is_empty());
     }
 }

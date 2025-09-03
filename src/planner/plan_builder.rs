@@ -1,6 +1,6 @@
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 
-use crate::{parser::{analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError}, ast::{JoinType, Predicate, ScalarExpr, Truth}}, planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan}};
+use crate::{parser::{analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError}, ast::{Column, JoinType, OrderBy, Predicate, ScalarExpr, Truth}}, planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan}};
 
 pub struct PlanBuilder;
 
@@ -61,8 +61,6 @@ impl PlanBuilder {
             || aq.having.as_ref().map(AggregateResolver::predicate_contains_aggregate).unwrap_or(false);
 
         if needs_agg {
-            use std::collections::{HashMap, HashSet};
-
             // 1) collect aggregate calls from projection and having
             let mut calls: Vec<AggregateCall> = Vec::new();
             let mut index_by_call: HashMap<AggregateCall, usize> = HashMap::new();
@@ -77,10 +75,21 @@ impl PlanBuilder {
                 PlanBuilder::collect_aggregates_in_predicate(h, &mut index_by_call, &mut calls);
             }
 
-            // 2) assign output names that the Aggregate executor will produce
-            //    base = func name lowercased; suffix _1, _2… if repeated
+            // assign output names that the Aggregate executor will produce
+            // base = func name lowercased; suffix _1, _2… if repeated
             let mut used_names: HashSet<String> = HashSet::new();
             let mut name_map: HashMap<AggregateCall, String> = HashMap::new();
+
+            // reserve group-by key names (the aggregate node emits them with these keys)
+            for c in &aq.group_by {
+                let key = match c {
+                    Column::WithCollection { collection, name } => format!("{}.{}", collection, name),
+                    Column::Name { name } => name.clone(),
+                };
+                used_names.insert(key);
+            }
+
+            // assign names for each call: base ("sum", "count", ...) or base_1, base_2, ...
             for call in &calls {
                 let base = call.func.to_ascii_lowercase();
                 let mut name = base.clone();
@@ -93,41 +102,69 @@ impl PlanBuilder {
                 name_map.insert(call.clone(), name);
             }
 
-            // 3) rewrite SELECT expressions that contain aggregates to refer to these names
-            let mut rewritten_projection: Vec<AnalyzedIdentifier> = Vec::with_capacity(aq.projection.len());
-            for id in &aq.projection {
+            // ---- rewrite SELECT and HAVING to reference aggregate internal names ----
+            let rewritten_projection: Vec<AnalyzedIdentifier> = aq.projection.iter().map(|id| {
                 let new_expr = AggregateCall::rewrite_scalar_using_call_names(&id.expression, &name_map);
-                rewritten_projection.push(AnalyzedIdentifier {
-                    expression: new_expr,
-                    alias: id.alias.clone(),
-                    ty: id.ty,
-                    nullable: id.nullable,
-                });
+                AnalyzedIdentifier { expression: new_expr, alias: id.alias.clone(), ty: id.ty, nullable: id.nullable }
+            }).collect();
+
+            let rewritten_having: Option<Predicate> = aq.having.as_ref()
+                .map(|p| AggregateCall::rewrite_predicate_using_call_names(p, &name_map));
+
+            // ---- build a final map for ORDER BY: prefer projection aliases if present ----
+            use std::collections::HashMap;
+            // reverse: internal_name ("sum", "sum_1", ...) -> AggregateCall
+            let mut by_internal: HashMap<String, AggregateCall> = HashMap::new();
+            for (call, nm) in &name_map {
+                by_internal.insert(nm.clone(), call.clone());
+            }
+            // start with internal names
+            let mut final_name_map = name_map.clone();
+            // if a projection item re-exposes an aggregate via Column(Name <internal>)
+            // and it has an alias, use that alias as the visible name for ORDER BY
+            for id in &rewritten_projection {
+                if let ScalarExpr::Column(Column::Name { name: colname }) = &id.expression {
+                    if let Some(call) = by_internal.get(colname) {
+                        if let Some(alias) = &id.alias {
+                            final_name_map.insert(call.clone(), alias.clone());
+                        }
+                    }
+                }
             }
 
-            // 4) plan Aggregate with the collected calls
+            // ---- rewrite ORDER BY using final (post-project) names ----
+            let rewritten_order_by: Vec<OrderBy> = aq.order_by.iter().map(|ob| {
+                let new_expr = AggregateCall::rewrite_scalar_using_call_names(&ob.expr, &final_name_map);
+                OrderBy { expr: new_expr, ascending: ob.ascending }
+            }).collect();
+
+            // ---- build Aggregate node ----
             plan = LogicalPlan::Aggregate {
                 input: Box::new(plan),
                 group_keys: aq.group_by.clone(),
                 aggs: calls,
             };
 
-            // 5) HAVING (after aggregate) — rewrite to use aggregate column names
-            if let Some(h) = &aq.having {
-                let rewritten_having = AggregateCall::rewrite_predicate_using_call_names(h, &name_map);
-                plan = LogicalPlan::Filter { input: Box::new(plan), predicate: rewritten_having };
+            // HAVING (after aggregate)
+            if let Some(pred) = rewritten_having {
+                plan = LogicalPlan::Filter { input: Box::new(plan), predicate: pred };
             }
 
-            // 6) Project (now reading the aggregate columns by the assigned names, then aliasing)
+            // Project (after HAVING)
             plan = LogicalPlan::Project { input: Box::new(plan), exprs: rewritten_projection };
-        } else {
-            // No aggregation: simple Project
-            plan = LogicalPlan::Project { input: Box::new(plan), exprs: aq.projection.clone() };
-        }
 
-        // ORDER BY (stable, NULLS LAST in executor) ----
-        if !aq.order_by.is_empty() {
-            plan = LogicalPlan::Sort { input: Box::new(plan), keys: aq.order_by.clone() };
+            // ORDER BY (stable, NULLS LAST in executor)
+            if !rewritten_order_by.is_empty() {
+                plan = LogicalPlan::Sort { input: Box::new(plan), keys: rewritten_order_by };
+            }
+        } else {
+            // Project (no aggregate)
+            plan = LogicalPlan::Project { input: Box::new(plan), exprs: aq.projection.clone() };
+
+            // ORDER BY (stable, NULLS LAST in executor)
+            if !aq.order_by.is_empty() {
+                plan = LogicalPlan::Sort { input: Box::new(plan), keys: aq.order_by.clone() };
+            }
         }
 
         // LIMIT/OFFSET ----
@@ -599,10 +636,13 @@ mod tests {
 
 #[cfg(test)]
 mod join_shape_tests {
+    use serde_json::json;
+
     use super::*;
+    use crate::database::{DbCollection, DbCommon, DbRunner};
     use crate::parser::ast::{Collection as AstCollection, Column, ComparatorOp, JoinType, Literal, OrderBy, Predicate, ScalarExpr};
     use crate::parser::analyzer::{AnalyzedIdentifier};
-    use crate::JsonPrimitive;
+    use crate::{Config, Db, IdType, JsonPrimitive};
 
     fn col(a: &str, n: &str) -> Column {
         Column::WithCollection { collection: a.into(), name: n.into() }
@@ -734,5 +774,32 @@ mod join_shape_tests {
             }
             other => panic!("expected Limit root, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn order_by_sum_desc_works_when_aggregate_in_order_by() {
+        // tiny db
+        let mut db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
+        let mut t = db.create("t");
+        t.add_batch(json!([
+            { "id": 1, "grp": "A", "v": 10.0 },
+            { "id": 2, "grp": "A", "v":  5.0 },
+            { "id": 3, "grp": "B", "v": 20.0 }
+        ]));
+
+        let sql = r#"
+            SELECT t.grp AS g, SUM(t.v) AS s
+            FROM t
+            GROUP BY t.grp
+            ORDER BY SUM(t.v) DESC
+        "#;
+
+        let rows = db.query(sql).expect("query ok");
+        assert_eq!(rows.len(), 2);
+        let r0 = rows[0].as_object().unwrap();
+        let r1 = rows[1].as_object().unwrap();
+        // B (20) before A (15)
+        assert_eq!(r0.get("g").unwrap(), "B");
+        assert_eq!(r1.get("g").unwrap(), "A");
     }
 }

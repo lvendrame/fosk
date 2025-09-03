@@ -83,6 +83,19 @@ impl<'a> AnalysisContext<'a> {
     ) -> Result<AnalyzedQuery, AnalyzerError> {
         let ctx = Self::build_context_from_query(query, schema_provider, aggregates)?;
 
+        let mut from_collections: Vec<(String, String)> = Vec::with_capacity(query.collections.len());
+        for c in &query.collections {
+            if let Collection::Table { name, alias } = c {
+                let visible = alias.clone().unwrap_or_else(|| name.clone());
+                // look up backing in the context (should exist because we added it earlier)
+                if let Some(backing) = ctx.collections.get(&visible) {
+                    from_collections.push((visible, backing.clone()));
+                } else {
+                    return Err(AnalyzerError::UnknownCollection(visible));
+                }
+            }
+        }
+
         // expand wildcards in projection
         let expanded_proj = IdentifierResolver::expand_projection_idents(&query.projection, &ctx)?;
 
@@ -165,7 +178,7 @@ impl<'a> AnalysisContext<'a> {
 
         Ok(AnalyzedQuery {
             projection: analyzed_proj,
-            collections: ctx.collections.iter().map(|(v, b)| (v.clone(), b.clone())).collect(),
+            collections: from_collections,
             joins: analyzed_joins,
             criteria,
             group_by,
