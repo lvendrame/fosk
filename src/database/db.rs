@@ -1,5 +1,7 @@
 use std::{collections::HashMap, sync::{Arc, RwLock}};
 
+use serde_json::Value;
+
 use crate::{database::{Config, DbCollection, SchemaProvider}, executor::plan_executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
 
 /// Thread-safe pointer to the internal database state.
@@ -107,7 +109,27 @@ impl Db {
 
         // 2) Analyze (Db implements SchemaProvider)
         let aggregates = AggregateRegistry::default_aggregate_registry();
-        let analyzed = AnalysisContext::analyze_query(&q, self, &aggregates)?;
+        let analyzed = AnalysisContext::analyze_query(&q, self, &aggregates, Value::Null)?;
+
+        // 3) Plan
+        let plan = PlanBuilder::from_analyzed(&analyzed)?;
+
+        // 4) Execute
+        let exec = PlanExecutor::new(plan);
+        exec.execute(self)
+    }
+
+    /// Execute a SQL query through the parser, analyzer, planner and executor.
+    ///
+    /// Returns a vector of JSON `Value` rows on success or an `AnalyzerError`.
+    pub fn query_with_args(&self, sql: &str, args: Value) -> Result<Vec<Value>, AnalyzerError> {
+        // 1) Parse
+        let q = Query::try_from(sql)
+            .map_err(|e| AnalyzerError::Other(format!("parse error: {e}")))?;
+
+        // 2) Analyze (Db implements SchemaProvider)
+        let aggregates = AggregateRegistry::default_aggregate_registry();
+        let analyzed = AnalysisContext::analyze_query(&q, self, &aggregates, args)?;
 
         // 3) Plan
         let plan = PlanBuilder::from_analyzed(&analyzed)?;
@@ -180,5 +202,23 @@ mod tests {
         assert_eq!(rows.len(), 1);
         // t has 5 rows -> t × t has 25 rows
         assert_eq!(rows[0]["n"].as_i64().unwrap(), 25);
+    }
+
+    #[test]
+    fn db_runner_with_arg() {
+        let db = mk_db();
+        let sql = r#"
+            SELECT id, cat, amt
+            FROM t
+            WHERE id = ?
+        "#;
+
+        let rows = db.query_with_args(sql, json!(3)).expect("query should succeed");
+        assert_eq!(rows.len(), 1);
+
+        let obj = rows[0].as_object().unwrap();
+        assert_eq!(obj.get("t.id").unwrap(), 3);
+        assert_eq!(obj.get("t.cat").unwrap(), "b");
+        assert_eq!(obj.get("t.amt").unwrap(), 7.5);
     }
 }

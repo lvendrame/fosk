@@ -1,4 +1,4 @@
-use crate::parser::{ast::{BoolParser, Column, Function, Literal, NullParser, NumberParser, StringParser}, ParseError, QueryParser};
+use crate::parser::{ast::{BoolParser, Column, Function, Literal, NullParser, NumberParser, ParamParser, StringParser}, ParseError, QueryParser};
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -38,6 +38,10 @@ impl ScalarExpr {
         if NullParser::is_null(parser) {
             return  NullParser::parse(parser)
                 .map(ScalarExpr::Literal);
+        }
+
+        if ParamParser::is_param(parser) {
+            return  ParamParser::parse(parser);
         }
 
         Column::parse_general_scalar(parser, allow_wildcard)

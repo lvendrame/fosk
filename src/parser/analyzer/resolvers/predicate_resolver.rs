@@ -1,4 +1,4 @@
-use crate::parser::{analyzer::{AnalysisContext, AnalyzerError, LiteralResolver, ScalarResolver}, ast::{Literal, Predicate, Truth}};
+use crate::parser::{analyzer::{AnalysisContext, AnalyzerError, LiteralResolver, ScalarResolver}, ast::{Literal, Predicate, ScalarExpr, Truth}};
 
 pub struct  PredicateResolver;
 
@@ -49,7 +49,17 @@ impl PredicateResolver {
 
             Predicate::InList { expr, list, negated } => {
                 let e = ScalarResolver::fold_scalar(expr);
-                let list_folded: Vec<_> = list.iter().map(ScalarResolver::fold_scalar).collect();
+                let mut list_folded: Vec<_> = vec![];
+                for scalar in list.iter() {
+                    let scalar = ScalarResolver::fold_scalar(scalar);
+                    if let ScalarExpr::Args(args) = scalar {
+                        for arg in &args {
+                            list_folded.push(ScalarResolver::fold_scalar(arg));
+                        }
+                    } else {
+                        list_folded.push(scalar);
+                    }
+                }
 
                 let el = ScalarResolver::scalar_literal(&e);
                 let lits: Option<Vec<Literal>> = if list_folded.iter().all(|x| ScalarResolver::scalar_literal(x).is_some()) {
@@ -281,6 +291,32 @@ mod tests {
         match PredicateResolver::fold_predicate(&p) {
             Predicate::Const3(Truth::Unknown) => {}
             other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_in_list_found_args() {
+        let p = Predicate::InList {
+            expr: lit_i(2),
+            list: vec![ScalarExpr::Args(vec![lit_i(1), lit_i(2), lit_i(3)])],
+            negated: false,
+        };
+        match PredicateResolver::fold_predicate(&p) {
+            Predicate::Const3(Truth::True) => {}
+            other => panic!("expected True, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fold_in_list_found_single_and_args() {
+        let p = Predicate::InList {
+            expr: lit_i(2),
+            list: vec![lit_i(1), ScalarExpr::Args(vec![lit_i(2), lit_i(3)])],
+            negated: false,
+        };
+        match PredicateResolver::fold_predicate(&p) {
+            Predicate::Const3(Truth::True) => {}
+            other => panic!("expected True, got {other:?}"),
         }
     }
 

@@ -30,7 +30,7 @@ impl Predicate {
         let comparator = ComparatorOp::check(parser);
 
         if let Some(op) = comparator {
-            parser.next();
+            parser.next_non_whitespace();
             let right = ScalarExpr::parse(parser, false)?;
 
             return Ok(Self::Compare { left, op, right });
