@@ -221,4 +221,28 @@ mod tests {
         assert_eq!(obj.get("t.cat").unwrap(), "b");
         assert_eq!(obj.get("t.amt").unwrap(), 7.5);
     }
+
+    #[test]
+    fn db_runner_with_args() {
+        let db = mk_db();
+        let sql = r#"
+            SELECT id, cat, amt
+            FROM t
+            WHERE id IN (?)
+            ORDER BY id
+        "#;
+
+        let rows = db.query_with_args(sql, json!([[2, 3]])).expect("query should succeed");
+        assert_eq!(rows.len(), 2);
+
+        let obj = rows[0].as_object().unwrap();
+        assert_eq!(obj.get("t.id").unwrap(), 2);
+        assert_eq!(obj.get("t.cat").unwrap(), "a");
+        assert_eq!(obj.get("t.amt").unwrap(), 15.0);
+
+        let obj = rows[1].as_object().unwrap();
+        assert_eq!(obj.get("t.id").unwrap(), 3);
+        assert_eq!(obj.get("t.cat").unwrap(), "b");
+        assert_eq!(obj.get("t.amt").unwrap(), 7.5);
+    }
 }

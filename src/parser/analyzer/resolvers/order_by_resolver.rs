@@ -55,6 +55,56 @@ impl OrderByResolver {
         }
         Ok(out)
     }
+
+    pub fn qualify_order_by_non_agg(
+        order: &[OrderBy],
+        projection: &[AnalyzedIdentifier],
+        ctx: &mut AnalysisContext,
+    ) -> Result<Vec<OrderBy>, AnalyzerError> {
+        use crate::parser::ast::{Literal, ScalarExpr, Column};
+
+        // Build alias -> expr map from the analyzed (qualified) projection
+        let mut by_alias: std::collections::HashMap<String, ScalarExpr> = std::collections::HashMap::new();
+        for id in projection {
+            if let Some(a) = &id.alias {
+                by_alias.insert(a.clone(), id.expression.clone());
+            }
+        }
+
+        // For positional ORDER BY n (1-based), we use the nth projection expr.
+        let nth_expr = |n: i64| -> Option<ScalarExpr> {
+            let idx = (n as isize) - 1;
+            if idx >= 0 && (idx as usize) < projection.len() {
+                Some(projection[idx as usize].expression.clone())
+            } else {
+                None
+            }
+        };
+
+        let mut out = Vec::with_capacity(order.len());
+        for ob in order {
+            let resolved_expr = match &ob.expr {
+                // ORDER BY 2  -> use 2nd projection expr
+                ScalarExpr::Literal(Literal::Int(n)) => {
+                    if let Some(e) = nth_expr(*n) { e } else { ob.expr.clone() }
+                }
+                // ORDER BY alias -> if alias found, use its expr
+                ScalarExpr::Column(Column::Name { name }) => {
+                    if let Some(e) = by_alias.get(name) {
+                        e.clone()
+                    } else {
+                        // Otherwise, just qualify the free-form scalar
+                        ScalarResolver::qualify_scalar(&ob.expr, ctx, false)?
+                    }
+                }
+                // General case: qualify the free-form scalar
+                _ => ScalarResolver::qualify_scalar(&ob.expr, ctx, false)?,
+            };
+
+            out.push(OrderBy { expr: resolved_expr, ascending: ob.ascending });
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
@@ -366,5 +416,50 @@ mod tests {
         assert!(err.is_err());
         let msg = format!("{err:?}").to_lowercase();
         assert!(msg.contains("order by") && msg.contains("group by"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn order_by_aggregate_alias_is_allowed_in_agg_query() {
+        // schema: t(age int)
+        let sp = DummySchemas::new().with("t", vec![
+            ("age", JsonPrimitive::Int, false),
+        ]);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
+
+        // SELECT COUNT(*) AS cnt  (aggregate query)
+        let projection = vec![
+            proj_id(
+                ScalarExpr::Function(Function { name: "count".into(), args: vec![ScalarExpr::WildCard], distinct: false }),
+                Some("cnt"),
+                JsonPrimitive::Int,
+                false
+            ),
+        ];
+        let group_set = std::collections::HashSet::<ColumnKey>::new();
+
+        // ORDER BY cnt — alias that refers to an aggregate → allowed
+        let order = vec![ OrderBy {
+            expr: ScalarExpr::Column(Column::Name { name: "cnt".into() }),
+            ascending: false
+        }];
+
+        let out = OrderByResolver::qualify_order_by(&order, &projection, &mut ctx, &group_set)
+            .expect("ORDER BY on aggregate alias should be accepted");
+        assert_eq!(out.len(), 1);
+
+        // Resolver typically rewrites alias to the underlying aggregate expression.
+        // Accept either direct alias (Column::Name "cnt") or the expanded COUNT(*),
+        // depending on your resolver’s exact behavior.
+        match &out[0].expr {
+            ScalarExpr::Function(Function { name, args, .. }) => {
+                assert!(name.eq_ignore_ascii_case("count"));
+                assert!(args.len() == 1 && matches!(&args[0], ScalarExpr::WildCard));
+            }
+            ScalarExpr::Column(Column::Name { name }) => {
+                // if your resolver keeps the alias at this stage, ensure it's the same alias
+                assert_eq!(name, "cnt");
+            }
+            other => panic!("unexpected ORDER BY expr after qualification: {other:?}"),
+        }
     }
 }

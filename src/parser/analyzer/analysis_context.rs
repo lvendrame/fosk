@@ -186,7 +186,20 @@ impl<'a> AnalysisContext<'a> {
         }
 
         // ORDER BY resolution (aliases, positional indexes, qualification, folding, validation)
-        let order_by = OrderByResolver::qualify_order_by(&query.order_by, &analyzed_proj, &mut ctx, &group_set)?;
+        // Decide if the query is an aggregate
+        let needs_agg =
+            !group_by.is_empty()
+            || analyzed_proj.iter().any(|id| AggregateResolver::contains_aggregate(&id.expression))
+            || having.as_ref().map(AggregateResolver::predicate_contains_aggregate).unwrap_or(false);
+
+        // Resolve ORDER BY
+        let order_by = if needs_agg {
+            // existing path: resolve + validate against group set
+            OrderByResolver::qualify_order_by(&query.order_by, &analyzed_proj, &mut ctx, &group_set)?
+        } else {
+            // NEW: non-aggregate path (no group validation)
+            OrderByResolver::qualify_order_by_non_agg(&query.order_by, &analyzed_proj, &mut ctx)?
+        };
 
         Ok(AnalyzedQuery {
             projection: analyzed_proj,
