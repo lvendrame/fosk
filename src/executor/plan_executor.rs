@@ -343,6 +343,8 @@ impl PlanExecutor {
             ScalarExpr::Function(f) => f.name.to_ascii_lowercase(),
             ScalarExpr::Literal(_) => "_lit".into(),
             ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) => "*".into(),
+            ScalarExpr::Parameter => "?".into(),
+            ScalarExpr::Args(_) => "(...)".into(),
         }
     }
 }

@@ -15,19 +15,25 @@ impl TypeInference {
                     Literal::Float(_) => Ok((JsonPrimitive::Float, false)),
                     Literal::String(_) => Ok((JsonPrimitive::String, false)),
                 }
-            }
+            },
             ScalarExpr::Column(column) => {
                 let (_qc, rf) = ColumnResolver::qualify_column(column, ctx)?;
                 Ok((rf.ty, rf.nullable))
-            }
+            },
             ScalarExpr::Function(function) => {
                 // delegate to registry
                 let ret = Self::infer_function_type(function, ctx)?;
                 Ok(ret)
-            }
+            },
             ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) => {
                 Err(AnalyzerError::Other("wildcards should be expanded before type inference".into()))
-            }
+            },
+            ScalarExpr::Parameter => {
+                Err(AnalyzerError::Other("Parameter should be expanded before type inference".into()))
+            },
+            ScalarExpr::Args(_) => {
+                Err(AnalyzerError::Other("Args should be expanded before type inference".into()))
+            },
         }
     }
 

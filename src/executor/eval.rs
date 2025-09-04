@@ -24,7 +24,8 @@ impl Eval {
                 row.get(&key).cloned().unwrap_or(Value::Null)
             }
             ScalarExpr::Function(f) => Self::eval_scalar_function(f, row),
-            ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) => Value::Null, // should not appear after analysis
+            ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) |
+                ScalarExpr::Parameter | ScalarExpr::Args(_) => Value::Null, // should not appear after analysis
         }
     }
 

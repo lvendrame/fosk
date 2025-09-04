@@ -1,6 +1,6 @@
 use crate::JsonPrimitive;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AnalyzerError {
     UnknownCollection(String),
     UnknownColumn { name: String, candidates: Vec<String> },
@@ -10,5 +10,6 @@ pub enum AnalyzerError {
     FunctionArgMismatch { name: String, expected: String, got: Vec<JsonPrimitive> },
     NonConstInConstFold,
     InvalidLikePattern,
+    InvalidParameterValue,
     Other(String),
 }

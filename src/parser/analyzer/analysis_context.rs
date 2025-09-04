@@ -1,5 +1,6 @@
 use indexmap::IndexMap;
 use once_cell::sync::Lazy;
+use serde_json::Value;
 
 use crate::{
     database::SchemaProvider,
@@ -18,6 +19,8 @@ pub struct AnalysisContext<'a> {
     pub schemas: &'a dyn SchemaProvider,
     /// access to aggregate implementations
     pub aggregates: &'a AggregateRegistry,
+    pub parameters: Value,
+    pub current_param: usize,
 }
 
 impl<'a> AnalysisContext<'a> {
@@ -25,7 +28,13 @@ impl<'a> AnalysisContext<'a> {
         schemas: &'a dyn SchemaProvider,
         aggregates: &'a AggregateRegistry,
     ) -> Self {
-        Self { collections: IndexMap::new(), schemas, aggregates }
+        Self {
+            collections: IndexMap::new(),
+            schemas,
+            aggregates,
+            parameters: Value::Null,
+            current_param: 0,
+        }
     }
 
     /// Backward-compatible: uses the default registry.
@@ -81,7 +90,7 @@ impl<'a> AnalysisContext<'a> {
         schema_provider: &'a dyn SchemaProvider,
         aggregates: &'a AggregateRegistry,
     ) -> Result<AnalyzedQuery, AnalyzerError> {
-        let ctx = Self::build_context_from_query(query, schema_provider, aggregates)?;
+        let mut ctx = Self::build_context_from_query(query, schema_provider, aggregates)?;
 
         let mut from_collections: Vec<(String, String)> = Vec::with_capacity(query.collections.len());
         for c in &query.collections {
@@ -103,7 +112,7 @@ impl<'a> AnalysisContext<'a> {
         let mut analyzed_proj = Vec::with_capacity(expanded_proj.len());
         for id in expanded_proj {
             // qualify (no wildcards remain)
-            let qexpr = ScalarResolver::qualify_scalar(&id.expression, &ctx)?;
+            let qexpr = ScalarResolver::qualify_scalar(&id.expression, &mut ctx, false)?;
             // fold constants
             let fexpr = ScalarResolver::fold_scalar(&qexpr);
             // infer type
@@ -116,17 +125,17 @@ impl<'a> AnalysisContext<'a> {
             });
         }
 
-        let analyzed_joins = JoinResolver::qualify_and_fold_joins(query, &ctx)?;
+        let analyzed_joins = JoinResolver::qualify_and_fold_joins(query, &mut ctx)?;
 
         // qualify + fold predicates
         let criteria_qualified = match &query.criteria {
-            Some(predicate) => Some(PredicateResolver::qualify_predicate(predicate, &ctx)?),
+            Some(predicate) => Some(PredicateResolver::qualify_predicate(predicate, &mut ctx)?),
             None => None
         };
         let criteria = criteria_qualified.as_ref().map(PredicateResolver::fold_predicate);
 
         let having_qualified = match &query.having {
-            Some(predicate) => Some(PredicateResolver::qualify_predicate(predicate, &ctx)?),
+            Some(predicate) => Some(PredicateResolver::qualify_predicate(predicate, &mut ctx)?),
             None => None
         };
         let having = having_qualified.as_ref().map(PredicateResolver::fold_predicate);
@@ -174,7 +183,7 @@ impl<'a> AnalysisContext<'a> {
         }
 
         // ORDER BY resolution (aliases, positional indexes, qualification, folding, validation)
-        let order_by = OrderByResolver::qualify_order_by(&query.order_by, &analyzed_proj, &ctx, &group_set)?;
+        let order_by = OrderByResolver::qualify_order_by(&query.order_by, &analyzed_proj, &mut ctx, &group_set)?;
 
         Ok(AnalyzedQuery {
             projection: analyzed_proj,

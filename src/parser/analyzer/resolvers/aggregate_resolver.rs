@@ -29,7 +29,7 @@ impl AggregateResolver {
                     // must be qualified before calling this check
                     group.contains(&ColumnKey::of(c))
                 }
-            }
+            },
             ScalarExpr::Function(f) => {
                 if Self::is_aggregate_name(&f.name) {
                     // args are inside aggregate
@@ -38,8 +38,8 @@ impl AggregateResolver {
                     // scalar function: preserve flag
                     f.args.iter().all(|a| Self::uses_only_group_by(a, group, inside_agg_arg))
                 }
-            }
-            ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) => {
+            },
+            ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) | ScalarExpr::Parameter | ScalarExpr::Args(_) => {
                 inside_agg_arg
             },
         }

@@ -8,6 +8,8 @@ pub enum ScalarExpr {
     Function(Function),
     WildCard,
     WildCardWithCollection(String),
+    Parameter,
+    Args(Vec<ScalarExpr>),
 }
 
 impl ScalarExpr {
@@ -22,10 +24,12 @@ impl ScalarExpr {
             return NumberParser::parse(parser)
                 .map(ScalarExpr::Literal);
         }
+
         if StringParser::is_string_delimiter(parser) {
             return StringParser::parse(parser)
                 .map(ScalarExpr::Literal);
         }
+
         if BoolParser::is_bool(parser) {
             return BoolParser::parse(parser)
                 .map(ScalarExpr::Literal);
@@ -47,7 +51,9 @@ impl fmt::Display for ScalarExpr {
             ScalarExpr::Column(c) => write!(f, "{}", c),
             ScalarExpr::Function(fun) => write!(f, "{}", fun),
             ScalarExpr::WildCard => write!(f, "*"),
-            ScalarExpr::WildCardWithCollection(coll) => write!(f, "{}.{}", coll, "*"),
+            ScalarExpr::WildCardWithCollection(coll) => write!(f, "{}.*", coll),
+            ScalarExpr::Parameter => write!(f, "?"),
+            ScalarExpr::Args(args) => write!(f, "({})", args.iter().map(|f| f.to_string()).collect::<Vec<String>>().join(", ")),
         }
     }
 }
@@ -60,6 +66,8 @@ impl fmt::Debug for ScalarExpr {
             ScalarExpr::Function(_) => write!(f, "Function({})", self),
             ScalarExpr::WildCard => write!(f, "WildCard(*)"),
             ScalarExpr::WildCardWithCollection(coll) => write!(f, "WildCardWithCollection({}.*)", coll),
+            ScalarExpr::Parameter => write!(f, "Parameter(?)"),
+            ScalarExpr::Args(_) => write!(f, "Parameter({})", self),
         }
     }
 }

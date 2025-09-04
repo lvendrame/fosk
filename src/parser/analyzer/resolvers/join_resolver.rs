@@ -3,7 +3,7 @@ use crate::parser::{analyzer::{AnalysisContext, AnalyzerError, PredicateResolver
 pub struct JoinResolver;
 
 impl JoinResolver {
-    pub fn qualify_and_fold_joins(q: &Query, ctx: &AnalysisContext) -> Result<Vec<Join>, AnalyzerError> {
+    pub fn qualify_and_fold_joins(q: &Query, ctx: &mut AnalysisContext) -> Result<Vec<Join>, AnalyzerError> {
         let mut out = Vec::with_capacity(q.joins.len());
         for j in &q.joins {
             // predicate must be qualified against the full ctx (we already added left+all joined tables to ctx in build_context_from_query)

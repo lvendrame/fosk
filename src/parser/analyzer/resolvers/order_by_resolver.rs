@@ -6,7 +6,7 @@ impl OrderByResolver {
         pub fn qualify_order_by(
         order_bys: &[OrderBy],
         projection: &[AnalyzedIdentifier], // qualified & folded
-        ctx: &AnalysisContext,
+        ctx: &mut AnalysisContext,
         group_set: &std::collections::HashSet<ColumnKey>,
     ) -> Result<Vec<OrderBy>, AnalyzerError> {
         // Build alias -> expression map (case-insensitive)
@@ -42,7 +42,7 @@ impl OrderByResolver {
             }
 
             // (3) Normal path: qualify & fold, then validate against GROUP BY
-            let qualified = ScalarResolver::qualify_scalar(&ob.expr, ctx)?;
+            let qualified = ScalarResolver::qualify_scalar(&ob.expr, ctx, false)?;
             let folded = ScalarResolver::fold_scalar(&qualified);
 
             if !AggregateResolver::uses_only_group_by(&folded, group_set, false) {
@@ -106,7 +106,7 @@ mod tests {
             ("name", JsonPrimitive::String, false),
             ("age",  JsonPrimitive::Int,    false),
         ]);
-        let ctx = build_ctx_with_table(&sp, "t", None);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
 
         // projection: SELECT name AS n, age
         let projection = vec![
@@ -125,7 +125,7 @@ mod tests {
             OrderBy { expr: ScalarExpr::Literal(Literal::Int(2)), ascending: false },
         ];
 
-        let out = OrderByResolver::qualify_order_by(&order, &projection, &ctx, &group_set).expect("order by");
+        let out = OrderByResolver::qualify_order_by(&order, &projection, &mut ctx, &group_set).expect("order by");
         assert_eq!(out.len(), 2);
 
         // alias resolved to t.name
@@ -149,7 +149,7 @@ mod tests {
         let sp = DummySchemas::new().with("t", vec![
             ("a", JsonPrimitive::Int, false),
         ]);
-        let ctx = build_ctx_with_table(&sp, "t", None);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
 
         let projection = vec![
             proj_id(ScalarExpr::Column(Column::WithCollection{ collection: "t".into(), name: "a".into() }), None, JsonPrimitive::Int, false),
@@ -163,13 +163,13 @@ mod tests {
         // 0 is invalid (must be 1-based)
         let err0 = OrderByResolver::qualify_order_by(
             &[OrderBy { expr: ScalarExpr::Literal(Literal::Int(0)), ascending: true }],
-            &projection, &ctx, &group_set);
+            &projection, &mut ctx, &group_set);
         assert!(err0.is_err());
 
         // > len is invalid
         let err2 = OrderByResolver::qualify_order_by(
             &[OrderBy { expr: ScalarExpr::Literal(Literal::Int(2)), ascending: true }],
-            &projection, &ctx, &group_set);
+            &projection, &mut ctx, &group_set);
         assert!(err2.is_err());
     }
 
@@ -180,7 +180,7 @@ mod tests {
             ("name", JsonPrimitive::String, false),
             ("age",  JsonPrimitive::Int,    false),
         ]);
-        let ctx = build_ctx_with_table(&sp, "t", None);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
 
         // projection: COUNT(*) (agg query), no group by
         let projection = vec![
@@ -196,7 +196,7 @@ mod tests {
             OrderBy { expr: ScalarExpr::Column(Column::Name { name: "age".into() }), ascending: true }
         ];
 
-        let err = OrderByResolver::qualify_order_by(&order, &projection, &ctx, &group_set);
+        let err = OrderByResolver::qualify_order_by(&order, &projection, &mut ctx, &group_set);
         assert!(err.is_err(), "should reject non-grouped column in ORDER BY for agg query");
         let msg = format!("{err:?}").to_lowercase();
         assert!(msg.contains("order by"), "error message should mention ORDER BY; got {msg}");
@@ -207,7 +207,7 @@ mod tests {
         let sp = DummySchemas::new().with("t", vec![
             ("a", JsonPrimitive::Int, false),
         ]);
-        let ctx = build_ctx_with_table(&sp, "t", None);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
 
         // projection: COUNT(*)
         let projection = vec![
@@ -221,7 +221,7 @@ mod tests {
             OrderBy { expr: ScalarExpr::Function(Function { name: "count".into(), args: vec![ScalarExpr::WildCard], distinct: false }), ascending: false }
         ];
 
-        let out = OrderByResolver::qualify_order_by(&order, &projection, &ctx, &group_set).expect("order by");
+        let out = OrderByResolver::qualify_order_by(&order, &projection, &mut ctx, &group_set).expect("order by");
         assert_eq!(out.len(), 1);
         // still a function after qualification & folding
         assert!(matches!(out[0].expr, ScalarExpr::Function(Function { ref name, .. }) if name.eq_ignore_ascii_case("count")));
@@ -233,7 +233,7 @@ mod tests {
         let sp = DummySchemas::new().with("t", vec![
             ("name", JsonPrimitive::String, false),
         ]);
-        let ctx = build_ctx_with_table(&sp, "t", None);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
 
         // projection: name
         let projection = vec![
@@ -256,7 +256,7 @@ mod tests {
             }
         ];
 
-        let out = OrderByResolver::qualify_order_by(&order, &projection, &ctx, &group_set).expect("order by");
+        let out = OrderByResolver::qualify_order_by(&order, &projection, &mut ctx, &group_set).expect("order by");
         assert_eq!(out.len(), 1);
         match &out[0].expr {
             ScalarExpr::Function(Function { name, args, .. }) => {
@@ -280,7 +280,7 @@ mod tests {
         let sp = DummySchemas::new().with("t", vec![
             ("a", JsonPrimitive::Int, false),
         ]);
-        let ctx = build_ctx_with_table(&sp, "t", None);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
 
         // projection: SELECT a AS aa
         let projection = vec![
@@ -303,7 +303,7 @@ mod tests {
             ascending: true
         }];
 
-        let err = OrderByResolver::qualify_order_by(&order, &projection, &ctx, &group_set);
+        let err = OrderByResolver::qualify_order_by(&order, &projection, &mut ctx, &group_set);
         assert!(err.is_err());
         let msg = format!("{err:?}").to_lowercase();
         assert!(msg.contains("unknowncolumn") || msg.contains("unknown column") || msg.contains("unknown"), "unexpected error: {msg}");
@@ -315,7 +315,7 @@ mod tests {
         let sp = DummySchemas::new().with("t", vec![
             ("a", JsonPrimitive::Int, false),
         ]);
-        let ctx = build_ctx_with_table(&sp, "t", None);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
 
         let projection = vec![
             proj_id(ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"a".into() }), None, JsonPrimitive::Int, false),
@@ -329,7 +329,7 @@ mod tests {
 
         // ORDER BY -1 -> should error (out of range)
         let order = vec![ OrderBy { expr: ScalarExpr::Literal(Literal::Int(-1)), ascending: true } ];
-        let err = OrderByResolver::qualify_order_by(&order, &projection, &ctx, &group_set);
+        let err = OrderByResolver::qualify_order_by(&order, &projection, &mut ctx, &group_set);
         assert!(err.is_err());
         let msg = format!("{err:?}").to_lowercase();
         assert!(msg.contains("order by position") || msg.contains("out of range"), "unexpected error: {msg}");
@@ -341,7 +341,7 @@ mod tests {
         let sp = DummySchemas::new().with("t", vec![
             ("age", JsonPrimitive::Int, false),
         ]);
-        let ctx = build_ctx_with_table(&sp, "t", None);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
 
         // projection is COUNT(*) => aggregate query
         let projection = vec![
@@ -362,7 +362,7 @@ mod tests {
             ascending: true
         }];
 
-        let err = OrderByResolver::qualify_order_by(&order, &projection, &ctx, &group_set);
+        let err = OrderByResolver::qualify_order_by(&order, &projection, &mut ctx, &group_set);
         assert!(err.is_err());
         let msg = format!("{err:?}").to_lowercase();
         assert!(msg.contains("order by") && msg.contains("group by"), "unexpected error: {msg}");

@@ -91,21 +91,21 @@ impl PredicateResolver {
         }
     }
 
-    pub fn qualify_predicate(predicate: &Predicate, ctx: &AnalysisContext) -> Result<Predicate, AnalyzerError> {
+    pub fn qualify_predicate(predicate: &Predicate, ctx: &mut AnalysisContext) -> Result<Predicate, AnalyzerError> {
         Ok(match predicate {
             Predicate::And(v) => Predicate::And(v.iter().map(|x| Self::qualify_predicate(x, ctx)).collect::<Result<Vec<_>,_>>()?),
             Predicate::Or(v)  => Predicate::Or(v.iter().map(|x| Self::qualify_predicate(x, ctx)).collect::<Result<Vec<_>,_>>()?),
             Predicate::Compare { left, op, right } => {
-                        Predicate::Compare { left: ScalarResolver::qualify_scalar(left, ctx)?, op: *op, right: ScalarResolver::qualify_scalar(right, ctx)? }
+                        Predicate::Compare { left: ScalarResolver::qualify_scalar(left, ctx, false)?, op: *op, right: ScalarResolver::qualify_scalar(right, ctx, false)? }
                     },
             Predicate::IsNull { expr, negated } => {
-                        Predicate::IsNull { expr: ScalarResolver::qualify_scalar(expr, ctx)?, negated: *negated }
+                        Predicate::IsNull { expr: ScalarResolver::qualify_scalar(expr, ctx, false)?, negated: *negated }
                     },
             Predicate::InList { expr, list, negated } => {
-                        Predicate::InList { expr: ScalarResolver::qualify_scalar(expr, ctx)?, list: list.iter().map(|x| ScalarResolver::qualify_scalar(x, ctx)).collect::<Result<Vec<_>,_>>()?, negated: *negated }
+                        Predicate::InList { expr: ScalarResolver::qualify_scalar(expr, ctx, false)?, list: list.iter().map(|x| ScalarResolver::qualify_scalar(x, ctx, true)).collect::<Result<Vec<_>,_>>()?, negated: *negated }
                     },
             Predicate::Like { expr, pattern, negated } => {
-                        Predicate::Like { expr: ScalarResolver::qualify_scalar(expr, ctx)?, pattern: ScalarResolver::qualify_scalar(pattern, ctx)?, negated: *negated }
+                        Predicate::Like { expr: ScalarResolver::qualify_scalar(expr, ctx, false)?, pattern: ScalarResolver::qualify_scalar(pattern, ctx, false)?, negated: *negated }
                     },
             Predicate::Const3(value) => Predicate::Const3(*value),
         })
@@ -419,7 +419,7 @@ mod tests {
             ("a", JsonPrimitive::Int, false),
             ("s", JsonPrimitive::String, false),
         ]);
-        let ctx = ctx_for(&sp, &[("t", None)]);
+        let mut ctx = ctx_for(&sp, &[("t", None)]);
 
         // lower(s) = 'x' AND a IN (1,2)
         let pred = Predicate::And(vec![
@@ -439,7 +439,7 @@ mod tests {
             }
         ]);
 
-        let q = PredicateResolver::qualify_predicate(&pred, &ctx).expect("qualify");
+        let q = PredicateResolver::qualify_predicate(&pred, &mut ctx).expect("qualify");
         // Ensure both columns got qualified to t.*
         let ok = match q {
             Predicate::And(v) => {
@@ -471,7 +471,7 @@ mod tests {
     fn qualify_predicate_errors_on_wildcard_outside_count() {
         // schema present but wildcard is not allowed in qualification
         let sp = DummySchemas::new().with("t", vec![("a", JsonPrimitive::Int, false)]);
-        let ctx = ctx_for(&sp, &[("t", None)]);
+        let mut ctx = ctx_for(&sp, &[("t", None)]);
 
         // LIKE(*, 'a%') → invalid due to wildcard outside COUNT(*)
         let bad = Predicate::Like {
@@ -479,7 +479,7 @@ mod tests {
             pattern: lit_s("a%"),
             negated: false
         };
-        let err = PredicateResolver::qualify_predicate(&bad, &ctx);
+        let err = PredicateResolver::qualify_predicate(&bad, &mut ctx);
         assert!(err.is_err());
         let msg = format!("{err:?}").to_lowercase();
         assert!(msg.contains("wildcards") || msg.contains("wildcard"), "unexpected error: {msg}");
@@ -489,7 +489,7 @@ mod tests {
     fn qualify_predicate_unknown_collection_in_qualified_column() {
         // provider has "t", ctx exposes only "t"
         let sp = DummySchemas::new().with("t", vec![("a", JsonPrimitive::Int, false)]);
-        let ctx = ctx_for(&sp, &[("t", None)]);
+        let mut ctx = ctx_for(&sp, &[("t", None)]);
 
         // Compare(v.a, 1) where 'v' is not a visible collection
         let bad = Predicate::Compare {
@@ -497,7 +497,7 @@ mod tests {
             op: ComparatorOp::Eq,
             right: lit_i(1),
         };
-        let err = PredicateResolver::qualify_predicate(&bad, &ctx);
+        let err = PredicateResolver::qualify_predicate(&bad, &mut ctx);
         assert!(matches!(err, Err(AnalyzerError::UnknownCollection(c)) if c == "v"));
     }
 

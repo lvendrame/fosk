@@ -38,6 +38,7 @@ pub struct QueryComparers {
     pub b_true: WordComparer,
     pub b_false: WordComparer,
     pub null: WordComparer,
+    pub param: WordComparer,
 }
 
 impl Default for QueryComparers {
@@ -85,6 +86,7 @@ impl QueryComparers {
             b_true: WordComparer::new("TRUE").with_any_delimiter_postfix().with_eof(),
             b_false: WordComparer::new("FALSE").with_any_delimiter_postfix().with_eof(),
             null: WordComparer::new("NULL").with_any_delimiter_postfix().with_eof(),
+            param: WordComparer::new("?").with_any_delimiter_postfix().with_eof(),
         }
     }
 }
