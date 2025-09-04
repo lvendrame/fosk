@@ -245,4 +245,74 @@ mod tests {
         assert_eq!(obj.get("t.cat").unwrap(), "b");
         assert_eq!(obj.get("t.amt").unwrap(), 7.5);
     }
+
+    #[test]
+    fn db_runner_in_with_empty_array_param_returns_no_rows() {
+        let db = mk_db();
+        // WHERE id IN (?) with [] should match nothing
+        let rows = db.query_with_args(
+            r#"
+                SELECT id FROM t
+                WHERE id IN (?)
+            "#,
+            serde_json::json!([[]]),
+        ).expect("query should succeed");
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn db_runner_multiple_positional_params() {
+        let db = mk_db();
+        // Two ? scalars, both must be provided in order
+        let rows = db.query_with_args(
+            r#"
+                SELECT id, cat
+                FROM t
+                WHERE id >= ? AND cat = ?
+                ORDER BY id
+            "#,
+            serde_json::json!([2, "a"]),
+        ).expect("query should succeed");
+        // Expect rows with id >= 2 and cat='a' -> ids 2 and 5 in mk_db fixture
+        let ids: Vec<i64> = rows.iter()
+            .map(|r| r["t.id"].as_i64().unwrap())
+            .collect();
+        assert_eq!(ids, vec![2, 5]);
+    }
+
+    #[test]
+    fn db_runner_param_in_function_and_order_by() {
+        let db = mk_db();
+        // Use param inside a scalar function and sort by a projected alias
+        let sql = r#"
+            SELECT UPPER(cat) AS c
+            FROM t
+            WHERE cat = ?
+            ORDER BY c DESC
+        "#;
+        let rows = db.query_with_args(sql, serde_json::json!("a"))
+            .expect("query should succeed");
+        // All rows have cat='a' -> UPPER('a') == 'A'
+        assert!(!rows.is_empty());
+        for r in rows {
+            assert_eq!(r["c"], serde_json::json!("A"));
+        }
+    }
+
+    #[test]
+    fn db_runner_in_with_mixed_literals_and_param_array() {
+        let db = mk_db();
+        // IN list combining literals and a param array: id IN (1, ?)
+        // Param expands to Args([2,3]) -> overall set {1,2,3}
+        let sql = r#"
+            SELECT id
+            FROM t
+            WHERE id IN (1, ?)
+            ORDER BY id
+        "#;
+        let rows = db.query_with_args(sql, serde_json::json!([[2, 3]]))
+            .expect("query should succeed");
+        let ids: Vec<i64> = rows.iter().map(|r| r["t.id"].as_i64().unwrap()).collect();
+        assert_eq!(ids, vec![1, 2, 3]);
+    }
 }

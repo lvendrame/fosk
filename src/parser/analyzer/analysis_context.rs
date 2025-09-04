@@ -19,7 +19,9 @@ pub struct AnalysisContext<'a> {
     pub schemas: &'a dyn SchemaProvider,
     /// access to aggregate implementations
     pub aggregates: &'a AggregateRegistry,
+    /// parameters to replace the question marks
     pub parameters: Value,
+    /// current parameter position
     pub current_param: usize,
 }
 

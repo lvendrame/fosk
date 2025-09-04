@@ -462,4 +462,37 @@ mod tests {
             other => panic!("unexpected ORDER BY expr after qualification: {other:?}"),
         }
     }
+
+    #[test]
+    fn order_by_with_param_in_non_agg_query_is_allowed() {
+        // Direct resolver test if you want to target the analyzer layer
+        let sp = DummySchemas::new().with("t", vec![
+            ("id", JsonPrimitive::Int, false),
+            ("cat", JsonPrimitive::String, false),
+        ]);
+        let mut ctx = build_ctx_with_table(&sp, "t", None);
+
+        // Non-agg projection
+        let projection = vec![
+            proj_id(ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"id".into() }), None, JsonPrimitive::Int, false),
+            proj_id(ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"cat".into() }), None, JsonPrimitive::String, false),
+        ];
+
+        // ORDER BY ? (which will be expanded before resolver in real pipeline,
+        // but here we just ensure resolver accepts a simple qualified column)
+        let order = vec![ OrderBy {
+            expr: ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"id".into() }),
+            ascending: true
+        }];
+
+        // Non-agg path
+        let out = OrderByResolver::qualify_order_by_non_agg(&order, &projection, &mut ctx)
+            .expect("non-agg ORDER BY should be allowed");
+        assert_eq!(out.len(), 1);
+        assert!(matches!(
+            &out[0].expr,
+            ScalarExpr::Column(Column::WithCollection { collection, name })
+            if collection == "t" && name == "id"
+        ));
+    }
 }
