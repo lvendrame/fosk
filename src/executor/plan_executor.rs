@@ -70,9 +70,7 @@ impl PlanExecutor {
                     let obj = v.as_object().unwrap();
                     for id in exprs {
                         let val = Eval::eval_scalar(&id.expression, obj);
-                        let key = id.alias.clone()
-                            .unwrap_or_else(|| Self::default_name_for_expr(&id.expression));
-                        proj.insert(key, val);
+                        proj.insert(id.output_name.clone(), val);
                     }
                     out.push(Value::Object(proj));
                 }
@@ -384,6 +382,7 @@ mod tests {
                     alias: Some("cat".into()),
                     ty: JsonPrimitive::String,
                     nullable: false,
+                    output_name: "cat".into(),
                 },
                 AnalyzedIdentifier {
                     expression: ScalarExpr::Function(Function {
@@ -394,6 +393,7 @@ mod tests {
                     alias: Some("total".into()),
                     ty: JsonPrimitive::Float, // analyzer would set Float for SUM(float)
                     nullable: true,
+                    output_name: "total".into(),
                 },
             ],
             collections: vec![("t".into(), "t".into())],
@@ -507,19 +507,21 @@ mod tests {
                 alias: Some("uname".into()),
                 ty: crate::JsonPrimitive::String,
                 nullable: false,
+                output_name: "uname".into(),
             },
             crate::parser::analyzer::AnalyzedIdentifier {
                 expression: ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"k".into() }),
                 alias: None,
                 ty: crate::JsonPrimitive::Int,
                 nullable: false,
+                output_name: "k".into(),
             },
         ];
         let plan = LogicalPlan::Project { input: Box::new(scan), exprs };
         let out = PlanExecutor::run_plan(&plan, &db).unwrap();
         let row = out[0].as_object().unwrap();
         assert!(row.contains_key("uname")); // aliased
-        assert!(row.contains_key("t.k"));   // default name for qualified column
+        assert!(row.contains_key("k"));   // default name for qualified column
     }
 
     // ---------- Sort (asc/desc, NULLS LAST) ---------------------------------
@@ -642,18 +644,21 @@ mod tests {
                     alias: Some("cat".into()),
                     ty: crate::JsonPrimitive::String,
                     nullable: false,
+                    output_name: "cat".into(),
                 },
                 crate::parser::analyzer::AnalyzedIdentifier {
                     expression: ScalarExpr::Column(Column::Name{ name:"sum".into() }),
                     alias: Some("total".into()),
                     ty: crate::JsonPrimitive::Float,
                     nullable: true,
+                    output_name: "total".into(),
                 },
                 crate::parser::analyzer::AnalyzedIdentifier {
                     expression: ScalarExpr::Column(Column::Name{ name:"count".into() }),
                     alias: Some("n".into()),
                     ty: crate::JsonPrimitive::Int,
                     nullable: false,
+                    output_name: "n".into(),
                 },
             ],
         };

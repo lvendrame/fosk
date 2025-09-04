@@ -217,9 +217,9 @@ mod tests {
         assert_eq!(rows.len(), 1);
 
         let obj = rows[0].as_object().unwrap();
-        assert_eq!(obj.get("t.id").unwrap(), 3);
-        assert_eq!(obj.get("t.cat").unwrap(), "b");
-        assert_eq!(obj.get("t.amt").unwrap(), 7.5);
+        assert_eq!(obj.get("id").unwrap(), 3);
+        assert_eq!(obj.get("cat").unwrap(), "b");
+        assert_eq!(obj.get("amt").unwrap(), 7.5);
     }
 
     #[test]
@@ -236,14 +236,14 @@ mod tests {
         assert_eq!(rows.len(), 2);
 
         let obj = rows[0].as_object().unwrap();
-        assert_eq!(obj.get("t.id").unwrap(), 2);
-        assert_eq!(obj.get("t.cat").unwrap(), "a");
-        assert_eq!(obj.get("t.amt").unwrap(), 15.0);
+        assert_eq!(obj.get("id").unwrap(), 2);
+        assert_eq!(obj.get("cat").unwrap(), "a");
+        assert_eq!(obj.get("amt").unwrap(), 15.0);
 
         let obj = rows[1].as_object().unwrap();
-        assert_eq!(obj.get("t.id").unwrap(), 3);
-        assert_eq!(obj.get("t.cat").unwrap(), "b");
-        assert_eq!(obj.get("t.amt").unwrap(), 7.5);
+        assert_eq!(obj.get("id").unwrap(), 3);
+        assert_eq!(obj.get("cat").unwrap(), "b");
+        assert_eq!(obj.get("amt").unwrap(), 7.5);
     }
 
     #[test]
@@ -275,7 +275,7 @@ mod tests {
         ).expect("query should succeed");
         // Expect rows with id >= 2 and cat='a' -> ids 2 and 5 in mk_db fixture
         let ids: Vec<i64> = rows.iter()
-            .map(|r| r["t.id"].as_i64().unwrap())
+            .map(|r| r["id"].as_i64().unwrap())
             .collect();
         assert_eq!(ids, vec![2, 5]);
     }
@@ -312,7 +312,7 @@ mod tests {
         "#;
         let rows = db.query_with_args(sql, serde_json::json!([[2, 3]]))
             .expect("query should succeed");
-        let ids: Vec<i64> = rows.iter().map(|r| r["t.id"].as_i64().unwrap()).collect();
+        let ids: Vec<i64> = rows.iter().map(|r| r["id"].as_i64().unwrap()).collect();
         assert_eq!(ids, vec![1, 2, 3]);
     }
 }

@@ -1,4 +1,4 @@
-use crate::parser::{analyzer::{AggregateResolver, AnalysisContext, AnalyzedIdentifier, AnalyzerError, ColumnKey, ScalarResolver}, ast::{Column, Literal, OrderBy, ScalarExpr}};
+use crate::parser::{analyzer::{AggregateResolver, AnalysisContext, AnalyzedIdentifier, AnalyzerError, ColumnKey, ColumnResolver, ScalarResolver}, ast::{Column, Literal, OrderBy, ScalarExpr}};
 
 pub struct OrderByResolver;
 
@@ -56,53 +56,85 @@ impl OrderByResolver {
         Ok(out)
     }
 
+    fn rewrite_ob_expr_non_agg(
+        e: &ScalarExpr,
+        alias_to_expr: &std::collections::HashMap<String, ScalarExpr>,
+        ctx: &mut AnalysisContext,
+    ) -> Result<ScalarExpr, AnalyzerError> {
+        use crate::parser::ast::{Column, Function, ScalarExpr};
+
+        match e {
+            // Alias reference? Replace with the fully analyzed SELECT expression.
+            ScalarExpr::Column(Column::Name { name }) => {
+                if let Some(sel_expr) = alias_to_expr.get(name) {
+                    return Ok(sel_expr.clone());
+                }
+                // Otherwise, qualify the column normally.
+                let (qc, _) = ColumnResolver::qualify_column(&Column::Name { name: name.clone() }, ctx)?;
+                Ok(ScalarExpr::Column(qc))
+            }
+
+            // Already-qualified column: keep it.
+            ScalarExpr::Column(Column::WithCollection { .. }) => Ok(e.clone()),
+
+            // Recurse into functions so aliases inside functions are handled.
+            ScalarExpr::Function(Function { name, args, distinct }) => {
+                let new_args: Result<Vec<_>, _> = args
+                    .iter()
+                    .map(|a| Self::rewrite_ob_expr_non_agg(a, alias_to_expr, ctx))
+                    .collect();
+                Ok(ScalarExpr::Function(Function {
+                    name: name.clone(),
+                    args: new_args?,
+                    distinct: *distinct,
+                }))
+            }
+
+            // Literals/parameters pass through; they were already expanded/folded.
+            ScalarExpr::Literal(_) | ScalarExpr::Args(_) => Ok(e.clone()),
+
+            // Wildcards/Parameter should not appear here in ORDER BY after analysis; keep safe.
+            ScalarExpr::Parameter | ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) => {
+                Err(AnalyzerError::Other("unexpected token in ORDER BY".into()))
+            }
+        }
+    }
+
     pub fn qualify_order_by_non_agg(
-        order: &[OrderBy],
+        order_bys: &[OrderBy],
         projection: &[AnalyzedIdentifier],
         ctx: &mut AnalysisContext,
     ) -> Result<Vec<OrderBy>, AnalyzerError> {
-        use crate::parser::ast::{Literal, ScalarExpr, Column};
+        use crate::parser::ast::{Literal, OrderBy, ScalarExpr};
 
-        // Build alias -> expr map from the analyzed (qualified) projection
-        let mut by_alias: std::collections::HashMap<String, ScalarExpr> = std::collections::HashMap::new();
+        // Build alias -> underlying analyzed SELECT expression map.
+        // (These expressions are already qualified/folded.)
+        let mut alias_to_expr = std::collections::HashMap::<String, ScalarExpr>::new();
         for id in projection {
-            if let Some(a) = &id.alias {
-                by_alias.insert(a.clone(), id.expression.clone());
+            if let Some(alias) = &id.alias {
+                alias_to_expr.insert(alias.clone(), id.expression.clone());
             }
         }
 
-        // For positional ORDER BY n (1-based), we use the nth projection expr.
-        let nth_expr = |n: i64| -> Option<ScalarExpr> {
-            let idx = (n as isize) - 1;
-            if idx >= 0 && (idx as usize) < projection.len() {
-                Some(projection[idx as usize].expression.clone())
-            } else {
-                None
+        let mut out = Vec::with_capacity(order_bys.len());
+
+        for ob in order_bys {
+            // 1) Positional ORDER BY N: use the Nth SELECT expression directly.
+            if let ScalarExpr::Literal(Literal::Int(pos)) = &ob.expr {
+                let idx = (*pos as isize) - 1;
+                if idx >= 0 && (idx as usize) < projection.len() {
+                    let expr = projection[idx as usize].expression.clone();
+                    out.push(OrderBy { expr, ascending: ob.ascending });
+                    continue;
+                }
+                // fall through to generic handling if out of range
             }
-        };
 
-        let mut out = Vec::with_capacity(order.len());
-        for ob in order {
-            let resolved_expr = match &ob.expr {
-                // ORDER BY 2  -> use 2nd projection expr
-                ScalarExpr::Literal(Literal::Int(n)) => {
-                    if let Some(e) = nth_expr(*n) { e } else { ob.expr.clone() }
-                }
-                // ORDER BY alias -> if alias found, use its expr
-                ScalarExpr::Column(Column::Name { name }) => {
-                    if let Some(e) = by_alias.get(name) {
-                        e.clone()
-                    } else {
-                        // Otherwise, just qualify the free-form scalar
-                        ScalarResolver::qualify_scalar(&ob.expr, ctx, false)?
-                    }
-                }
-                // General case: qualify the free-form scalar
-                _ => ScalarResolver::qualify_scalar(&ob.expr, ctx, false)?,
-            };
-
-            out.push(OrderBy { expr: resolved_expr, ascending: ob.ascending });
+            // 2) Resolve aliases / qualify columns / recurse into functions.
+            let rewritten = Self::rewrite_ob_expr_non_agg(&ob.expr, &alias_to_expr, ctx)?;
+            out.push(OrderBy { expr: rewritten, ascending: ob.ascending });
         }
+
         Ok(out)
     }
 }
@@ -143,8 +175,8 @@ mod tests {
         ctx
     }
 
-    fn proj_id(expr: ScalarExpr, alias: Option<&str>, ty: JsonPrimitive, nullable: bool) -> AnalyzedIdentifier {
-        AnalyzedIdentifier { expression: expr, alias: alias.map(|s| s.to_string()), ty, nullable }
+    fn proj_id(expression: ScalarExpr, alias: Option<&str>, ty: JsonPrimitive, nullable: bool) -> AnalyzedIdentifier {
+        AnalyzedIdentifier { expression, alias: alias.map(|s| s.to_string()), ty, nullable, output_name: "".into() }
     }
 
     // ------ tests ------

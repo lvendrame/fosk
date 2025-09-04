@@ -105,7 +105,13 @@ impl PlanBuilder {
             // ---- rewrite SELECT and HAVING to reference aggregate internal names ----
             let rewritten_projection: Vec<AnalyzedIdentifier> = aq.projection.iter().map(|id| {
                 let new_expr = AggregateCall::rewrite_scalar_using_call_names(&id.expression, &name_map);
-                AnalyzedIdentifier { expression: new_expr, alias: id.alias.clone(), ty: id.ty, nullable: id.nullable }
+                AnalyzedIdentifier {
+                    expression: new_expr,
+                    alias: id.alias.clone(),
+                    ty: id.ty,
+                    nullable: id.nullable,
+                    output_name: id.output_name.clone(),
+                }
             }).collect();
 
             let rewritten_having: Option<Predicate> = aq.having.as_ref()
@@ -260,10 +266,7 @@ impl PlanBuilder {
     fn out_cols_from_projection(proj: &[AnalyzedIdentifier]) -> Vec<(ScalarExpr, String, Option<(String,String)>)> {
         proj.iter()
             .map(|id| {
-                let out_name = id
-                    .alias
-                    .clone()
-                    .unwrap_or_else(|| PlanExecutor::default_name_for_expr(&id.expression));
+                let out_name = id.output_name.clone(); // single source of truth
                 let key = Self::normalize_col_key(&id.expression);
                 (id.expression.clone(), out_name, key)
             })
@@ -341,6 +344,15 @@ impl PlanBuilder {
                     }
                 }
 
+                if let ScalarExpr::Column(Column::WithCollection { name, .. }) = &ob.expr {
+                    if out_name_set.contains(name) {
+                        return OrderBy {
+                            expr: ScalarExpr::Column(Column::Name { name: name.clone() }),
+                            ascending: ob.ascending,
+                        };
+                    }
+                }
+
                 // leave it as-is
                 ob.clone()
             })
@@ -365,6 +377,7 @@ mod tests {
             alias: None,
             ty: JsonPrimitive::Int,
             nullable: false,
+            output_name: name.into(),
         }
     }
     fn id_fun(name: &str, args: Vec<ScalarExpr>) -> AnalyzedIdentifier {
@@ -373,6 +386,7 @@ mod tests {
             alias: Some(name.into()),
             ty: if name.eq_ignore_ascii_case("avg") { JsonPrimitive::Float } else { JsonPrimitive::Int },
             nullable: true,
+            output_name: name.into(),
         }
     }
 
@@ -439,6 +453,7 @@ mod tests {
                     alias: None,
                     ty: JsonPrimitive::String,
                     nullable: false,
+                    output_name: "category".into(),
                 },
                 id_fun("sum", vec![ScalarExpr::Column(col_t("amount"))]),
             ],
@@ -498,6 +513,7 @@ mod tests {
                 alias: None,
                 ty: JsonPrimitive::Int,
                 nullable: false,
+                output_name: "id".into(),
             }],
             collections: vec![
                 ("a".into(), "a".into()),
@@ -554,6 +570,7 @@ mod tests {
                 alias: None,
                 ty: JsonPrimitive::Int,
                 nullable: false,
+                output_name: "id".into(),
             }],
             collections: vec![
                 ("a".into(), "a".into()),
@@ -762,16 +779,17 @@ mod join_shape_tests {
     use crate::parser::analyzer::{AnalyzedIdentifier};
     use crate::{Config, Db, IdType, JsonPrimitive};
 
-    fn col(a: &str, n: &str) -> Column {
-        Column::WithCollection { collection: a.into(), name: n.into() }
+    fn col(collection: &str, name: &str) -> Column {
+        Column::WithCollection { collection: collection.into(), name: name.into() }
     }
 
-    fn id_col(a: &str, n: &str, ty: JsonPrimitive) -> AnalyzedIdentifier {
+    fn id_col(collection: &str, name: &str, ty: JsonPrimitive) -> AnalyzedIdentifier {
         AnalyzedIdentifier {
-            expression: ScalarExpr::Column(col(a, n)),
+            expression: ScalarExpr::Column(col(collection, name)),
             alias: None,
             ty,
             nullable: false,
+            output_name: name.into(),
         }
     }
 

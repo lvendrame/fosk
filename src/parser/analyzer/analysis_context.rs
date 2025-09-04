@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::{
     database::SchemaProvider,
     parser::{
-        aggregators_helper::AggregateRegistry, analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, JoinResolver, OrderByResolver, PredicateResolver, ScalarResolver, TypeInference}, ast::{Collection, Query}
+        aggregators_helper::AggregateRegistry, analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, JoinResolver, OrderByResolver, PredicateResolver, ScalarResolver, TypeInference}, ast::{Collection, Column, Query, ScalarExpr}
     }
 };
 
@@ -89,6 +89,49 @@ impl<'a> AnalysisContext<'a> {
         Ok(ctx)
     }
 
+
+    fn default_name_for_expr_in_analyzer(e: &ScalarExpr) -> String {
+        match e {
+            ScalarExpr::Column(Column::WithCollection{ collection, name }) => format!("{}.{}", collection, name),
+            ScalarExpr::Column(Column::Name{ name }) => name.clone(),
+            ScalarExpr::Function(f) => f.name.to_ascii_lowercase(),
+            ScalarExpr::Literal(_) => "_lit".into(),
+            ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) => "*".into(),
+            ScalarExpr::Parameter | ScalarExpr::Args(_) => "_param".into(),
+        }
+    }
+
+    /// Assign unique output names for the SELECT list.
+    /// - alias wins
+    /// - qualified column prefers its bare name if not colliding; else uses "tbl.col"
+    /// - others use a stable derived name; collisions get _1, _2, ...
+    fn assign_output_names(ids: &mut [AnalyzedIdentifier]) {
+        use std::collections::HashSet;
+        let mut used: HashSet<String> = HashSet::new();
+        for id in ids.iter_mut() {
+            // 1) alias wins
+            let mut proposed = if let Some(a) = &id.alias {
+                a.clone()
+            } else {
+                match &id.expression {
+                    ScalarExpr::Column(Column::WithCollection{ collection, name }) => {
+                        if !used.contains(name) { name.clone() } else { format!("{}.{}", collection, name) }
+                    }
+                    _ => AnalysisContext::default_name_for_expr_in_analyzer(&id.expression),
+                }
+            };
+            // 2) de-dup with suffixes
+            let base = proposed.clone();
+            let mut k = 1usize;
+            while used.contains(&proposed) {
+                proposed = format!("{}_{}", base, k);
+                k += 1;
+            }
+            used.insert(proposed.clone());
+            id.output_name = proposed;
+        }
+    }
+
     pub fn analyze_query(
         query: &Query,
         schema_provider: &'a dyn SchemaProvider,
@@ -127,8 +170,10 @@ impl<'a> AnalysisContext<'a> {
                 alias: id.alias.clone(),
                 ty,
                 nullable,
+                output_name: String::new(),
             });
         }
+        AnalysisContext::assign_output_names(&mut analyzed_proj);
 
         let analyzed_joins = JoinResolver::qualify_and_fold_joins(query, &mut ctx)?;
 
