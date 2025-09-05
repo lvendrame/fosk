@@ -5,20 +5,20 @@ use crate::IdType;
 /// - `id_type` controls how document IDs are generated or interpreted.
 /// - `id_key` is the JSON key used to store the document id inside each item.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Config {
+pub struct DbConfig {
     /// Strategy for generated/interpreted ids
     pub id_type: IdType,
     /// Field name inside documents that contains the id
     pub id_key: String,
 }
 
-impl Default for Config {
+impl Default for DbConfig {
     fn default() -> Self {
         Self { id_type: Default::default(), id_key: "id".to_string() }
     }
 }
 
-impl Config {
+impl DbConfig {
     /// Create default configuration.
     pub fn new() -> Self {
         Self::default()

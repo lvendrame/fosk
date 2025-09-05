@@ -1,19 +1,19 @@
 use std::{collections::HashMap, ffi::OsString, fs, sync::RwLock};
 use serde_json::Value;
 
-use crate::database::{Config, IdManager, IdType, IdValue, SchemaDict};
+use crate::database::{DbConfig, IdManager, IdType, IdValue, SchemaDict};
 
 /// Thread-safe handle to an in-memory collection protected by a RwLock.
-pub type MemoryCollection = RwLock<InternalMemoryCollection>;
+pub(crate) type MemoryCollection = RwLock<InternalMemoryCollection>;
 
 /// Internal in-memory collection representation.
 ///
 /// Stores items keyed by string ids and maintains an `IdManager` plus an
 /// optional inferred `SchemaDict` for the collection.
-pub struct InternalMemoryCollection {
+pub(crate) struct InternalMemoryCollection {
     collection: HashMap<String, Value>,
     id_manager: IdManager,
-    config: Config,
+    config: DbConfig,
     /// collection name
     pub name: String,
     /// optional inferred schema for the collection
@@ -21,14 +21,14 @@ pub struct InternalMemoryCollection {
 }
 
 impl InternalMemoryCollection {
-    pub fn new(name: &str, config: Config) -> Self {
+    pub fn new(name: &str, config: DbConfig) -> Self {
         let collection: HashMap<String, Value> = HashMap::new();
         let id_manager = IdManager::new(config.id_type);
         Self {
             collection,
             id_manager,
             config,
-            name: name.to_string(),
+            name: name.to_ascii_lowercase(),
             schema: None,
         }
     }
@@ -72,7 +72,7 @@ impl InternalMemoryCollection {
         }
     }
 
-    pub fn new_coll(name: &str, config: Config) -> Self {
+    pub fn new_coll(name: &str, config: DbConfig) -> Self {
         Self::new(name, config)
     }
 
@@ -286,14 +286,14 @@ pub struct DbCollection {
     /// The internal protected memory collection. Callers may acquire a lock
     /// directly (e.g. `dbcoll.collection.read().unwrap()`) but prefer the
     /// high-level methods on `DbCollection` when possible.
-    pub collection: MemoryCollection,
+    pub(crate) collection: MemoryCollection,
 }
 
 impl DbCollection {
     /// Create a new `DbCollection` backed by an internal in-memory collection.
     ///
     /// `name` is the collection name and `config` controls id strategy and key.
-    pub fn new_coll(name: &str, config: Config) -> Self {
+    pub fn new_coll(name: &str, config: DbConfig) -> Self {
         Self {
             collection: InternalMemoryCollection::new_coll(name, config).into_protected()
         }
@@ -383,6 +383,11 @@ impl DbCollection {
     pub fn schema(&self) -> Option<SchemaDict> {
         self.collection.read().ok().and_then(|g| g.schema())
     }
+
+    // Get the collection DBConfig
+    pub fn get_config(&self) -> DbConfig {
+        self.collection.read().unwrap().config.clone()
+    }
 }
 
 #[cfg(test)]
@@ -391,15 +396,15 @@ mod tests {
     use serde_json::json;
 
     fn create_test_collection() -> InternalMemoryCollection {
-        InternalMemoryCollection::new("test_collection", Config::int("id"))
+        InternalMemoryCollection::new("test_collection", DbConfig::int("id"))
     }
 
     fn create_uuid_collection() -> InternalMemoryCollection {
-        InternalMemoryCollection::new("uuid_collection", Config::uuid("id"))
+        InternalMemoryCollection::new("uuid_collection", DbConfig::uuid("id"))
     }
 
     fn create_none_collection() -> InternalMemoryCollection {
-        InternalMemoryCollection::new("none_collection", Config::none("id"))
+        InternalMemoryCollection::new("none_collection", DbConfig::none("id"))
     }
 
     #[test]
@@ -856,7 +861,7 @@ mod tests {
     fn test_custom_id_key() {
         let mut collection = InternalMemoryCollection::new(
             "custom_collection",
-            Config::int("customId")
+            DbConfig::int("customId")
         );
 
         let item = collection.add(json!({"name": "Test Item"})).unwrap();
@@ -1151,7 +1156,7 @@ mod tests {
     fn test_load_from_file_custom_id_key() {
         let mut collection = InternalMemoryCollection::new(
             "custom_collection",
-            Config::int("customId"),
+            DbConfig::int("customId"),
         );
 
         let temp_dir = TempDir::new().unwrap();

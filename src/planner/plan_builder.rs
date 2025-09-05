@@ -777,7 +777,7 @@ mod join_shape_tests {
     use super::*;
     use crate::parser::ast::{Collection as AstCollection, Column, ComparatorOp, JoinType, Literal, OrderBy, Predicate, ScalarExpr};
     use crate::parser::analyzer::{AnalyzedIdentifier};
-    use crate::{Config, Db, IdType, JsonPrimitive};
+    use crate::{DbConfig, Db, IdType, JsonPrimitive};
 
     fn col(collection: &str, name: &str) -> Column {
         Column::WithCollection { collection: collection.into(), name: name.into() }
@@ -915,7 +915,7 @@ mod join_shape_tests {
     #[test]
     fn order_by_sum_desc_works_when_aggregate_in_order_by() {
         // tiny db
-        let db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_db_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
         let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "grp": "A", "v": 10.0 },

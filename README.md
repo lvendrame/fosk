@@ -29,7 +29,7 @@ In your `Cargo.toml`:
 
 ```toml
 [dependencies]
-fosk = "0.1.1"
+fosk = "0.1.2"
 serde_json = "1"
 ```
 
@@ -38,11 +38,11 @@ serde_json = "1"
 ## Quick example
 
 ```rust
-use fosk::{Db, Config, IdType};
+use fosk::{Db, DbConfig, IdType};
 use serde_json::json;
 
 fn main() {
-    let db = Db::new_db_with_config(Config {
+    let db = Db::new_db_with_config(DbConfig {
         id_type: IdType::Int,       // auto-increment IDs
         id_key: "id".into(),
     });
@@ -81,18 +81,21 @@ fn main() {
 
 Represents a database.
 
-- new_db_with_config(config: Config) -> Db
+- new_db_with_config(config: DbConfig) -> Db
 - create_collection(name: &str) -> CollectionHandle
 - query(sql: &str) -> Result<Vec<Value>, AnalyzerError>
 - query_with_args(sql: &str, args: Value) -> Result<Vec<Value>, AnalyzerError>
+- drop_collection(col_name: &str) -> bool
+- clear()
+- get_config() -> DbConfig
 
 ### Config
 
 Defines collection behavior.
 
-- Config::int("id") → auto-increment integer IDs
-- Config::uuid("id") → UUID v4 IDs
-- Config::none("id") → no automatic ID field
+- DbConfig::int("id") → auto-increment integer IDs
+- DbConfig::uuid("id") → UUID v4 IDs
+- DbConfig::none("id") → no automatic ID field
 
 ### CollectionHandle
 
@@ -104,12 +107,13 @@ Defines collection behavior.
 
 #### extras
 
-- get_paginated(, offset: usize, limit: usize) -> Vec<Value>
+- get_paginated(offset: usize, limit: usize) -> Vec<Value>
 - exists(id: &str) -> bool
 - count() -> usize
 - add_batch(items: Value) -> Vec<Value>
 - update_partial(id: &str, partial_item: Value) -> Option<Value>
 - clear() -> usize
+- get_config() -> DbConfig
 
 ### Load from existing data
 
@@ -140,7 +144,7 @@ Example test seed (see [fixtures::seed_db](https://github.com/lvendrame/fosk/blo
 
 ```rust
 pub fn seed_db() -> Db {
-    let db = Db::new_db_with_config(Config {
+    let db = Db::new_db_with_config(DbConfig {
         id_type: IdType::None,
         id_key: "id".into(),
     });
@@ -158,7 +162,6 @@ pub fn seed_db() -> Db {
 
 ## ⚠️ Notes
 
-- Collection names are case-sensitive: "People" is different from "people".
 - Projections normally output unqualified field names (id, name), unless duplicates exist.
   In case of conflicts, names are disambiguated with their collection prefix (id, o.id).
 

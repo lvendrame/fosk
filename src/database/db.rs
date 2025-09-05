@@ -2,15 +2,15 @@ use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use serde_json::Value;
 
-use crate::{database::{Config, DbCollection, SchemaProvider}, executor::plan_executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
+use crate::{database::{DbConfig, DbCollection, SchemaProvider}, executor::plan_executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
 
 /// Thread-safe pointer to the internal database state.
-pub type ProtectedDb = Arc<RwLock<InternalDb>>;
+pub(crate) type ProtectedDb = Arc<RwLock<InternalDb>>;
 
 /// Internal database holding configuration and named collections.
 #[derive(Default)]
-pub struct InternalDb {
-    config: Config,
+pub(crate) struct InternalDb {
+    config: DbConfig,
     collections: HashMap<String, Arc<DbCollection>>,
 }
 
@@ -22,10 +22,10 @@ impl InternalDb {
     }
 
     fn new_db() -> Self {
-        Self::new_db_with_config(Config::default())
+        Self::new_db_with_config(DbConfig::default())
     }
 
-    fn new_db_with_config(config: Config) -> Self {
+    fn new_db_with_config(config: DbConfig) -> Self {
         Self {
             config,
             collections: HashMap::new(),
@@ -38,16 +38,16 @@ impl InternalDb {
     }
 
     /// Create or register a new collection with a specific `Config`.
-    pub fn create_with_config(&mut self, coll_name: &str, config: Config) -> Arc<DbCollection> {
+    pub fn create_with_config(&mut self, coll_name: &str, config: DbConfig) -> Arc<DbCollection> {
         let collection = Arc::new(DbCollection::new_coll(coll_name, config));
-        self.collections.insert(coll_name.to_string(), Arc::clone(&collection));
+        self.collections.insert(coll_name.to_ascii_lowercase(), Arc::clone(&collection));
 
         collection
     }
 
     /// Get a shared handle to a collection by name.
     pub fn get(&self, col_name: &str) -> Option<Arc<DbCollection>> {
-        self.collections.get(col_name).map(Arc::clone)
+        self.collections.get(&col_name.to_ascii_lowercase()).map(Arc::clone)
     }
 
     /// List collection names registered in this database instance.
@@ -55,12 +55,22 @@ impl InternalDb {
         self.collections.keys().cloned().collect::<Vec<_>>()
     }
 
+    /// Remove a collection from the database.
+    pub fn drop_collection(&mut self, col_name: &str) -> bool {
+        self.collections.remove(&col_name.to_ascii_lowercase()).is_some()
+    }
+
+    /// Remove all collections.
+    pub fn clear(&mut self) {
+        self.collections.clear()
+    }
+
 }
 
 /// Public database handle exposing higher-level APIs.
 pub struct Db {
     /// Internal protected database state
-    pub internal_db: ProtectedDb,
+    pub(crate) internal_db: ProtectedDb,
 }
 
 impl Db {
@@ -73,7 +83,7 @@ impl Db {
     }
 
     /// Create a new in-memory database with an explicit `Config`.
-    pub fn new_db_with_config(config: Config) -> Self {
+    pub fn new_db_with_config(config: DbConfig) -> Self {
         Self{
             internal_db: InternalDb::new_db_with_config(config).into_protected(),
         }
@@ -85,7 +95,7 @@ impl Db {
     }
 
     /// Create a collection with explicit `Config` using the DB's internal lock.
-    pub fn create_with_config(&self, coll_name: &str, config: Config) -> Arc<DbCollection> {
+    pub fn create_with_config(&self, coll_name: &str, config: DbConfig) -> Arc<DbCollection> {
         self.internal_db.write().unwrap().create_with_config(coll_name, config)
     }
 
@@ -97,6 +107,21 @@ impl Db {
     /// List registered collection names.
     pub fn list_collections(&self) -> Vec<String> {
         self.internal_db.read().unwrap().list_collections()
+    }
+
+    /// Remove a collection from the database.
+    pub fn drop_collection(&self, col_name: &str) -> bool {
+        self.internal_db.write().unwrap().drop_collection(col_name)
+    }
+
+    /// Remove all collections.
+    pub fn clear(&self) {
+        self.internal_db.write().unwrap().clear();
+    }
+
+    // Get the current DBConfig
+    pub fn get_config(&self) -> DbConfig {
+        self.internal_db.read().unwrap().config.clone()
     }
 
     /// Execute a SQL query through the parser, analyzer, planner and executor.
@@ -138,6 +163,8 @@ impl Db {
         let exec = PlanExecutor::new(plan);
         exec.execute(self)
     }
+
+
 }
 
 impl SchemaProvider for Db {
@@ -153,10 +180,10 @@ impl SchemaProvider for Db {
 mod tests {
     use super::*;
     use serde_json::json;
-    use crate::database::{Config, IdType};
+    use crate::database::{DbConfig, IdType};
 
     fn mk_db() -> Db {
-        let db = Db::new_db_with_config(Config { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_db_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
         let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "cat": "a", "amt": 10.0 },
@@ -314,5 +341,19 @@ mod tests {
             .expect("query should succeed");
         let ids: Vec<i64> = rows.iter().map(|r| r["id"].as_i64().unwrap()).collect();
         assert_eq!(ids, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn db_runner_insensitive_case() {
+        let db = mk_db();
+        // trivial cross join + count(*) just to exercise the path
+        let sql = r#"
+            SELECT COUNT(*) AS n
+            FROM t a, T b
+        "#;
+        let rows = db.query(sql).expect("query should succeed");
+        assert_eq!(rows.len(), 1);
+        // t has 5 rows -> t × t has 25 rows
+        assert_eq!(rows[0]["n"].as_i64().unwrap(), 25);
     }
 }
