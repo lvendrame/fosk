@@ -431,4 +431,79 @@ mod tests {
         // t has 5 rows -> t × t has 25 rows
         assert_eq!(rows[0]["n"].as_i64().unwrap(), 25);
     }
+
+    #[test]
+    fn test_db_load_from_json() {
+        use serde_json::json;
+
+        // Single collection with one item
+        let input = json!({ "a": [{ "id": 1, "x": "foo" }] });
+        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let count = db.load_from_json(input.clone()).unwrap();
+        assert_eq!(count, 1);
+        // Verify write_to_json reflects same data
+        let out = db.write_to_json();
+        let arr = out.get("a").unwrap().as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0].get("x").unwrap(), "foo");
+    }
+
+    #[test]
+    fn test_db_load_from_file() {
+        use tempfile::TempDir;
+        use std::{fs::File, io::Write, ffi::OsString};
+        use serde_json::json;
+
+        // Create temp JSON file for loading
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("db.json");
+        let mut f = File::create(&path).unwrap();
+        let data = json!({ "b": [{ "id": 2, "y": 42 }] });
+        f.write_all(data.to_string().as_bytes()).unwrap();
+
+        let os_path = OsString::from(path.to_string_lossy().into_owned());
+        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let msg = db.load_from_file(&os_path).unwrap();
+        assert!(msg.contains("Loaded 1 initial collections"));
+        // Confirm via write_to_json
+        let out = db.write_to_json();
+        let arr = out.get("b").unwrap().as_array().unwrap();
+        assert_eq!(arr[0].get("y").unwrap(), 42);
+    }
+
+    #[test]
+    fn test_db_write_to_json() {
+        use serde_json::json;
+
+        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let coll = db.create("z");
+        coll.add(json!({ "key": "value" }));
+
+        let out = db.write_to_json();
+        let arr = out.get("z").unwrap().as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0].get("key").unwrap(), "value");
+    }
+
+    #[test]
+    fn test_db_write_to_file() {
+        use tempfile::TempDir;
+        use std::{ffi::OsString, fs};
+        use serde_json::json;
+
+        // Setup and write to file
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("out.json");
+        let os_path = OsString::from(path.to_string_lossy().into_owned());
+
+        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let coll = db.create("c");
+        coll.add(json!({ "n": 3 }));
+        assert!(db.write_to_file(&os_path).is_ok());
+
+        let content = fs::read_to_string(path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let arr = v.get("c").unwrap().as_array().unwrap();
+        assert_eq!(arr[0].get("n").unwrap(), 3);
+    }
 }

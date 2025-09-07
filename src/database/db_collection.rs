@@ -1195,4 +1195,39 @@ mod tests {
         assert_eq!(item1.get("customId").unwrap(), 1);
         assert_eq!(item1.get("name").unwrap(), "Item 1");
     }
+
+    #[test]
+    fn test_write_to_file() {
+        use tempfile::TempDir;
+        use std::ffi::OsString;
+        use std::fs;
+        use serde_json::json;
+
+        // Create a temporary directory and file path
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("output.json");
+        let os_file_path = OsString::from(file_path.to_string_lossy().into_owned());
+
+        // Create a DbCollection and add items
+        let config = DbConfig::int("id");
+        let db_collection = DbCollection::new_coll("test", config);
+
+        let item1 = json!({"name": "Alice"});
+        let item2 = json!({"name": "Bob"});
+        let stored1 = db_collection.add(item1).unwrap();
+        let stored2 = db_collection.add(item2).unwrap();
+
+        // Write to file and assert success
+        assert!(db_collection.write_to_file(&os_file_path).is_ok());
+
+        // Read and parse file content
+        let content = fs::read_to_string(file_path).unwrap();
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&content).unwrap();
+
+        // Verify both items are present
+        assert_eq!(parsed.len(), 2);
+        let ids: Vec<_> = parsed.iter().filter_map(|v| v.get("id")).collect();
+        assert!(ids.contains(&stored1.get("id").unwrap()));
+        assert!(ids.contains(&stored2.get("id").unwrap()));
+    }
 }
