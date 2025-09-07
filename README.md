@@ -117,23 +117,79 @@ Defines collection behavior.
 
 ### Load from existing data
 
+#### fn Db::load_from_file(path: &std::path::Path) -> Result<String, String>;
+
 ```rust
-fn load_from_file(path: &std::path::Path) -> Result<String, String>;
+let db = Db::new();
+// Load all collections from a file
+db.load_from_file("./collection.json");
+```
 
+#### fn Db::load_from_json(json_value: &serde_json::Value) -> Result<usize, String>
+
+```rust
+let db = Db::new();
+// Load all collections from JSON
+db.load_from_json(json!({
+    "people": [...],
+    "companies": [...],
+    "products": [...],
+}));
+```
+
+#### fn DbCollection::load_from_file(path: &std::path::Path) -> Result<String, String>;
+
+```rust
 let db = Db::new();
 let people = db.create_collection("People");
+// Load collection from a file
 people.load_from_file("./people.json");
+```
 
-fn load_from_json(json_value: &serde_json::Value) -> Result<String, String>
+#### fn DbCollection::load_from_json(json_value: &serde_json::Value) -> Result<String, String>
 
+```rust
 let db = Db::new();
 let people = db.create_collection("People");
+// Load collection from JSON
 people.load_from_json(json!([
     { "id": 1,  "full_name": "Alice Johnson",    "age": 29, "city": "Porto",    "vip": true  },
     { "id": 2,  "full_name": "Bruno Martins",    "age": 34, "city": "Lisboa",   "vip": false },
     { "id": 3,  "full_name": "Carla Sousa",      "age": 41, "city": "Braga",    "vip": false },
     { "id": 4,  "full_name": "David Pereira",    "age": 25, "city": "Coimbra",  "vip": true  }
 ]));
+```
+
+### Save data
+
+#### fn Db::fn write_to_json(&self) -> Value
+
+```rust
+let db = Db::new();
+...
+...
+...
+let json_value = db.write_to_json();
+```
+
+#### fn DbCollection::write_to_file(&self, file_path: &OsString) -> Result<(), String>
+
+```rust
+let db = Db::new();
+...
+...
+...
+db.write_to_file("./collections.json");
+```
+
+#### fn DbCollection::write_to_file(path: &std::path::Path) -> Result<(), String>
+
+```rust
+let db = Db::new();
+let people = db.create_collection("People");
+...
+...
+people.write_to_file("./people.json");
 ```
 
 ---

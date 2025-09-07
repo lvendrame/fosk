@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::JsonPrimitive;
@@ -7,7 +8,7 @@ use crate::JsonPrimitive;
 /// - `ty`: the coarse-grained primitive type of the field.
 /// - `nullable`: whether the field was observed as `null` or missing in any
 ///   analyzed document.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldInfo {
     /// Primitive type of the field
     pub ty: JsonPrimitive,

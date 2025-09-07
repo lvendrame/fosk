@@ -1,6 +1,6 @@
-use std::{collections::HashMap, sync::{Arc, RwLock}};
+use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::{Arc, RwLock}};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::{database::{DbConfig, DbCollection, SchemaProvider}, executor::plan_executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
 
@@ -65,6 +65,59 @@ impl InternalDb {
         self.collections.clear()
     }
 
+    pub fn load_from_json(&mut self, json_value: Value) -> Result<usize, String> {
+        // Guard: Check if it's a JSON Object
+        let Value::Object(object) = json_value else {
+            return Err("Informed JSON does not contain a JSON object in the root".to_string());
+        };
+
+        let mut total = 0;
+        for (name, items) in object {
+            let collection = self.create(&name);
+            collection.load_from_json(items)?;
+            total += 1;
+        }
+
+        Ok(total)
+    }
+
+    pub fn load_from_file(&mut self, file_path: &OsString) -> Result<String, String> {
+        let file_path_lossy = file_path.to_string_lossy();
+
+        // Guard: Try to read the file content
+        let file_content = fs::read_to_string(file_path)
+            .map_err(|_| format!("Could not read file {}", file_path_lossy))?;
+
+        // Guard: Try to parse the content as JSON
+        let json_value = serde_json::from_str::<Value>(&file_content)
+            .map_err(|_| format!("File {} does not contain valid JSON", file_path_lossy))?;
+
+        match self.load_from_json(json_value) {
+            Ok(loaded_collections) => Ok(format!("✔️ Loaded {} initial collections from {}", loaded_collections, file_path_lossy)),
+            Err(error) => Err(format!("Error to process the file {}. Details: {}", file_path_lossy, error)),
+        }
+    }
+
+    pub fn write_to_json(&self) -> Value {
+        let mut collections: Map<String, Value> = Map::new();
+
+        for (name, collection) in &self.collections {
+            let values = collection.get_all();
+            collections.insert(name.clone(), Value::Array(values));
+        }
+
+        Value::Object(collections)
+    }
+
+    pub fn write_to_file(&self, file_path: &OsString) -> Result<(), String> {
+        let file = std::fs::File::create(file_path).expect("Failed to create json file");
+        let mut w = BufWriter::new(file);
+
+        let data = self.write_to_json();
+        serde_json::to_writer_pretty(&mut w, &data).expect("Failed to write to a json file");
+        Ok(())
+    }
+
 }
 
 /// Public database handle exposing higher-level APIs.
@@ -122,6 +175,28 @@ impl Db {
     // Get the current DBConfig
     pub fn get_config(&self) -> DbConfig {
         self.internal_db.read().unwrap().config.clone()
+    }
+
+    /// Load collections from a serde_json `Value` (must be an object) and return
+    /// the total of added collections. Errors if the value is not an object.
+    pub fn load_from_json(&self, json_value: Value) -> Result<usize, String> {
+        self.internal_db.write().unwrap().load_from_json(json_value)
+    }
+
+    /// Load collections from a file path. Returns a human-readable status on
+    /// success or an error string on failure.
+    pub fn load_from_file(&self, file_path: &OsString) -> Result<String, String> {
+        self.internal_db.write().unwrap().load_from_file(file_path)
+    }
+
+    /// Write all collection to a JSON.
+    pub fn write_to_json(&self) -> Value {
+        self.internal_db.read().unwrap().write_to_json()
+    }
+
+    /// Write all collection to a file path.
+    pub fn write_to_file(&self, file_path: &OsString) -> Result<(), String> {
+        self.internal_db.read().unwrap().write_to_file(file_path)
     }
 
     /// Execute a SQL query through the parser, analyzer, planner and executor.

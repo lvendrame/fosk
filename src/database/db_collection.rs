@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::OsString, fs, sync::RwLock};
+use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::RwLock};
 use serde_json::Value;
 
 use crate::database::{DbConfig, IdManager, IdType, IdValue, SchemaDict};
@@ -376,6 +376,16 @@ impl DbCollection {
     /// success or an error string on failure.
     pub fn load_from_file(&self, file_path: &OsString) -> Result<String, String> {
         self.collection.write().unwrap().load_from_file(file_path)
+    }
+
+    /// Save collection to a file path.
+    pub fn write_to_file(&self, file_path: &OsString) -> Result<(), String> {
+        let file = std::fs::File::create(file_path).expect("Failed to create json file");
+        let mut w = BufWriter::new(file);
+
+        let data = self.get_all();
+        serde_json::to_writer_pretty(&mut w, &data).expect("Failed to write to a json file");
+        Ok(())
     }
 
     /// Return the optionally-inferred `SchemaDict` for this collection (if

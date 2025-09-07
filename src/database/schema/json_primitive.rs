@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Lightweight classification of JSON value shapes used by schema inference.
@@ -5,7 +6,7 @@ use serde_json::Value;
 /// This enum represents the coarse-grained primitive kind of a JSON value
 /// encountered while inspecting documents: Null, Bool, Int, Float, String,
 /// Object (map) or Array.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JsonPrimitive {
     /// JSON null
     Null,
