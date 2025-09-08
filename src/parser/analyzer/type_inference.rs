@@ -207,7 +207,7 @@ mod tests {
             &fun("coalesce", vec![lit_null(), lit_i(1), lit_f(2.0)]), &ctx
         ).unwrap();
         assert_eq!(ty, JsonPrimitive::Float);
-        assert_eq!(nullable, false);
+        assert!(!nullable);
     }
 
     #[test]
@@ -221,7 +221,7 @@ mod tests {
         ).unwrap();
         // promote(Null, Null) returns Null in our logic; but for COALESCE it's acceptable (it'll still be nullable)
         assert_eq!(ty, JsonPrimitive::Null);
-        assert_eq!(nullable, true);
+        assert!(nullable);
     }
 
     #[test]

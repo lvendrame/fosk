@@ -65,7 +65,7 @@ impl InternalDb {
         self.collections.clear()
     }
 
-    pub fn load_from_json(&mut self, json_value: Value) -> Result<usize, String> {
+    pub fn load_from_json(&mut self, json_value: Value, keep: bool) -> Result<usize, String> {
         // Guard: Check if it's a JSON Object
         let Value::Object(object) = json_value else {
             return Err("Informed JSON does not contain a JSON object in the root".to_string());
@@ -74,7 +74,7 @@ impl InternalDb {
         let mut total = 0;
         for (name, items) in object {
             let collection = self.create(&name);
-            collection.load_from_json(items)?;
+            collection.load_from_json(items, keep)?;
             total += 1;
         }
 
@@ -92,7 +92,7 @@ impl InternalDb {
         let json_value = serde_json::from_str::<Value>(&file_content)
             .map_err(|_| format!("File {} does not contain valid JSON", file_path_lossy))?;
 
-        match self.load_from_json(json_value) {
+        match self.load_from_json(json_value, false) {
             Ok(loaded_collections) => Ok(format!("✔️ Loaded {} initial collections from {}", loaded_collections, file_path_lossy)),
             Err(error) => Err(format!("Error to process the file {}. Details: {}", file_path_lossy, error)),
         }
@@ -179,8 +179,8 @@ impl Db {
 
     /// Load collections from a serde_json `Value` (must be an object) and return
     /// the total of added collections. Errors if the value is not an object.
-    pub fn load_from_json(&self, json_value: Value) -> Result<usize, String> {
-        self.internal_db.write().unwrap().load_from_json(json_value)
+    pub fn load_from_json(&self, json_value: Value, keep: bool) -> Result<usize, String> {
+        self.internal_db.write().unwrap().load_from_json(json_value, keep)
     }
 
     /// Load collections from a file path. Returns a human-readable status on
@@ -439,7 +439,7 @@ mod tests {
         // Single collection with one item
         let input = json!({ "a": [{ "id": 1, "x": "foo" }] });
         let db = Db::new_db_with_config(DbConfig::int("id"));
-        let count = db.load_from_json(input.clone()).unwrap();
+        let count = db.load_from_json(input.clone(), false).unwrap();
         assert_eq!(count, 1);
         // Verify write_to_json reflects same data
         let out = db.write_to_json();

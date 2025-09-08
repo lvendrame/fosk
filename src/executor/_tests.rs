@@ -24,7 +24,7 @@ pub mod fixtures {
             { "id": 14, "full_name": "Nuno Teixeira",    "age": 32, "city": "Évora",    "vip": true  },
             { "id": 15, "full_name": "Olga Ferreira",    "age": 39, "city": "Lisboa",   "vip": false }
         ]);
-        let _ = people.load_from_json(rows).unwrap();
+        let _ = people.load_from_json(rows, false).unwrap();
     }
 
     pub fn create_products(db: &Db) {
@@ -46,7 +46,7 @@ pub mod fixtures {
             { "id": 14, "name": "Cookbook 'Mediterranean'", "category": "Books",      "price": 24.00   },
             { "id": 15, "name": "Notebook A5",             "category": "Stationery",  "price": 3.20    }
         ]);
-        let _ = products.load_from_json(rows).unwrap();
+        let _ = products.load_from_json(rows, false).unwrap();
     }
 
     pub fn create_orders(db: &Db) {
@@ -93,7 +93,7 @@ pub mod fixtures {
             { "id": 39, "person_id": 9,  "product_id": 12, "quantity": 2, "order_date": "2025-03-11", "status": "delivered" },
             { "id": 40, "person_id": 10, "product_id": 4,  "quantity": 1, "order_date": "2025-03-12", "status": "delivered" }
         ]);
-        let _ = orders.load_from_json(rows).unwrap();
+        let _ = orders.load_from_json(rows, false).unwrap();
     }
 
     pub fn create_order_items(db: &Db) {
@@ -167,7 +167,7 @@ pub mod fixtures {
             { "id": 49, "order_id": 17, "product_id": 3,  "quantity": 1, "unit_price": 89.90   },
             { "id": 50, "order_id": 17, "product_id": 5,  "quantity": 1, "unit_price": 230.00  },
         ]);
-        let _ = items.load_from_json(rows).unwrap();
+        let _ = items.load_from_json(rows, false).unwrap();
 
         let rows = json!([
             { "id": 51, "order_id": 17, "product_id": 14, "quantity": 1, "unit_price": 24.00   },
@@ -246,7 +246,7 @@ pub mod fixtures {
             { "id": 99, "order_id": 40, "product_id": 4,  "quantity": 1, "unit_price": 699.00  },
             { "id": 100,"order_id": 40, "product_id": 13, "quantity": 1, "unit_price": 18.50   }
         ]);
-        let _ = items.load_from_json(rows).unwrap();
+        let _ = items.load_from_json(rows, true).unwrap();
     }
 
     pub fn seed_db() -> Db {

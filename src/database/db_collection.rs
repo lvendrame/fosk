@@ -240,11 +240,15 @@ impl InternalMemoryCollection {
         count
     }
 
-    pub fn load_from_json(&mut self, json_value: Value) -> Result<Vec<Value>, String> {
+    pub fn load_from_json(&mut self, json_value: Value, keep: bool) -> Result<Vec<Value>, String> {
         // Guard: Check if it's a JSON Array
         let Value::Array(_) = json_value else {
             return Err("⚠️ Informed JSON does not contain a JSON array in the root, skipping initial data load".to_string());
         };
+
+        if !keep {
+            self.clear();
+        }
 
         // Load the array into the collection using add_batch
         let added_items = self.add_batch(json_value);
@@ -262,7 +266,7 @@ impl InternalMemoryCollection {
         let json_value = serde_json::from_str::<Value>(&file_content)
             .map_err(|_| format!("⚠️ File {} does not contain valid JSON, skipping initial data load", file_path_lossy))?;
 
-        match self.load_from_json(json_value) {
+        match self.load_from_json(json_value, false) {
             Ok(added_items) => Ok(format!("✔️ Loaded {} initial items from {}", added_items.len(), file_path_lossy)),
             Err(error) => Err(format!("Error to process the file {}. Details: {}", file_path_lossy, error)),
         }
@@ -368,8 +372,8 @@ impl DbCollection {
 
     /// Load documents from a serde_json `Value` (must be an array) and return
     /// the list of items actually added. Errors if the value is not an array.
-    pub fn load_from_json(&self, json_value: Value) -> Result<Vec<Value>, String> {
-        self.collection.write().unwrap().load_from_json(json_value)
+    pub fn load_from_json(&self, json_value: Value, keep: bool) -> Result<Vec<Value>, String> {
+        self.collection.write().unwrap().load_from_json(json_value, keep)
     }
 
     /// Load documents from a file path. Returns a human-readable status on
@@ -1153,11 +1157,11 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(result.unwrap().contains("Loaded 2 initial items"));
-        assert_eq!(collection.count(), 4); // 2 existing + 2 loaded
+        assert_eq!(collection.count(), 2); // 2 loaded
 
         // Verify all data exists
-        assert!(collection.exists("1")); // Existing
-        assert!(collection.exists("2")); // Existing
+        assert!(!collection.exists("1")); // Cleaned
+        assert!(!collection.exists("2")); // Cleaned
         assert!(collection.exists("10")); // Loaded
         assert!(collection.exists("11")); // Loaded
     }

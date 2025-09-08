@@ -1,16 +1,11 @@
 use crate::parser::{ast::{ScalarExpr}, ParseError, QueryParser};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ArgsExpr {
     pub args: Vec<ScalarExpr>,
     pub distinct: bool,
 }
 
-impl Default for ArgsExpr {
-    fn default() -> Self {
-        Self { args: vec![], distinct: false }
-    }
-}
 
 impl ArgsExpr {
     pub fn is_args_start(parser: &QueryParser) -> bool {
