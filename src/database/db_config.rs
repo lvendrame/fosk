@@ -1,10 +1,12 @@
+use serde::{Deserialize, Serialize};
+
 use crate::IdType;
 
 /// Database configuration used when creating collections.
 ///
 /// - `id_type` controls how document IDs are generated or interpreted.
 /// - `id_key` is the JSON key used to store the document id inside each item.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DbConfig {
     /// Strategy for generated/interpreted ids
     pub id_type: IdType,

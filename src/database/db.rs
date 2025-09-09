@@ -2,7 +2,16 @@ use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::{Arc, Rw
 
 use serde_json::{Map, Value};
 
-use crate::{database::{DbConfig, DbCollection, SchemaProvider}, executor::plan_executor::{Executor, PlanExecutor}, parser::{aggregators_helper::AggregateRegistry, analyzer::{AnalysisContext, AnalyzerError}, ast::Query}, planner::plan_builder::PlanBuilder};
+use crate::{
+    database::{DbConfig, DbCollection, SchemaProvider},
+    executor::plan_executor::{Executor, PlanExecutor},
+    parser::{
+        aggregators_helper::AggregateRegistry,
+        analyzer::{AnalysisContext, AnalyzerError},
+        ast::Query
+    },
+    planner::plan_builder::PlanBuilder
+};
 
 /// Thread-safe pointer to the internal database state.
 pub(crate) type ProtectedDb = Arc<RwLock<InternalDb>>;
