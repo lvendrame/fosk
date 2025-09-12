@@ -1,6 +1,6 @@
 [package]
 name = "fosk"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 description = "In-memory SQL-like query engine and lightweight data store for testing and prototyping."
 readme = "README.md"
@@ -9,6 +9,16 @@ documentation = "https://docs.rs/fosk"
 license = "MIT"
 keywords = ["sql", "in-memory", "database", "query", "serde"]
 categories = ["database", "parsing"]
+exclude = [
+    ".github/*",
+    "images/*",
+    "mocks/*",
+    "scripts/*",
+    ".editorconfig",
+    ".gitignore",
+    "Makefile",
+    "README.md",
+]
 
 [dependencies]
 regex = "1.11.2"
