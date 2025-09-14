@@ -1,7 +1,7 @@
 use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::RwLock};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-use crate::database::{DbConfig, IdManager, IdType, IdValue, SchemaDict};
+use crate::{database::{ColumnValue, DbConfig, ExpansionType, IdManager, IdType, IdValue, SchemaDict}, Db};
 
 /// Thread-safe handle to an in-memory collection protected by a RwLock.
 pub(crate) type MemoryCollection = RwLock<InternalMemoryCollection>;
@@ -39,6 +39,16 @@ impl InternalMemoryCollection {
 
     pub fn schema(&self) -> Option<SchemaDict> {
         self.schema.as_ref().cloned()
+    }
+
+    pub fn get_reference_column_name(&self) -> String {
+        let name = if self.name.ends_with("s") {
+            self.name[..self.name.len()-1].to_string()
+        } else {
+            self.name.to_string()
+        };
+
+        format!("{}_{}", name, self.config.id_key)
     }
 
     pub fn ensure_update_schema_for_item(&mut self, item: &Value) {
@@ -90,6 +100,69 @@ impl InternalMemoryCollection {
 
     pub fn get(&self, id: &str) -> Option<Value> {
         self.collection.get(id).cloned()
+    }
+
+    pub fn get_filtered_by_columns_values(&self, columns_values: Vec<ColumnValue>, expansion_type: ExpansionType, db: &Db) -> Vec<Value> {
+        self.collection.values().filter_map(|row| {
+            match row {
+                Value::Object(map) => {
+                    for column_value in &columns_values {
+                        match map.get(&column_value.column) {
+                            Some(value) => if *value != column_value.value  {
+                                return None;
+                            },
+                            None => return None,
+                        }
+                    }
+
+                    let expanded = self.expand_row(row, expansion_type.clone(), db);
+                    Some(expanded)
+                },
+                _ => None,
+            }
+        })
+        .collect::<Vec<Value>>()
+    }
+
+    fn expand_object(&self, object: Map<String, Value>, collection_name: String, next_expansion_type: ExpansionType, db: &Db) -> Value {
+        let refs = db.get_collection_refs(&self.name);
+        let mut object = object.clone();
+
+        match refs {
+            Some(refs) => {
+                for entry in refs.values() {
+                    if entry.ref_collection.eq_ignore_ascii_case(&collection_name) {
+                        if let Some(cell) = object.get(&entry.column) {
+                            if let Some(collection) = db.get(&entry.ref_collection) {
+                                let cvs = vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
+                                let expanded = collection.get_filtered_by_columns_values(cvs, next_expansion_type.clone(), db);
+                                let mut  key = collection.get_name();
+                                if !key.ends_with("s") {
+                                    key.push('s');
+                                }
+                                object.insert(key, Value::Array(expanded));
+                            }
+                        }
+                    }
+                }
+                Value::Object(object)
+            },
+            None => Value::Object(object),
+        }
+    }
+
+    pub fn expand_row(&self, row: &Value, expansion_type: ExpansionType, db: &Db) -> Value {
+        match (row.clone(), expansion_type) {
+            (Value::Object(map), ExpansionType::Single(collection_name)) =>
+                self.expand_object(map, collection_name, ExpansionType::None, db),
+            (Value::Object(map), ExpansionType::Child(collection_name, expansion_type)) =>
+                self.expand_object(map, collection_name, expansion_type.as_ref().clone(), db),
+            _ => row.clone(),
+        }
+    }
+
+    pub fn expand_list(&self, list: Vec<Value>, expansion_type: ExpansionType, db: &Db) -> Vec<Value> {
+        list.iter().map(|row| self.expand_row(row, expansion_type.clone(), db)).collect()
     }
 
     pub fn exists(&self, id: &str) -> bool {
@@ -303,6 +376,11 @@ impl DbCollection {
         }
     }
 
+    /// Return a default name to reference this collection id key
+    pub fn get_reference_column_name(&self) -> String {
+        self.collection.read().unwrap().get_reference_column_name()
+    }
+
     /// Return all documents in the collection as a `Vec<Value>`.
     ///
     /// This clones stored JSON values and is intended for small collections or
@@ -315,6 +393,10 @@ impl DbCollection {
     /// items.
     pub fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
         self.collection.read().unwrap().get_paginated(offset, limit)
+    }
+
+    pub(crate) fn get_filtered_by_columns_values(&self, columns_values: Vec<ColumnValue>, expansion_type: ExpansionType, db: &Db) -> Vec<Value> {
+        self.collection.read().unwrap().get_filtered_by_columns_values(columns_values, expansion_type, db)
     }
 
     /// Retrieve a single document by its string id.
@@ -392,10 +474,23 @@ impl DbCollection {
         Ok(())
     }
 
+    pub fn expand_row(&self, row: &Value, expansion: &str, db: &Db) -> Value {
+        self.collection.read().unwrap().expand_row(row, ExpansionType::from(expansion), db)
+    }
+
+    pub fn expand_list(&self, list: Vec<Value>, expansion: &str, db: &Db) -> Vec<Value> {
+        self.collection.read().unwrap().expand_list(list, ExpansionType::from(expansion), db)
+    }
+
     /// Return the optionally-inferred `SchemaDict` for this collection (if
     /// any documents have been added that allowed schema inference).
     pub fn schema(&self) -> Option<SchemaDict> {
         self.collection.read().ok().and_then(|g| g.schema())
+    }
+
+    // Get the collection name
+    pub fn get_name(&self) -> String {
+        self.collection.read().unwrap().name.clone()
     }
 
     // Get the collection DBConfig

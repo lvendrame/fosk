@@ -3,7 +3,7 @@ use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::{Arc, Rw
 use serde_json::{Map, Value};
 
 use crate::{
-    database::{DbConfig, DbCollection, SchemaProvider},
+    database::{DbCollection, DbConfig, DbReferences, ReferenceColumn, ReferenceFieldMap, SchemaProvider},
     executor::plan_executor::{Executor, PlanExecutor},
     parser::{
         aggregators_helper::AggregateRegistry,
@@ -21,6 +21,7 @@ pub(crate) type ProtectedDb = Arc<RwLock<InternalDb>>;
 pub(crate) struct InternalDb {
     config: DbConfig,
     collections: HashMap<String, Arc<DbCollection>>,
+    pub(crate) reference_manager: DbReferences,
 }
 
 impl InternalDb {
@@ -38,6 +39,7 @@ impl InternalDb {
         Self {
             config,
             collections: HashMap::new(),
+            reference_manager: DbReferences::default(),
         }
     }
 
@@ -126,7 +128,6 @@ impl InternalDb {
         serde_json::to_writer_pretty(&mut w, &data).expect("Failed to write to a json file");
         Ok(())
     }
-
 }
 
 /// Public database handle exposing higher-level APIs.
@@ -138,10 +139,10 @@ pub struct Db {
 impl Db {
 
     /// Create a new in-memory database with default configuration.
-    pub fn new_db() -> Self {
-        Self{
+    pub fn new_db() -> Arc<Self> {
+        Arc::new(Self{
             internal_db: InternalDb::new_db().into_protected(),
-        }
+        })
     }
 
     /// Create a new in-memory database with an explicit `Config`.
@@ -248,6 +249,27 @@ impl Db {
         exec.execute(self)
     }
 
+    pub fn create_reference(&mut self, collection_name: &str, column: &str, ref_collection_name: &str, ref_column: &str) -> bool {
+        self.internal_db.write().unwrap().reference_manager
+            .create_reference(self, collection_name, column, ref_collection_name, ref_column)
+    }
+
+    pub fn infer_reference(&mut self, collection_name: &str, ref_collection_name: &str) -> bool {
+        self.internal_db.write().unwrap().reference_manager
+            .infer_reference(self, collection_name, ref_collection_name)
+    }
+
+    pub fn get_collection_refs(&self, collection_name: &str) -> Option<ReferenceFieldMap> {
+        self.internal_db.read().unwrap().reference_manager
+            .get_collection_refs(collection_name)
+            .cloned()
+    }
+
+    pub fn get_collection_column_ref(&self, collection_name: &str, column: &str) -> Option<ReferenceColumn> {
+        self.internal_db.read().unwrap().reference_manager
+            .get_collection_column_ref(collection_name, column)
+            .cloned()
+    }
 
 }
 

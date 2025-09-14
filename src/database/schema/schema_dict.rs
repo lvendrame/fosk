@@ -27,6 +27,7 @@ impl SchemaDict {
         for (k, v) in obj {
             fields.insert(k.clone(), FieldInfo::infer_field_info(v));
         }
+
         SchemaDict { fields }
     }
 
