@@ -1,6 +1,6 @@
 [package]
 name = "fosk"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 description = "In-memory SQL-like query engine and lightweight data store for testing and prototyping."
 readme = "README.md"
