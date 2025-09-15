@@ -1329,4 +1329,100 @@ mod tests {
         assert!(ids.contains(&stored1.get("id").unwrap()));
         assert!(ids.contains(&stored2.get("id").unwrap()));
     }
+
+    #[test]
+    fn test_expand_row_no_refs() {
+        use serde_json::json;
+        // Setup DB and collection with no references
+        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let coll = db.create("items");
+        // Add an item
+        let item = coll.add(json!({"id": 1, "value": "test"})).unwrap();
+        // Expand with empty expansion
+        let expanded = coll.expand_row(&item, "", &db);
+        assert_eq!(expanded, item);
+        // Expand with non-existent relation
+        let expanded2 = coll.expand_row(&item, "unknown", &db);
+        assert_eq!(expanded2, item);
+    }
+
+    #[test]
+    fn test_expand_list_no_refs() {
+        use serde_json::json;
+        // Setup DB and collection with no references
+        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let coll = db.create("items");
+        // Add items
+        let a = coll.add(json!({"id": 1, "value": 10})).unwrap();
+        let b = coll.add(json!({"id": 2, "value": 20})).unwrap();
+        let list = vec![a.clone(), b.clone()];
+        // Expand list with empty expansion
+        let expanded = coll.expand_list(list.clone(), "", &db);
+        assert_eq!(expanded, list);
+        // Expand list with missing relation
+        let expanded2 = coll.expand_list(list.clone(), "none", &db);
+        assert_eq!(expanded2, list);
+    }
+
+    #[test]
+    fn test_expand_row_with_references() {
+        use serde_json::json;
+        // Build a mutable DB and two collections: authors and books
+        let mut db = Db::new_db_with_config(DbConfig::int("id"));
+        let authors = db.create("authors");
+        // Add authors with explicit IDs
+        let a1 = authors.add(json!({"name": "Alice"})).unwrap();
+        let a2 = authors.add(json!({"name": "Bob"})).unwrap();
+
+        let books = db.create("books");
+        // Link book to author by author_id key
+        let b1 = books.add(json!({"title": "Book1", "author_id": a1.get("id").unwrap()})).unwrap();
+        // Add second book to ensure multiple entries, unused in this test
+        let _ = books.add(json!({"title": "Book2", "author_id": a2.get("id").unwrap()})).unwrap();
+
+        // Create reference from books.author_id to authors.id
+        assert!(db.create_reference("books", "author_id", "authors", "id"));
+
+        // Expand book1 row to include its referenced author
+        let expanded1 = books.expand_row(&b1, "authors", &db);
+        if let Value::Object(map) = expanded1 {
+            let arr = map.get("authors").unwrap().as_array().unwrap();
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0].get("name").unwrap(), a1.get("name").unwrap());
+        } else {
+            panic!("Expected expanded object for book1");
+        }
+    }
+
+    #[test]
+    fn test_expand_list_with_references() {
+        use serde_json::json;
+        // Build DB, authors and books as before
+        let mut db = Db::new_db_with_config(DbConfig::int("id"));
+        let authors = db.create("authors");
+        let a1 = authors.add(json!({"name": "Alice"})).unwrap();
+        let a2 = authors.add(json!({"name": "Bob"})).unwrap();
+
+        let books = db.create("books");
+        let b1 = books.add(json!({"title": "Book1", "author_id": a1.get("id").unwrap()})).unwrap();
+        let b2 = books.add(json!({"title": "Book2", "author_id": a2.get("id").unwrap()})).unwrap();
+
+        assert!(db.create_reference("books", "author_id", "authors", "id"));
+
+        // Expand list of books
+        let list = vec![b1.clone(), b2.clone()];
+        let expanded_list = books.expand_list(list.clone(), "authors", &db);
+        // Each expanded item should contain its correct author
+        for (orig, exp) in list.iter().zip(expanded_list.iter()) {
+            if let Value::Object(map) = exp {
+                let arr = map.get("authors").unwrap().as_array().unwrap();
+                assert_eq!(arr.len(), 1);
+                // Check that the referenced author matches original's author_id
+                let author_id = orig.get("author_id").unwrap();
+                assert_eq!(arr[0].get("id").unwrap(), author_id);
+            } else {
+                panic!("Expected expanded object in list");
+            }
+        }
+    }
 }
