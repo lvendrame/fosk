@@ -145,10 +145,7 @@ impl InternalMemoryCollection {
                             if let Some(cell) = object.get(&entry.column) {
                                 let cvs = vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
                                 let expanded = collection.get_filtered_by_columns_values(cvs, next_expansion_type.clone(), db);
-                                let mut  key = collection.get_name();
-                                if key.ends_with("s") {
-                                    key.remove(key.len() - 1);
-                                }
+                                let key = collection.get_name();
                                 object.insert(key, expanded[0].clone());
                             }
                         }
@@ -160,10 +157,7 @@ impl InternalMemoryCollection {
                             if let Some(cell) = object.get(&entry.ref_column) {
                                 let cvs = vec![ColumnValue::new(entry.column.clone(), cell.clone())];
                                 let expanded = collection.get_filtered_by_columns_values(cvs, next_expansion_type.clone(), db);
-                                let mut  key = collection.get_name();
-                                if !key.ends_with("s") {
-                                    key.push('s');
-                                }
+                                let key = collection.get_name();
                                 object.insert(key, Value::Array(expanded));
                             }
                         }
@@ -1419,7 +1413,7 @@ mod tests {
         // Expand book1 row to include its referenced author
         let expanded1 = books.expand_row(&b1, "authors", &db);
         if let Value::Object(map) = expanded1 {
-            let map = map.get("author").unwrap().as_object().unwrap();
+            let map = map.get("authors").unwrap().as_object().unwrap();
             assert_eq!(map.len(), 2);
             assert_eq!(map.get("name").unwrap(), a1.get("name").unwrap());
         } else {
@@ -1448,7 +1442,7 @@ mod tests {
         // Each expanded item should contain its correct author
         for (orig, exp) in list.iter().zip(expanded_list.iter()) {
             if let Value::Object(map) = exp {
-                let map = map.get("author").unwrap().as_object().unwrap();
+                let map = map.get("authors").unwrap().as_object().unwrap();
                 assert_eq!(map.len(), 2);
                 // Check that the referenced author matches original's author_id
                 let author_id = orig.get("author_id").unwrap();
@@ -1527,7 +1521,7 @@ mod tests {
                     item_map.get("order_id").unwrap(),
                     o1.get("id").unwrap()
                 );
-                let prod_map = item_map.get("product").unwrap().as_object().unwrap();
+                let prod_map = item_map.get("products").unwrap().as_object().unwrap();
                 // Check nested product fields
                 assert!(prod_map.contains_key("name"));
                 assert!(prod_map.contains_key("price"));
