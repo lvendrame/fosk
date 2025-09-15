@@ -1,7 +1,7 @@
 use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::RwLock};
 use serde_json::{Map, Value};
 
-use crate::{database::{ColumnValue, DbConfig, ExpansionType, IdManager, IdType, IdValue, SchemaDict}, Db};
+use crate::{database::{ColumnValue, DbConfig, ExpansionChain, IdManager, IdType, IdValue, SchemaDict}, Db};
 
 /// Thread-safe handle to an in-memory collection protected by a RwLock.
 pub(crate) type MemoryCollection = RwLock<InternalMemoryCollection>;
@@ -102,7 +102,7 @@ impl InternalMemoryCollection {
         self.collection.get(id).cloned()
     }
 
-    pub fn get_filtered_by_columns_values(&self, columns_values: Vec<ColumnValue>, expansion_type: ExpansionType, db: &Db) -> Vec<Value> {
+    pub fn get_filtered_by_columns_values(&self, columns_values: Vec<ColumnValue>, expansion_type: ExpansionChain, db: &Db) -> Vec<Value> {
         self.collection.values().filter_map(|row| {
             match row {
                 Value::Object(map) => {
@@ -124,17 +124,33 @@ impl InternalMemoryCollection {
         .collect::<Vec<Value>>()
     }
 
-    fn expand_object(&self, object: Map<String, Value>, collection_name: String, next_expansion_type: ExpansionType, db: &Db) -> Value {
+    fn expand_object(&self, object: Map<String, Value>, collection_name: String, next_expansion_type: ExpansionChain, db: &Db) -> Value {
         let refs = db.get_collection_refs(&self.name);
         let mut object = object.clone();
 
         match refs {
             Some(refs) => {
                 for entry in refs.values() {
+                    // n-1
                     if entry.ref_collection.eq_ignore_ascii_case(&collection_name) {
-                        if let Some(cell) = object.get(&entry.column) {
-                            if let Some(collection) = db.get(&entry.ref_collection) {
+                        if let Some(collection) = db.get(&entry.ref_collection) {
+                            if let Some(cell) = object.get(&entry.column) {
                                 let cvs = vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
+                                let expanded = collection.get_filtered_by_columns_values(cvs, next_expansion_type.clone(), db);
+                                let mut  key = collection.get_name();
+                                if key.ends_with("s") {
+                                    key.remove(key.len() - 1);
+                                }
+                                object.insert(key, expanded[0].clone());
+                            }
+                        }
+                    }
+
+                    // 1-n
+                    if entry.collection.eq_ignore_ascii_case(&collection_name) {
+                        if let Some(collection) = db.get(&entry.collection) {
+                            if let Some(cell) = object.get(&entry.ref_column) {
+                                let cvs = vec![ColumnValue::new(entry.column.clone(), cell.clone())];
                                 let expanded = collection.get_filtered_by_columns_values(cvs, next_expansion_type.clone(), db);
                                 let mut  key = collection.get_name();
                                 if !key.ends_with("s") {
@@ -151,17 +167,17 @@ impl InternalMemoryCollection {
         }
     }
 
-    pub fn expand_row(&self, row: &Value, expansion_type: ExpansionType, db: &Db) -> Value {
+    pub fn expand_row(&self, row: &Value, expansion_type: ExpansionChain, db: &Db) -> Value {
         match (row.clone(), expansion_type) {
-            (Value::Object(map), ExpansionType::Single(collection_name)) =>
-                self.expand_object(map, collection_name, ExpansionType::None, db),
-            (Value::Object(map), ExpansionType::Child(collection_name, expansion_type)) =>
+            (Value::Object(map), ExpansionChain::Single(collection_name)) =>
+                self.expand_object(map, collection_name, ExpansionChain::None, db),
+            (Value::Object(map), ExpansionChain::Child(collection_name, expansion_type)) =>
                 self.expand_object(map, collection_name, expansion_type.as_ref().clone(), db),
             _ => row.clone(),
         }
     }
 
-    pub fn expand_list(&self, list: Vec<Value>, expansion_type: ExpansionType, db: &Db) -> Vec<Value> {
+    pub fn expand_list(&self, list: Vec<Value>, expansion_type: ExpansionChain, db: &Db) -> Vec<Value> {
         list.iter().map(|row| self.expand_row(row, expansion_type.clone(), db)).collect()
     }
 
@@ -376,7 +392,9 @@ impl DbCollection {
         }
     }
 
-    /// Return a default name to reference this collection id key
+    /// Get the default reference field name for this collection based on its name and id key.
+    ///
+    /// For a collection named `users` with id key `id`, this returns `user_id`.
     pub fn get_reference_column_name(&self) -> String {
         self.collection.read().unwrap().get_reference_column_name()
     }
@@ -395,7 +413,7 @@ impl DbCollection {
         self.collection.read().unwrap().get_paginated(offset, limit)
     }
 
-    pub(crate) fn get_filtered_by_columns_values(&self, columns_values: Vec<ColumnValue>, expansion_type: ExpansionType, db: &Db) -> Vec<Value> {
+    pub(crate) fn get_filtered_by_columns_values(&self, columns_values: Vec<ColumnValue>, expansion_type: ExpansionChain, db: &Db) -> Vec<Value> {
         self.collection.read().unwrap().get_filtered_by_columns_values(columns_values, expansion_type, db)
     }
 
@@ -474,12 +492,19 @@ impl DbCollection {
         Ok(())
     }
 
+    /// Expand a single JSON `Value` row by following a dot-separated expansion chain.
+    ///
+    /// `expansion` specifies which related collection to include. For example,
+    /// calling `expand_row(row, "orders.items", &db)` will nest `items` under `orders`.
     pub fn expand_row(&self, row: &Value, expansion: &str, db: &Db) -> Value {
-        self.collection.read().unwrap().expand_row(row, ExpansionType::from(expansion), db)
+        self.collection.read().unwrap().expand_row(row, ExpansionChain::from(expansion), db)
     }
 
+    /// Expand each JSON `Value` in a list by applying the same expansion chain.
+    ///
+    /// Returns a new `Vec<Value>` where each element has been passed through `expand_row`.
     pub fn expand_list(&self, list: Vec<Value>, expansion: &str, db: &Db) -> Vec<Value> {
-        self.collection.read().unwrap().expand_list(list, ExpansionType::from(expansion), db)
+        self.collection.read().unwrap().expand_list(list, ExpansionChain::from(expansion), db)
     }
 
     /// Return the optionally-inferred `SchemaDict` for this collection (if
@@ -488,12 +513,12 @@ impl DbCollection {
         self.collection.read().ok().and_then(|g| g.schema())
     }
 
-    // Get the collection name
+    /// Get the collection name
     pub fn get_name(&self) -> String {
         self.collection.read().unwrap().name.clone()
     }
 
-    // Get the collection DBConfig
+    /// Get the collection DBConfig
     pub fn get_config(&self) -> DbConfig {
         self.collection.read().unwrap().config.clone()
     }
@@ -1386,9 +1411,9 @@ mod tests {
         // Expand book1 row to include its referenced author
         let expanded1 = books.expand_row(&b1, "authors", &db);
         if let Value::Object(map) = expanded1 {
-            let arr = map.get("authors").unwrap().as_array().unwrap();
-            assert_eq!(arr.len(), 1);
-            assert_eq!(arr[0].get("name").unwrap(), a1.get("name").unwrap());
+            let map = map.get("author").unwrap().as_object().unwrap();
+            assert_eq!(map.len(), 2);
+            assert_eq!(map.get("name").unwrap(), a1.get("name").unwrap());
         } else {
             panic!("Expected expanded object for book1");
         }
@@ -1415,14 +1440,92 @@ mod tests {
         // Each expanded item should contain its correct author
         for (orig, exp) in list.iter().zip(expanded_list.iter()) {
             if let Value::Object(map) = exp {
-                let arr = map.get("authors").unwrap().as_array().unwrap();
-                assert_eq!(arr.len(), 1);
+                let map = map.get("author").unwrap().as_object().unwrap();
+                assert_eq!(map.len(), 2);
                 // Check that the referenced author matches original's author_id
                 let author_id = orig.get("author_id").unwrap();
-                assert_eq!(arr[0].get("id").unwrap(), author_id);
+                assert_eq!(map.get("id").unwrap(), author_id);
             } else {
                 panic!("Expected expanded object in list");
             }
+        }
+    }
+
+    #[test]
+    fn test_expand_row_parent_to_children() {
+        use serde_json::json;
+        // Set up DB with two collections: orders and order_items
+        let mut db = Db::new_db_with_config(DbConfig::int("id"));
+        let orders = db.create("orders");
+        let items = db.create("order_items");
+        // Add an order
+        let o1 = orders.add(json!({"total": 100})).unwrap();
+        // Add one item referencing orders
+    let _i1 = items.add(json!({"order_id": o1.get("id").unwrap(), "product": "A"})).unwrap();
+        // Register reference order_items.order_id -> orders.id
+        assert!(db.create_reference("order_items", "order_id", "orders", "id"));
+        // Expand parent order row to include its items
+        let expanded = orders.expand_row(&o1, "order_items", &db);
+        if let Value::Object(map) = expanded {
+            let arr = map.get("order_items").unwrap().as_array().unwrap();
+            // Only one item should appear
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0].get("product").unwrap().as_str().unwrap(), "A");
+        } else {
+            panic!("Expected expanded order object");
+        }
+    }
+
+    #[test]
+    fn test_expand_row_multi_level() {
+        use serde_json::{json, Value};
+        // Set up DB with three collections: orders, order_items, products
+        let mut db = Db::new_db_with_config(DbConfig::int("id"));
+        let orders = db.create("orders");
+        let items = db.create("order_items");
+        let products = db.create("products");
+        // Add one order
+        let o1 = orders.add(json!({ "total": 300 })).unwrap();
+        // Add two products
+        let p1 = products.add(json!({ "name": "Widget", "price": 9.99 })).unwrap();
+        let p2 = products.add(json!({ "name": "Gadget", "price": 19.99 })).unwrap();
+        // Add order_items referencing the order and each product
+        let _ = items.add(json!({
+            "order_id": o1.get("id").unwrap(),
+            "product_id": p1.get("id").unwrap()
+        })).unwrap();
+        let _ = items.add(json!({
+            "order_id": o1.get("id").unwrap(),
+            "product_id": p2.get("id").unwrap()
+        })).unwrap();
+        // Register references for both parent and product relationships
+        assert!(db.create_reference("order_items", "order_id", "orders", "id"));
+        assert!(db.create_reference("order_items", "product_id", "products", "id"));
+        // Perform multi-level expansion: order -> order_items -> product
+        let expanded = orders.expand_row(&o1, "order_items.products", &db);
+
+        println!("{}", serde_json::to_string_pretty(&expanded).unwrap());
+
+        // Validate structure
+        if let Value::Object(map) = expanded {
+            // Top-level order_items array
+            let items_arr = map.get("order_items").unwrap().as_array().unwrap();
+            assert_eq!(items_arr.len(), 2);
+            // Each item should include original fields and nested product object
+            for item in items_arr {
+                let item_map = item.as_object().unwrap();
+                // Confirm original order_id and product_id are present
+                assert_eq!(
+                    item_map.get("order_id").unwrap(),
+                    o1.get("id").unwrap()
+                );
+                let prod_map = item_map.get("product").unwrap().as_object().unwrap();
+                // Check nested product fields
+                assert!(prod_map.contains_key("name"));
+                assert!(prod_map.contains_key("price"));
+            }
+        } else {
+            panic!("Expected expanded order object for multi-level expansion");
         }
     }
 }

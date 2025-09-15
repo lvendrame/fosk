@@ -249,18 +249,29 @@ impl Db {
         exec.execute(self)
     }
 
+    /// Declare a bidirectional relationship between two collections.
+    ///
+    /// Creates a reference from `collection_name.column` to `ref_collection_name.ref_column`
+    /// and also registers the inverse (referrer) side. Returns `true` if both mappings succeed.
     pub fn create_reference(&mut self, collection_name: &str, column: &str, ref_collection_name: &str, ref_column: &str) -> bool {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let mut rm = rm.write().unwrap();
         rm.create_reference(self, collection_name, column, ref_collection_name, ref_column)
     }
 
+    /// Infer and register a foreign-key-like reference automatically based on default conventions.
+    ///
+    /// Attempts to link `collection_name` to `ref_collection_name` by matching the latter's
+    /// reference column name and its primary key. Returns `true` if successful.
     pub fn infer_reference(&mut self, collection_name: &str, ref_collection_name: &str) -> bool {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let mut rm = rm.write().unwrap();
         rm.infer_reference(self, collection_name, ref_collection_name)
     }
 
+    /// Retrieve all reference mappings defined for a collection.
+    ///
+    /// Returns a `HashMap` of field names to `ReferenceColumn` entries if any exist.
     pub fn get_collection_refs(&self, collection_name: &str) -> Option<ReferenceFieldMap> {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let rm = rm.read().unwrap();
@@ -268,6 +279,9 @@ impl Db {
             .cloned()
     }
 
+    /// Retrieve the reference mapping for a specific field in a collection.
+    ///
+    /// Returns the `ReferenceColumn` if a reference was defined on `collection_name.column`.
     pub fn get_collection_column_ref(&self, collection_name: &str, column: &str) -> Option<ReferenceColumn> {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let rm = rm.read().unwrap();
