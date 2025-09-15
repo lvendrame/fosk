@@ -1359,7 +1359,7 @@ mod tests {
     fn test_expand_row_no_refs() {
         use serde_json::json;
         // Setup DB and collection with no references
-        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let coll = db.create("items");
         // Add an item
         let item = coll.add(json!({"id": 1, "value": "test"})).unwrap();
@@ -1375,7 +1375,7 @@ mod tests {
     fn test_expand_list_no_refs() {
         use serde_json::json;
         // Setup DB and collection with no references
-        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let coll = db.create("items");
         // Add items
         let a = coll.add(json!({"id": 1, "value": 10})).unwrap();
@@ -1393,7 +1393,7 @@ mod tests {
     fn test_expand_row_with_references() {
         use serde_json::json;
         // Build a mutable DB and two collections: authors and books
-        let mut db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let authors = db.create("authors");
         // Add authors with explicit IDs
         let a1 = authors.add(json!({"name": "Alice"})).unwrap();
@@ -1423,7 +1423,7 @@ mod tests {
     fn test_expand_list_with_references() {
         use serde_json::json;
         // Build DB, authors and books as before
-        let mut db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let authors = db.create("authors");
         let a1 = authors.add(json!({"name": "Alice"})).unwrap();
         let a2 = authors.add(json!({"name": "Bob"})).unwrap();
@@ -1455,7 +1455,7 @@ mod tests {
     fn test_expand_row_parent_to_children() {
         use serde_json::json;
         // Set up DB with two collections: orders and order_items
-        let mut db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let orders = db.create("orders");
         let items = db.create("order_items");
         // Add an order
@@ -1480,7 +1480,7 @@ mod tests {
     fn test_expand_row_multi_level() {
         use serde_json::{json, Value};
         // Set up DB with three collections: orders, order_items, products
-        let mut db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let orders = db.create("orders");
         let items = db.create("order_items");
         let products = db.create("products");

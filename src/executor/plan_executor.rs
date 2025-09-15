@@ -362,7 +362,7 @@ mod tests {
     use crate::planner::logical_plan::LogicalPlan;
 
     fn mk_db() -> Db {
-        let db = Db::new_db_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
         let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "cat": "a", "amt": 10.0 },
@@ -442,7 +442,7 @@ mod tests {
 
     fn mk_db_simple() -> Db {
         // id_type None so we keep provided ids
-        Db::new_db_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() })
+        Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() })
     }
 
     fn mk_db_for_scan() -> Db {
@@ -765,7 +765,7 @@ mod tests {
         use serde_json::json;
 
         // Build a tiny DB with two tables
-        let db = Db::new_db_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
         let t = db.create("t");
         let u = db.create("u");
 
@@ -801,7 +801,7 @@ mod tests {
 
     #[test]
     fn left_join_emits_unmatched_left_rows_with_null_right_side() {
-        let db = Db::new_db_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
         let t = db.create("t");
         let _u = db.create("u"); // keep it empty
 
@@ -834,7 +834,7 @@ mod tests {
     #[test]
     fn left_join_null_ext_uses_schema_even_when_right_is_empty() {
         // Build DB
-        let db = Db::new_db_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
         let t = db.create("t");
         let u = db.create("u");
 

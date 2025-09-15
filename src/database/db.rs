@@ -136,17 +136,30 @@ pub struct Db {
     pub(crate) internal_db: ProtectedDb,
 }
 
+impl Default for Db {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Db {
 
     /// Create a new in-memory database with default configuration.
-    pub fn new_db() -> Arc<Self> {
+    pub fn new() -> Self {
+        Self{
+            internal_db: InternalDb::new_db().into_protected(),
+        }
+    }
+
+    /// Create a new in-memory database with default configuration.
+    pub fn new_arc() -> Arc<Self> {
         Arc::new(Self{
             internal_db: InternalDb::new_db().into_protected(),
         })
     }
 
     /// Create a new in-memory database with an explicit `Config`.
-    pub fn new_db_with_config(config: DbConfig) -> Self {
+    pub fn new_with_config(config: DbConfig) -> Self {
         Self{
             internal_db: InternalDb::new_db_with_config(config).into_protected(),
         }
@@ -253,7 +266,7 @@ impl Db {
     ///
     /// Creates a reference from `collection_name.column` to `ref_collection_name.ref_column`
     /// and also registers the inverse (referrer) side. Returns `true` if both mappings succeed.
-    pub fn create_reference(&mut self, collection_name: &str, column: &str, ref_collection_name: &str, ref_column: &str) -> bool {
+    pub fn create_reference(&self, collection_name: &str, column: &str, ref_collection_name: &str, ref_column: &str) -> bool {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let mut rm = rm.write().unwrap();
         rm.create_reference(self, collection_name, column, ref_collection_name, ref_column)
@@ -263,7 +276,7 @@ impl Db {
     ///
     /// Attempts to link `collection_name` to `ref_collection_name` by matching the latter's
     /// reference column name and its primary key. Returns `true` if successful.
-    pub fn infer_reference(&mut self, collection_name: &str, ref_collection_name: &str) -> bool {
+    pub fn infer_reference(&self, collection_name: &str, ref_collection_name: &str) -> bool {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let mut rm = rm.write().unwrap();
         rm.infer_reference(self, collection_name, ref_collection_name)
@@ -307,7 +320,7 @@ mod tests {
     use crate::database::{DbConfig, IdType};
 
     fn mk_db() -> Db {
-        let db = Db::new_db_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
         let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "cat": "a", "amt": 10.0 },
@@ -487,7 +500,7 @@ mod tests {
 
         // Single collection with one item
         let input = json!({ "a": [{ "id": 1, "x": "foo" }] });
-        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let count = db.load_from_json(input.clone(), false).unwrap();
         assert_eq!(count, 1);
         // Verify write_to_json reflects same data
@@ -511,7 +524,7 @@ mod tests {
         f.write_all(data.to_string().as_bytes()).unwrap();
 
         let os_path = OsString::from(path.to_string_lossy().into_owned());
-        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let msg = db.load_from_file(&os_path).unwrap();
         assert!(msg.contains("Loaded 1 initial collections"));
         // Confirm via write_to_json
@@ -524,7 +537,7 @@ mod tests {
     fn test_db_write_to_json() {
         use serde_json::json;
 
-        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let coll = db.create("z");
         coll.add(json!({ "key": "value" }));
 
@@ -545,7 +558,7 @@ mod tests {
         let path = tmp.path().join("out.json");
         let os_path = OsString::from(path.to_string_lossy().into_owned());
 
-        let db = Db::new_db_with_config(DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
         let coll = db.create("c");
         coll.add(json!({ "n": 3 }));
         assert!(db.write_to_file(&os_path).is_ok());

@@ -250,7 +250,7 @@ pub mod fixtures {
     }
 
     pub fn seed_db() -> Db {
-        let db = Db::new_db_with_config(DbConfig {
+        let db = Db::new_with_config(DbConfig {
             id_type: IdType::None,
             id_key: "id".into(),
         });
