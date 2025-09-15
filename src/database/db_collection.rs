@@ -146,7 +146,7 @@ impl InternalMemoryCollection {
                                 let cvs = vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
                                 let expanded = collection.get_filtered_by_columns_values(cvs, next_expansion_type.clone(), db);
                                 let key = collection.get_name();
-                                object.insert(key, expanded[0].clone());
+                                object.insert(key, Value::Array(expanded));
                             }
                         }
                     }
@@ -1413,9 +1413,9 @@ mod tests {
         // Expand book1 row to include its referenced author
         let expanded1 = books.expand_row(&b1, "authors", &db);
         if let Value::Object(map) = expanded1 {
-            let map = map.get("authors").unwrap().as_object().unwrap();
-            assert_eq!(map.len(), 2);
-            assert_eq!(map.get("name").unwrap(), a1.get("name").unwrap());
+            let arr = map.get("authors").unwrap().as_array().unwrap();
+            assert_eq!(arr.len(), 1);
+            assert_eq!(arr[0].get("name").unwrap(), a1.get("name").unwrap());
         } else {
             panic!("Expected expanded object for book1");
         }
@@ -1442,11 +1442,11 @@ mod tests {
         // Each expanded item should contain its correct author
         for (orig, exp) in list.iter().zip(expanded_list.iter()) {
             if let Value::Object(map) = exp {
-                let map = map.get("authors").unwrap().as_object().unwrap();
-                assert_eq!(map.len(), 2);
+                let arr = map.get("authors").unwrap().as_array().unwrap();
+                assert_eq!(arr.len(), 1);
                 // Check that the referenced author matches original's author_id
                 let author_id = orig.get("author_id").unwrap();
-                assert_eq!(map.get("id").unwrap(), author_id);
+                assert_eq!(arr[0].get("id").unwrap(), author_id);
             } else {
                 panic!("Expected expanded object in list");
             }
@@ -1463,7 +1463,7 @@ mod tests {
         // Add an order
         let o1 = orders.add(json!({"total": 100})).unwrap();
         // Add one item referencing orders
-    let _i1 = items.add(json!({"order_id": o1.get("id").unwrap(), "product": "A"})).unwrap();
+        let _i1 = items.add(json!({"order_id": o1.get("id").unwrap(), "product": "A"})).unwrap();
         // Register reference order_items.order_id -> orders.id
         assert!(db.create_reference("order_items", "order_id", "orders", "id"));
         // Expand parent order row to include its items
@@ -1521,7 +1521,8 @@ mod tests {
                     item_map.get("order_id").unwrap(),
                     o1.get("id").unwrap()
                 );
-                let prod_map = item_map.get("products").unwrap().as_object().unwrap();
+                let prod_arr = item_map.get("products").unwrap().as_array().unwrap();
+                let prod_map = prod_arr[0].as_object().unwrap();
                 // Check nested product fields
                 assert!(prod_map.contains_key("name"));
                 assert!(prod_map.contains_key("price"));
