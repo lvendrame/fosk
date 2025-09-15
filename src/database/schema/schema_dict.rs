@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
-use crate::database::FieldInfo;
+use crate::{database::{FieldInfo, ReferenceColumn}, Db};
 
 /// A small dictionary describing the inferred schema for a collection.
 ///
@@ -55,6 +57,36 @@ impl SchemaDict {
                 }
             }
         }
+    }
+}
+
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SchemaWithRefs {
+    pub name: String,
+    /// Map of field name -> field metadata
+    pub fields: IndexMap<String, FieldInfo>,
+    pub outbound_refs: HashMap<String, ReferenceColumn>,
+    pub inbound_refs: HashMap<String, ReferenceColumn>,
+}
+
+impl SchemaWithRefs {
+    pub fn new(collection_name: &str, schema_dict: &SchemaDict, db: &Db) -> Self {
+        let fields = schema_dict.fields.clone();
+        let mut outbound_refs = HashMap::new();
+        let mut inbound_refs = HashMap::new();
+
+        if let Some(refs) = db.get_collection_refs(collection_name) {
+            for s_ref in refs.into_values() {
+                if s_ref.is_referrer {
+                    outbound_refs.insert(s_ref.ref_column.clone(), s_ref.clone());
+                } else {
+                    inbound_refs.insert(s_ref.column.clone(), s_ref.clone());
+                }
+            }
+        }
+
+        Self { name: collection_name.to_string(), fields, outbound_refs, inbound_refs }
     }
 }
 

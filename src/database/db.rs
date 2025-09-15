@@ -3,7 +3,7 @@ use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::{Arc, Rw
 use serde_json::{Map, Value};
 
 use crate::{
-    database::{DbCollection, DbConfig, DbReferences, ReferenceColumn, ReferenceFieldMap, SchemaProvider},
+    database::{DbCollection, DbConfig, DbReferences, ReferenceColumn, ReferenceFieldMap, SchemaProvider, SchemaWithRefs},
     executor::plan_executor::{Executor, PlanExecutor},
     parser::{
         aggregators_helper::AggregateRegistry,
@@ -300,6 +300,16 @@ impl Db {
         let rm = rm.read().unwrap();
         rm.get_collection_column_ref(collection_name, column)
             .cloned()
+    }
+
+    /// Given a collection name,
+    /// return its schema with inbound and outbound references if known.
+    pub fn schema_with_refs_of(&self, collection_name: &str) -> Option<SchemaWithRefs> {
+        let guard = self.internal_db.read().ok()?;
+        let coll = guard.get(collection_name)?;
+        let schema = coll.schema()?;
+
+        Some(SchemaWithRefs::new(collection_name, &schema, self))
     }
 
 }

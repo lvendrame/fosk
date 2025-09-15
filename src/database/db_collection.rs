@@ -48,7 +48,15 @@ impl InternalMemoryCollection {
             self.name.to_string()
         };
 
-        format!("{}_{}", name, self.config.id_key)
+        let id_key = if self.config.id_key.starts_with("_") {
+            let mut id_key = self.config.id_key.clone();
+            id_key.remove(0);
+            id_key
+        } else {
+            self.config.id_key.clone()
+        };
+
+        format!("{}_{}", name, id_key)
     }
 
     pub fn ensure_update_schema_for_item(&mut self, item: &Value) {
