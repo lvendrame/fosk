@@ -203,7 +203,14 @@ impl InternalMemoryCollection {
 
             // Add the ID to the item using the configured id_key
             if let Value::Object(ref mut map) = item {
-                map.insert(self.config.id_key.clone(), Value::String(id_string.clone()));
+                match id_value {
+                    IdValue::Uuid(id) => {
+                        map.insert(self.config.id_key.clone(), Value::String(id.clone()));
+                    },
+                    IdValue::Int(id) => {
+                        map.insert(self.config.id_key.clone(), Value::Number(id.into()));
+                    },
+                }
             }
             Some(id_string)
         } else if let Some(Value::String(id_string)) = item.get(self.config.id_key.clone()){
