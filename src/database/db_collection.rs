@@ -1,5 +1,5 @@
 use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::RwLock};
-use serde_json::{Map, Value};
+use serde_json::{Map, Number, Value};
 
 use crate::{database::{ColumnValue, DbConfig, ExpansionChain, IdManager, IdType, IdValue, SchemaDict}, Db};
 
@@ -308,7 +308,15 @@ impl InternalMemoryCollection {
             // Ensure the ID is still present in the updated item
             let mut final_item = updated_item;
             if let Value::Object(ref mut map) = final_item {
-                map.insert(self.config.id_key.clone(), Value::String(id.to_string()));
+                match self.config.id_type {
+                    IdType::Uuid => {
+                        map.insert(self.config.id_key.clone(), Value::String(id.to_string()));
+                    },
+                    IdType::Int => {
+                        map.insert(self.config.id_key.clone(), Value::Number(Number::from_u128(id.parse().unwrap()).unwrap()));
+                    },
+                    IdType::None => {},
+                }
             }
 
             self.ensure_update_schema_for_item(&final_item);
@@ -834,7 +842,7 @@ mod tests {
         assert_eq!(updated_item.get("name").unwrap(), "Updated Name");
         assert_eq!(updated_item.get("description").unwrap(), "Original Description"); // Should remain
         assert_eq!(updated_item.get("count").unwrap(), 42); // Should remain
-        assert_eq!(updated_item.get("id").unwrap(), id);
+        assert_eq!(updated_item.get("id").unwrap(), id.parse::<u64>().unwrap());
     }
 
     #[test]
