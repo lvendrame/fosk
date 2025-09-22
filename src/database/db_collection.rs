@@ -1,7 +1,10 @@
-use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::RwLock};
 use serde_json::{Map, Number, Value};
+use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::RwLock};
 
-use crate::{database::{ColumnValue, DbConfig, ExpansionChain, IdManager, IdType, IdValue, SchemaDict}, Db};
+use crate::{
+    Db, FieldInfo, JsonPrimitive,
+    database::{ColumnValue, DbConfig, ExpansionChain, IdManager, IdType, IdValue, SchemaDict},
+};
 
 /// Thread-safe handle to an in-memory collection protected by a RwLock.
 pub(crate) type MemoryCollection = RwLock<InternalMemoryCollection>;
@@ -24,12 +27,26 @@ impl InternalMemoryCollection {
     pub fn new(name: &str, config: DbConfig) -> Self {
         let collection: HashMap<String, Value> = HashMap::new();
         let id_manager = IdManager::new(config.id_type);
+
+        let mut schema = SchemaDict::default();
+        schema.fields.insert(
+            config.id_key.clone(),
+            FieldInfo {
+                nullable: false,
+                ty: match config.id_type {
+                    IdType::Int => JsonPrimitive::Int,
+                    _ => JsonPrimitive::String,
+                },
+            },
+        );
+        let schema = Some(schema);
+
         Self {
             collection,
             id_manager,
             config,
             name: name.to_ascii_lowercase(),
-            schema: None,
+            schema,
         }
     }
 
@@ -43,7 +60,7 @@ impl InternalMemoryCollection {
 
     pub fn get_reference_column_name(&self) -> String {
         let name = if self.name.ends_with("s") {
-            self.name[..self.name.len()-1].to_string()
+            self.name[..self.name.len() - 1].to_string()
         } else {
             self.name.to_string()
         };
@@ -99,7 +116,8 @@ impl InternalMemoryCollection {
     }
 
     pub fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
-        self.collection.values()
+        self.collection
+            .values()
             .skip(offset)
             .take(limit)
             .cloned()
@@ -110,29 +128,42 @@ impl InternalMemoryCollection {
         self.collection.get(id).cloned()
     }
 
-    pub fn get_filtered_by_columns_values(&self, columns_values: Vec<ColumnValue>, expansion_type: ExpansionChain, db: &Db) -> Vec<Value> {
-        self.collection.values().filter_map(|row| {
-            match row {
+    pub fn get_filtered_by_columns_values(
+        &self,
+        columns_values: Vec<ColumnValue>,
+        expansion_type: ExpansionChain,
+        db: &Db,
+    ) -> Vec<Value> {
+        self.collection
+            .values()
+            .filter_map(|row| match row {
                 Value::Object(map) => {
                     for column_value in &columns_values {
                         match map.get(&column_value.column) {
-                            Some(value) => if *value != column_value.value  {
-                                return None;
-                            },
+                            Some(value) => {
+                                if *value != column_value.value {
+                                    return None;
+                                }
+                            }
                             None => return None,
                         }
                     }
 
                     let expanded = self.expand_row(row, expansion_type.clone(), db);
                     Some(expanded)
-                },
+                }
                 _ => None,
-            }
-        })
-        .collect::<Vec<Value>>()
+            })
+            .collect::<Vec<Value>>()
     }
 
-    fn expand_object(&self, object: Map<String, Value>, collection_name: String, next_expansion_type: ExpansionChain, db: &Db) -> Value {
+    fn expand_object(
+        &self,
+        object: Map<String, Value>,
+        collection_name: String,
+        next_expansion_type: ExpansionChain,
+        db: &Db,
+    ) -> Value {
         let refs = db.get_collection_refs(&self.name);
         let mut object = object.clone();
 
@@ -143,8 +174,13 @@ impl InternalMemoryCollection {
                     if entry.ref_collection.eq_ignore_ascii_case(&collection_name) {
                         if let Some(collection) = db.get(&entry.ref_collection) {
                             if let Some(cell) = object.get(&entry.column) {
-                                let cvs = vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
-                                let expanded = collection.get_filtered_by_columns_values(cvs, next_expansion_type.clone(), db);
+                                let cvs =
+                                    vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
+                                let expanded = collection.get_filtered_by_columns_values(
+                                    cvs,
+                                    next_expansion_type.clone(),
+                                    db,
+                                );
                                 let key = collection.get_name();
                                 object.insert(key, Value::Array(expanded));
                             }
@@ -155,8 +191,13 @@ impl InternalMemoryCollection {
                     if entry.collection.eq_ignore_ascii_case(&collection_name) {
                         if let Some(collection) = db.get(&entry.collection) {
                             if let Some(cell) = object.get(&entry.ref_column) {
-                                let cvs = vec![ColumnValue::new(entry.column.clone(), cell.clone())];
-                                let expanded = collection.get_filtered_by_columns_values(cvs, next_expansion_type.clone(), db);
+                                let cvs =
+                                    vec![ColumnValue::new(entry.column.clone(), cell.clone())];
+                                let expanded = collection.get_filtered_by_columns_values(
+                                    cvs,
+                                    next_expansion_type.clone(),
+                                    db,
+                                );
                                 let key = collection.get_name();
                                 object.insert(key, Value::Array(expanded));
                             }
@@ -164,23 +205,32 @@ impl InternalMemoryCollection {
                     }
                 }
                 Value::Object(object)
-            },
+            }
             None => Value::Object(object),
         }
     }
 
     pub fn expand_row(&self, row: &Value, expansion_type: ExpansionChain, db: &Db) -> Value {
         match (row.clone(), expansion_type) {
-            (Value::Object(map), ExpansionChain::Single(collection_name)) =>
-                self.expand_object(map, collection_name, ExpansionChain::None, db),
-            (Value::Object(map), ExpansionChain::Child(collection_name, expansion_type)) =>
-                self.expand_object(map, collection_name, expansion_type.as_ref().clone(), db),
+            (Value::Object(map), ExpansionChain::Single(collection_name)) => {
+                self.expand_object(map, collection_name, ExpansionChain::None, db)
+            }
+            (Value::Object(map), ExpansionChain::Child(collection_name, expansion_type)) => {
+                self.expand_object(map, collection_name, expansion_type.as_ref().clone(), db)
+            }
             _ => row.clone(),
         }
     }
 
-    pub fn expand_list(&self, list: Vec<Value>, expansion_type: ExpansionChain, db: &Db) -> Vec<Value> {
-        list.iter().map(|row| self.expand_row(row, expansion_type.clone(), db)).collect()
+    pub fn expand_list(
+        &self,
+        list: Vec<Value>,
+        expansion_type: ExpansionChain,
+        db: &Db,
+    ) -> Vec<Value> {
+        list.iter()
+            .map(|row| self.expand_row(row, expansion_type.clone(), db))
+            .collect()
     }
 
     pub fn exists(&self, id: &str) -> bool {
@@ -192,9 +242,7 @@ impl InternalMemoryCollection {
     }
 
     pub fn add(&mut self, item: Value) -> Option<Value> {
-        let next_id = {
-            self.id_manager.next()
-        };
+        let next_id = { self.id_manager.next() };
 
         let mut item = item;
         let id_string = if let Some(id_value) = next_id {
@@ -206,18 +254,18 @@ impl InternalMemoryCollection {
                 match id_value {
                     IdValue::Uuid(id) => {
                         map.insert(self.config.id_key.clone(), Value::String(id.clone()));
-                    },
+                    }
                     IdValue::Int(id) => {
                         map.insert(self.config.id_key.clone(), Value::Number(id.into()));
-                    },
+                    }
                 }
             }
             Some(id_string)
-        } else if let Some(Value::String(id_string)) = item.get(self.config.id_key.clone()){
+        } else if let Some(Value::String(id_string)) = item.get(self.config.id_key.clone()) {
             Some(id_string.clone())
-        } else if let Some(Value::Number(id_number)) = item.get(self.config.id_key.clone()){
+        } else if let Some(Value::Number(id_number)) = item.get(self.config.id_key.clone()) {
             Some(id_number.to_string())
-        }else {
+        } else {
             None
         };
 
@@ -240,12 +288,13 @@ impl InternalMemoryCollection {
             for item in items_array {
                 if let Value::Object(ref item_map) = item {
                     self.ensure_update_schema_for_item(&item);
+                    let id_key = self.config.id_key.clone();
 
-                    let id = item_map.get(&self.config.id_key);
+                    let id = item_map.get(&id_key);
                     let id = match self.id_manager.id_type {
                         IdType::Uuid => match id {
                             Some(Value::String(id)) => Some(id.clone()),
-                            _ => None
+                            _ => None,
                         },
                         IdType::Int => match id {
                             Some(Value::Number(id)) => {
@@ -253,19 +302,22 @@ impl InternalMemoryCollection {
                                     let id = id.as_u64().unwrap();
                                     if current < id {
                                         max_id = Some(id);
+                                        let _ = self.id_manager.set_current(IdValue::Int(id));
                                     }
                                 } else {
                                     max_id = id.as_u64();
+                                    let _ =
+                                        self.id_manager.set_current(IdValue::Int(max_id.unwrap()));
                                 }
                                 Some(id.to_string())
-                            },
-                            _ => None
+                            }
+                            _ => None,
                         },
-                        IdType::None => match item.get(self.config.id_key.clone()) {
+                        IdType::None => match item.get(&id_key) {
                             Some(Value::String(id_string)) => Some(id_string.clone()),
                             Some(Value::Number(id_number)) => Some(id_number.to_string()),
-                            _ => None
-                        }
+                            _ => None,
+                        },
                     };
 
                     // Extract the ID from the item using the configured id_key
@@ -273,18 +325,36 @@ impl InternalMemoryCollection {
                         // Insert the item with its existing ID
                         self.collection.insert(id.clone(), item.clone());
                         added_items.push(item);
+                    } else if let Some(id) = self.id_manager.next() {
+                        // Take ownership of the map so we can mutate it
+                        if let Value::Object(mut owned_map) = item {
+                            let id_value = match id {
+                                IdValue::Uuid(ref s) => Value::String(s.clone()),
+                                IdValue::Int(i) => {
+                                    max_id = Some(i);
+                                    Value::Number(i.into())
+                                }
+                            };
+                            owned_map.insert(id_key, id_value);
+                            let new_item = Value::Object(owned_map);
+                            self.collection.insert(id.to_string(), new_item.clone());
+                            added_items.push(new_item);
+                        }
                     }
-                    // Skip items that don't have the required ID field
                 }
                 // Skip non-object items
             }
 
-            // update the id_manager with the max id for an integer id
-            if let Some(value) = max_id {
-                if self.id_manager.set_current(IdValue::Int(value)).is_err() {
-                    println!("Error to set the value {} to {} collection Id", value, self.name.clone());
-                }
-            }
+            // // update the id_manager with the max id for an integer id
+            // if let Some(value) = max_id {
+            //     if self.id_manager.set_current(IdValue::Int(value)).is_err() {
+            //         println!(
+            //             "Error to set the value {} to {} collection Id",
+            //             value,
+            //             self.name.clone()
+            //         );
+            //     }
+            // }
         }
 
         added_items
@@ -295,7 +365,17 @@ impl InternalMemoryCollection {
 
         // Add the ID to the item using the configured id_key
         if let Value::Object(ref mut map) = item {
-            map.insert(self.config.id_key.clone(), Value::String(id.to_string()));
+            let id_key = self.config.id_key.clone();
+            if !map.contains_key(&id_key) {
+                let id = match self.config.id_type {
+                    IdType::Int => match id.parse::<u64>() {
+                        Ok(num) => Value::Number(Number::from(num)),
+                        Err(_) => Value::String(id.to_string()),
+                    },
+                    _ => Value::String(id.to_string()),
+                };
+                map.insert(self.config.id_key.clone(), id);
+            }
         }
 
         if self.collection.contains_key(id) {
@@ -310,27 +390,28 @@ impl InternalMemoryCollection {
     pub fn update_partial(&mut self, id: &str, partial_item: Value) -> Option<Value> {
         if let Some(existing_item) = self.collection.get(id).cloned() {
             // Merge the partial update with the existing item
-            let updated_item = Self::merge_json_values(existing_item, partial_item);
+            let mut updated_item = Self::merge_json_values(existing_item, partial_item);
 
             // Ensure the ID is still present in the updated item
-            let mut final_item = updated_item;
-            if let Value::Object(ref mut map) = final_item {
-                match self.config.id_type {
-                    IdType::Uuid => {
-                        map.insert(self.config.id_key.clone(), Value::String(id.to_string()));
-                    },
-                    IdType::Int => {
-                        map.insert(self.config.id_key.clone(), Value::Number(Number::from_u128(id.parse().unwrap()).unwrap()));
-                    },
-                    IdType::None => {},
+            if let Value::Object(ref mut map) = updated_item {
+                let id_key = self.config.id_key.clone();
+                if !map.contains_key(&id_key) {
+                    let id = match self.config.id_type {
+                        IdType::Int => match id.parse::<u64>() {
+                            Ok(num) => Value::Number(Number::from(num)),
+                            Err(_) => Value::String(id.to_string()),
+                        },
+                        _ => Value::String(id.to_string()),
+                    };
+                    map.insert(self.config.id_key.clone(), id);
                 }
             }
 
-            self.ensure_update_schema_for_item(&final_item);
+            self.ensure_update_schema_for_item(&updated_item);
 
             // Update the item in the database
-            self.collection.insert(id.to_string(), final_item.clone());
-            Some(final_item)
+            self.collection.insert(id.to_string(), updated_item.clone());
+            Some(updated_item)
         } else {
             None
         }
@@ -365,16 +446,31 @@ impl InternalMemoryCollection {
         let file_path_lossy = file_path.to_string_lossy();
 
         // Guard: Try to read the file content
-        let file_content = fs::read_to_string(file_path)
-            .map_err(|_| format!("⚠️ Could not read file {}, skipping initial data load", file_path_lossy))?;
+        let file_content = fs::read_to_string(file_path).map_err(|_| {
+            format!(
+                "⚠️ Could not read file {}, skipping initial data load",
+                file_path_lossy
+            )
+        })?;
 
         // Guard: Try to parse the content as JSON
-        let json_value = serde_json::from_str::<Value>(&file_content)
-            .map_err(|_| format!("⚠️ File {} does not contain valid JSON, skipping initial data load", file_path_lossy))?;
+        let json_value = serde_json::from_str::<Value>(&file_content).map_err(|_| {
+            format!(
+                "⚠️ File {} does not contain valid JSON, skipping initial data load",
+                file_path_lossy
+            )
+        })?;
 
         match self.load_from_json(json_value, false) {
-            Ok(added_items) => Ok(format!("✔️ Loaded {} initial items from {}", added_items.len(), file_path_lossy)),
-            Err(error) => Err(format!("Error to process the file {}. Details: {}", file_path_lossy, error)),
+            Ok(added_items) => Ok(format!(
+                "✔️ Loaded {} initial items from {}",
+                added_items.len(),
+                file_path_lossy
+            )),
+            Err(error) => Err(format!(
+                "Error to process the file {}. Details: {}",
+                file_path_lossy, error
+            )),
         }
     }
 }
@@ -405,7 +501,7 @@ impl DbCollection {
     /// `name` is the collection name and `config` controls id strategy and key.
     pub fn new_coll(name: &str, config: DbConfig) -> Self {
         Self {
-            collection: InternalMemoryCollection::new_coll(name, config).into_protected()
+            collection: InternalMemoryCollection::new_coll(name, config).into_protected(),
         }
     }
 
@@ -430,8 +526,16 @@ impl DbCollection {
         self.collection.read().unwrap().get_paginated(offset, limit)
     }
 
-    pub(crate) fn get_filtered_by_columns_values(&self, columns_values: Vec<ColumnValue>, expansion_type: ExpansionChain, db: &Db) -> Vec<Value> {
-        self.collection.read().unwrap().get_filtered_by_columns_values(columns_values, expansion_type, db)
+    pub(crate) fn get_filtered_by_columns_values(
+        &self,
+        columns_values: Vec<ColumnValue>,
+        expansion_type: ExpansionChain,
+        db: &Db,
+    ) -> Vec<Value> {
+        self.collection
+            .read()
+            .unwrap()
+            .get_filtered_by_columns_values(columns_values, expansion_type, db)
     }
 
     /// Retrieve a single document by its string id.
@@ -474,7 +578,10 @@ impl DbCollection {
     /// Apply a partial update to the document with `id` by merging JSON
     /// values; returns the updated document or `None` if the id is not found.
     pub fn update_partial(&self, id: &str, partial_item: Value) -> Option<Value> {
-        self.collection.write().unwrap().update_partial(id, partial_item)
+        self.collection
+            .write()
+            .unwrap()
+            .update_partial(id, partial_item)
     }
 
     /// Remove and return the document with `id` if it exists.
@@ -490,7 +597,10 @@ impl DbCollection {
     /// Load documents from a serde_json `Value` (must be an array) and return
     /// the list of items actually added. Errors if the value is not an array.
     pub fn load_from_json(&self, json_value: Value, keep: bool) -> Result<Vec<Value>, String> {
-        self.collection.write().unwrap().load_from_json(json_value, keep)
+        self.collection
+            .write()
+            .unwrap()
+            .load_from_json(json_value, keep)
     }
 
     /// Load documents from a file path. Returns a human-readable status on
@@ -514,14 +624,20 @@ impl DbCollection {
     /// `expansion` specifies which related collection to include. For example,
     /// calling `expand_row(row, "orders.items", &db)` will nest `items` under `orders`.
     pub fn expand_row(&self, row: &Value, expansion: &str, db: &Db) -> Value {
-        self.collection.read().unwrap().expand_row(row, ExpansionChain::from(expansion), db)
+        self.collection
+            .read()
+            .unwrap()
+            .expand_row(row, ExpansionChain::from(expansion), db)
     }
 
     /// Expand each JSON `Value` in a list by applying the same expansion chain.
     ///
     /// Returns a new `Vec<Value>` where each element has been passed through `expand_row`.
     pub fn expand_list(&self, list: Vec<Value>, expansion: &str, db: &Db) -> Vec<Value> {
-        self.collection.read().unwrap().expand_list(list, ExpansionChain::from(expansion), db)
+        self.collection
+            .read()
+            .unwrap()
+            .expand_list(list, ExpansionChain::from(expansion), db)
     }
 
     /// Return the optionally-inferred `SchemaDict` for this collection (if
@@ -606,9 +722,9 @@ mod tests {
     fn test_get_existing_item() {
         let mut collection = create_test_collection();
         let item = collection.add(json!({"name": "Test Item"})).unwrap();
-        let id = item.get("id").unwrap().as_str().unwrap();
+        let id = item.get("id").unwrap().as_u64().unwrap();
 
-        let retrieved = collection.get(id);
+        let retrieved = collection.get(&id.to_string());
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().get("name").unwrap(), "Test Item");
     }
@@ -657,9 +773,9 @@ mod tests {
     fn test_exists() {
         let mut collection = create_test_collection();
         let item = collection.add(json!({"name": "Test Item"})).unwrap();
-        let id = item.get("id").unwrap().as_str().unwrap();
+        let id = item.get("id").unwrap().as_u64().unwrap();
 
-        assert!(collection.exists(id));
+        assert!(collection.exists(&id.to_string()));
         assert!(!collection.exists("999"));
     }
 
@@ -676,8 +792,8 @@ mod tests {
 
         // Delete one
         let all_items = collection.get_all();
-        let id = all_items[0].get("id").unwrap().as_str().unwrap();
-        collection.delete(id);
+        let id = all_items[0].get("id").unwrap().as_u64().unwrap();
+        collection.delete(&id.to_string());
         assert_eq!(collection.count(), 1);
     }
 
@@ -690,11 +806,11 @@ mod tests {
 
         let item = item.unwrap();
         assert_eq!(item.get("name").unwrap(), "Test Item");
-        assert_eq!(item.get("id").unwrap(), "1");
+        assert_eq!(item.get("id").unwrap(), 1);
 
         // Add another item
         let item2 = collection.add(json!({"name": "Test Item 2"})).unwrap();
-        assert_eq!(item2.get("id").unwrap(), "2");
+        assert_eq!(item2.get("id").unwrap(), 2);
     }
 
     #[test]
@@ -756,12 +872,12 @@ mod tests {
         ]);
 
         let added_items = collection.add_batch(batch);
-        assert_eq!(added_items.len(), 3); // Only items with IDs should be added
-        assert_eq!(collection.count(), 3);
+        assert_eq!(added_items.len(), 4); // Only items with IDs should be added
+        assert_eq!(collection.count(), 4);
 
         // Check that the max ID was set correctly
         let new_item = collection.add(json!({"name": "New Item"})).unwrap();
-        assert_eq!(new_item.get("id").unwrap(), "11"); // Should be max + 1
+        assert_eq!(new_item.get("id").unwrap(), 11); // Should be max + 1
     }
 
     #[test]
@@ -775,8 +891,8 @@ mod tests {
         ]);
 
         let added_items = collection.add_batch(batch);
-        assert_eq!(added_items.len(), 2);
-        assert_eq!(collection.count(), 2);
+        assert_eq!(added_items.len(), 3);
+        assert_eq!(collection.count(), 3);
     }
 
     #[test]
@@ -809,9 +925,12 @@ mod tests {
     fn test_update_existing_item() {
         let mut collection = create_test_collection();
         let item = collection.add(json!({"name": "Original Name"})).unwrap();
-        let id = item.get("id").unwrap().as_str().unwrap();
+        let id = item.get("id").unwrap().as_u64().unwrap();
 
-        let updated = collection.update(id, json!({"name": "Updated Name", "description": "New field"}));
+        let updated = collection.update(
+            &id.to_string(),
+            json!({"name": "Updated Name", "description": "New field"}),
+        );
         assert!(updated.is_some());
 
         let updated_item = updated.unwrap();
@@ -820,7 +939,7 @@ mod tests {
         assert_eq!(updated_item.get("id").unwrap(), id);
 
         // Verify it's actually updated in the collection
-        let retrieved = collection.get(id).unwrap();
+        let retrieved = collection.get(&id.to_string()).unwrap();
         assert_eq!(retrieved.get("name").unwrap(), "Updated Name");
     }
 
@@ -835,47 +954,57 @@ mod tests {
     #[test]
     fn test_update_partial_existing_item() {
         let mut collection = create_test_collection();
-        let item = collection.add(json!({
-            "name": "Original Name",
-            "description": "Original Description",
-            "count": 42
-        })).unwrap();
-        let id = item.get("id").unwrap().as_str().unwrap();
+        let item = collection
+            .add(json!({
+                "name": "Original Name",
+                "description": "Original Description",
+                "count": 42
+            }))
+            .unwrap();
+        let id = item.get("id").unwrap().as_u64().unwrap();
 
-        let updated = collection.update_partial(id, json!({"name": "Updated Name"}));
+        let updated = collection.update_partial(&id.to_string(), json!({"name": "Updated Name"}));
         assert!(updated.is_some());
 
         let updated_item = updated.unwrap();
         assert_eq!(updated_item.get("name").unwrap(), "Updated Name");
-        assert_eq!(updated_item.get("description").unwrap(), "Original Description"); // Should remain
+        assert_eq!(
+            updated_item.get("description").unwrap(),
+            "Original Description"
+        ); // Should remain
         assert_eq!(updated_item.get("count").unwrap(), 42); // Should remain
-        assert_eq!(updated_item.get("id").unwrap(), id.parse::<u64>().unwrap());
+        assert_eq!(updated_item.get("id").unwrap(), id);
     }
 
     #[test]
     fn test_update_partial_nested_objects() {
         let mut collection = create_test_collection();
-        let item = collection.add(json!({
-            "name": "Test Item",
-            "config": {
-                "enabled": true,
-                "timeout": 30,
-                "nested": {
-                    "value": "original"
+        let item = collection
+            .add(json!({
+                "name": "Test Item",
+                "config": {
+                    "enabled": true,
+                    "timeout": 30,
+                    "nested": {
+                        "value": "original"
+                    }
                 }
-            }
-        })).unwrap();
-        let id = item.get("id").unwrap().as_str().unwrap();
+            }))
+            .unwrap();
+        let id = item.get("id").unwrap().as_u64().unwrap();
 
-        let updated = collection.update_partial(id, json!({
-            "config": {
-                "timeout": 60,
-                "nested": {
-                    "value": "updated",
-                    "new_field": "added"
+        let updated = collection.update_partial(
+            &id.to_string(),
+            json!({
+                "config": {
+                    "timeout": 60,
+                    "nested": {
+                        "value": "updated",
+                        "new_field": "added"
+                    }
                 }
-            }
-        }));
+            }),
+        );
 
         assert!(updated.is_some());
         let updated_item = updated.unwrap();
@@ -901,15 +1030,15 @@ mod tests {
     fn test_delete_existing_item() {
         let mut collection = create_test_collection();
         let item = collection.add(json!({"name": "Test Item"})).unwrap();
-        let id = item.get("id").unwrap().as_str().unwrap();
+        let id = item.get("id").unwrap().as_u64().unwrap();
 
         assert_eq!(collection.count(), 1);
 
-        let deleted = collection.delete(id);
+        let deleted = collection.delete(&id.to_string());
         assert!(deleted.is_some());
         assert_eq!(deleted.unwrap().get("name").unwrap(), "Test Item");
         assert_eq!(collection.count(), 0);
-        assert!(!collection.exists(id));
+        assert!(!collection.exists(&id.to_string()));
     }
 
     #[test]
@@ -999,29 +1128,27 @@ mod tests {
 
         // Add items and verify sequential IDs
         let item1 = collection.add(json!({"name": "Item 1"})).unwrap();
-        assert_eq!(item1.get("id").unwrap(), "1");
+        assert_eq!(item1.get("id").unwrap(), 1);
 
         let item2 = collection.add(json!({"name": "Item 2"})).unwrap();
-        assert_eq!(item2.get("id").unwrap(), "2");
+        assert_eq!(item2.get("id").unwrap(), 2);
 
         let item3 = collection.add(json!({"name": "Item 3"})).unwrap();
-        assert_eq!(item3.get("id").unwrap(), "3");
+        assert_eq!(item3.get("id").unwrap(), 3);
     }
 
     #[test]
     fn test_custom_id_key() {
-        let mut collection = InternalMemoryCollection::new(
-            "custom_collection",
-            DbConfig::int("customId")
-        );
+        let mut collection =
+            InternalMemoryCollection::new("custom_collection", DbConfig::int("customId"));
 
         let item = collection.add(json!({"name": "Test Item"})).unwrap();
-        assert_eq!(item.get("customId").unwrap(), "1");
+        assert_eq!(item.get("customId").unwrap(), 1);
         assert!(item.get("id").is_none()); // Should not have regular "id" field
 
         // Test retrieval
         let retrieved = collection.get("1").unwrap();
-        assert_eq!(retrieved.get("customId").unwrap(), "1");
+        assert_eq!(retrieved.get("customId").unwrap(), 1);
     }
 
     // Tests for load_from_file method
@@ -1202,7 +1329,11 @@ mod tests {
         let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("does not contain a JSON array"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("does not contain a JSON array")
+        );
         assert_eq!(collection.count(), 0);
     }
 
@@ -1228,7 +1359,7 @@ mod tests {
 
         // Add a new item - should get ID 16 (max + 1)
         let new_item = collection.add(json!({"name": "New Item"})).unwrap();
-        assert_eq!(new_item.get("id").unwrap(), "16");
+        assert_eq!(new_item.get("id").unwrap(), 16);
     }
 
     #[test]
@@ -1305,10 +1436,8 @@ mod tests {
 
     #[test]
     fn test_load_from_file_custom_id_key() {
-        let mut collection = InternalMemoryCollection::new(
-            "custom_collection",
-            DbConfig::int("customId"),
-        );
+        let mut collection =
+            InternalMemoryCollection::new("custom_collection", DbConfig::int("customId"));
 
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("custom_id_data.json");
@@ -1339,10 +1468,10 @@ mod tests {
 
     #[test]
     fn test_write_to_file() {
-        use tempfile::TempDir;
+        use serde_json::json;
         use std::ffi::OsString;
         use std::fs;
-        use serde_json::json;
+        use tempfile::TempDir;
 
         // Create a temporary directory and file path
         let tmp = TempDir::new().unwrap();
@@ -1418,9 +1547,13 @@ mod tests {
 
         let books = db.create("books");
         // Link book to author by author_id key
-        let b1 = books.add(json!({"title": "Book1", "author_id": a1.get("id").unwrap()})).unwrap();
+        let b1 = books
+            .add(json!({"title": "Book1", "author_id": a1.get("id").unwrap()}))
+            .unwrap();
         // Add second book to ensure multiple entries, unused in this test
-        let _ = books.add(json!({"title": "Book2", "author_id": a2.get("id").unwrap()})).unwrap();
+        let _ = books
+            .add(json!({"title": "Book2", "author_id": a2.get("id").unwrap()}))
+            .unwrap();
 
         // Create reference from books.author_id to authors.id
         assert!(db.create_reference("books", "author_id", "authors", "id"));
@@ -1446,8 +1579,12 @@ mod tests {
         let a2 = authors.add(json!({"name": "Bob"})).unwrap();
 
         let books = db.create("books");
-        let b1 = books.add(json!({"title": "Book1", "author_id": a1.get("id").unwrap()})).unwrap();
-        let b2 = books.add(json!({"title": "Book2", "author_id": a2.get("id").unwrap()})).unwrap();
+        let b1 = books
+            .add(json!({"title": "Book1", "author_id": a1.get("id").unwrap()}))
+            .unwrap();
+        let b2 = books
+            .add(json!({"title": "Book2", "author_id": a2.get("id").unwrap()}))
+            .unwrap();
 
         assert!(db.create_reference("books", "author_id", "authors", "id"));
 
@@ -1478,7 +1615,9 @@ mod tests {
         // Add an order
         let o1 = orders.add(json!({"total": 100})).unwrap();
         // Add one item referencing orders
-        let _i1 = items.add(json!({"order_id": o1.get("id").unwrap(), "product": "A"})).unwrap();
+        let _i1 = items
+            .add(json!({"order_id": o1.get("id").unwrap(), "product": "A"}))
+            .unwrap();
         // Register reference order_items.order_id -> orders.id
         assert!(db.create_reference("order_items", "order_id", "orders", "id"));
         // Expand parent order row to include its items
@@ -1495,7 +1634,7 @@ mod tests {
 
     #[test]
     fn test_expand_row_multi_level() {
-        use serde_json::{json, Value};
+        use serde_json::{Value, json};
         // Set up DB with three collections: orders, order_items, products
         let db = Db::new_with_config(DbConfig::int("id"));
         let orders = db.create("orders");
@@ -1504,17 +1643,25 @@ mod tests {
         // Add one order
         let o1 = orders.add(json!({ "total": 300 })).unwrap();
         // Add two products
-        let p1 = products.add(json!({ "name": "Widget", "price": 9.99 })).unwrap();
-        let p2 = products.add(json!({ "name": "Gadget", "price": 19.99 })).unwrap();
+        let p1 = products
+            .add(json!({ "name": "Widget", "price": 9.99 }))
+            .unwrap();
+        let p2 = products
+            .add(json!({ "name": "Gadget", "price": 19.99 }))
+            .unwrap();
         // Add order_items referencing the order and each product
-        let _ = items.add(json!({
-            "order_id": o1.get("id").unwrap(),
-            "product_id": p1.get("id").unwrap()
-        })).unwrap();
-        let _ = items.add(json!({
-            "order_id": o1.get("id").unwrap(),
-            "product_id": p2.get("id").unwrap()
-        })).unwrap();
+        let _ = items
+            .add(json!({
+                "order_id": o1.get("id").unwrap(),
+                "product_id": p1.get("id").unwrap()
+            }))
+            .unwrap();
+        let _ = items
+            .add(json!({
+                "order_id": o1.get("id").unwrap(),
+                "product_id": p2.get("id").unwrap()
+            }))
+            .unwrap();
         // Register references for both parent and product relationships
         assert!(db.create_reference("order_items", "order_id", "orders", "id"));
         assert!(db.create_reference("order_items", "product_id", "products", "id"));
@@ -1532,10 +1679,7 @@ mod tests {
             for item in items_arr {
                 let item_map = item.as_object().unwrap();
                 // Confirm original order_id and product_id are present
-                assert_eq!(
-                    item_map.get("order_id").unwrap(),
-                    o1.get("id").unwrap()
-                );
+                assert_eq!(item_map.get("order_id").unwrap(), o1.get("id").unwrap());
                 let prod_arr = item_map.get("products").unwrap().as_array().unwrap();
                 let prod_map = prod_arr[0].as_object().unwrap();
                 // Check nested product fields

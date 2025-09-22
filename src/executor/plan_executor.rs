@@ -3,10 +3,15 @@ use std::collections::BTreeSet;
 use serde_json::{Map, Value};
 
 use crate::{
-    database::SchemaProvider, executor::{eval::Eval, helpers::Helpers}, parser::{
+    Db,
+    database::SchemaProvider,
+    executor::{eval::Eval, helpers::Helpers},
+    parser::{
         aggregators_helper::{Accumulator as AggAcc, AggregateRegistry},
-        analyzer::AnalyzerError, ast::{Column, JoinType, ScalarExpr, Truth}
-    }, planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan}, Db
+        analyzer::AnalyzerError,
+        ast::{Column, JoinType, ScalarExpr, Truth},
+    },
+    planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan},
 };
 
 pub trait Executor {
@@ -26,12 +31,15 @@ impl Executor for PlanExecutor {
 type GroupEntry = (Vec<Value>, Vec<Box<dyn AggAcc>>);
 
 impl PlanExecutor {
-    pub fn new(plan: LogicalPlan) -> Self { Self { plan } }
+    pub fn new(plan: LogicalPlan) -> Self {
+        Self { plan }
+    }
 
     pub fn run_plan(plan: &LogicalPlan, db: &Db) -> Result<Vec<Value>, AnalyzerError> {
         match plan {
             LogicalPlan::Scan { backing, visible } => {
-                let coll = db.get(backing)
+                let coll = db
+                    .get(backing)
                     .ok_or_else(|| AnalyzerError::Other(format!("unknown collection {backing}")))?;
                 let mut out = Vec::new();
                 for v in coll.get_all() {
@@ -58,7 +66,11 @@ impl PlanExecutor {
                 }
                 Ok(out)
             }
-            LogicalPlan::Aggregate { input, group_keys, aggs } => {
+            LogicalPlan::Aggregate {
+                input,
+                group_keys,
+                aggs,
+            } => {
                 let rows = Self::run_plan(input, db)?;
                 Self::aggregate_rows(rows, group_keys, aggs)
             }
@@ -86,47 +98,65 @@ impl PlanExecutor {
                         let av = Eval::eval_scalar(&k.expr, ao);
                         let bv = Eval::eval_scalar(&k.expr, bo);
                         let ord = Helpers::cmp_json_for_sort(&av, &bv, k.ascending);
-                        if !ord.is_eq() { return ord; }
+                        if !ord.is_eq() {
+                            return ord;
+                        }
                     }
                     std::cmp::Ordering::Equal
                 });
                 Ok(rows)
             }
-            LogicalPlan::Limit { input, limit, offset } => {
+            LogicalPlan::Limit {
+                input,
+                limit,
+                offset,
+            } => {
                 let rows = Self::run_plan(input, db)?;
                 let start = offset.unwrap_or(0).max(0) as usize;
                 let mut end = rows.len();
-                if let Some(lim) = limit { end = (start + (*lim).max(0) as usize).min(rows.len()); }
+                if let Some(lim) = limit {
+                    end = (start + (*lim).max(0) as usize).min(rows.len());
+                }
                 Ok(rows.get(start..end).unwrap_or(&[]).to_vec())
             }
-            LogicalPlan::Join { left, right, join_type, on } => {
+            LogicalPlan::Join {
+                left,
+                right,
+                join_type,
+                on,
+            } => {
                 // Execute children
-                let left_rows  = Self::run_plan(left,  db)?;
+                let left_rows = Self::run_plan(left, db)?;
                 let right_rows = Self::run_plan(right, db)?;
 
                 // Collect key sets for null-extension (derived from observed rows)
-                let left_keys  = Self::keyset_for_side(left,  &left_rows,  db);
+                let left_keys = Self::keyset_for_side(left, &left_rows, db);
                 let right_keys = Self::keyset_for_side(right, &right_rows, db);
 
                 // helpers
                 let merge_objs = |lo: &Map<String, Value>, ro: &Map<String, Value>| -> Value {
                     let mut out = Map::new();
-                    for (k, v) in lo { out.insert(k.clone(), v.clone()); }
-                    for (k, v) in ro { out.insert(k.clone(), v.clone()); }
+                    for (k, v) in lo {
+                        out.insert(k.clone(), v.clone());
+                    }
+                    for (k, v) in ro {
+                        out.insert(k.clone(), v.clone());
+                    }
                     Value::Object(out)
                 };
 
-                let null_extended = |obj: &Map<String, Value>, all_keys: &BTreeSet<String>| -> Map<String, Value> {
-                    let mut out = Map::new();
-                    for k in all_keys {
-                        if let Some(v) = obj.get(k) {
-                            out.insert(k.clone(), v.clone());
-                        } else {
-                            out.insert(k.clone(), Value::Null);
+                let null_extended =
+                    |obj: &Map<String, Value>, all_keys: &BTreeSet<String>| -> Map<String, Value> {
+                        let mut out = Map::new();
+                        for k in all_keys {
+                            if let Some(v) = obj.get(k) {
+                                out.insert(k.clone(), v.clone());
+                            } else {
+                                out.insert(k.clone(), Value::Null);
+                            }
                         }
-                    }
-                    out
-                };
+                        out
+                    };
 
                 let mut out: Vec<Value> = Vec::new();
 
@@ -139,7 +169,10 @@ impl PlanExecutor {
                                 // evaluate ON over merged row
                                 let merged = merge_objs(lo, ro);
                                 let mref = merged.as_object().unwrap();
-                                if matches!(crate::executor::eval::Eval::eval_predicate3(on, mref), Truth::True) {
+                                if matches!(
+                                    crate::executor::eval::Eval::eval_predicate3(on, mref),
+                                    Truth::True
+                                ) {
                                     out.push(merged);
                                 }
                             }
@@ -153,7 +186,10 @@ impl PlanExecutor {
                                 let ro = r.as_object().unwrap();
                                 let merged = merge_objs(lo, ro);
                                 let mref = merged.as_object().unwrap();
-                                if matches!(crate::executor::eval::Eval::eval_predicate3(on, mref), Truth::True) {
+                                if matches!(
+                                    crate::executor::eval::Eval::eval_predicate3(on, mref),
+                                    Truth::True
+                                ) {
                                     out.push(merged);
                                     matched = true;
                                 }
@@ -161,7 +197,9 @@ impl PlanExecutor {
                             if !matched {
                                 // left row with right side null-extended
                                 let right_nulls = null_extended(&Map::new(), &right_keys);
-                                out.push(Value::Object(merge_objs(lo, &right_nulls).as_object().unwrap().clone()));
+                                out.push(Value::Object(
+                                    merge_objs(lo, &right_nulls).as_object().unwrap().clone(),
+                                ));
                             }
                         }
                     }
@@ -173,14 +211,19 @@ impl PlanExecutor {
                                 let lo = l.as_object().unwrap();
                                 let merged = merge_objs(lo, ro);
                                 let mref = merged.as_object().unwrap();
-                                if matches!(crate::executor::eval::Eval::eval_predicate3(on, mref), Truth::True) {
+                                if matches!(
+                                    crate::executor::eval::Eval::eval_predicate3(on, mref),
+                                    Truth::True
+                                ) {
                                     out.push(merged);
                                     matched = true;
                                 }
                             }
                             if !matched {
                                 let left_nulls = null_extended(&Map::new(), &left_keys);
-                                out.push(Value::Object(merge_objs(&left_nulls, ro).as_object().unwrap().clone()));
+                                out.push(Value::Object(
+                                    merge_objs(&left_nulls, ro).as_object().unwrap().clone(),
+                                ));
                             }
                         }
                     }
@@ -194,7 +237,10 @@ impl PlanExecutor {
                                 let ro = r.as_object().unwrap();
                                 let merged = merge_objs(lo, ro);
                                 let mref = merged.as_object().unwrap();
-                                if matches!(crate::executor::eval::Eval::eval_predicate3(on, mref), Truth::True) {
+                                if matches!(
+                                    crate::executor::eval::Eval::eval_predicate3(on, mref),
+                                    Truth::True
+                                ) {
                                     out.push(merged);
                                     right_matched[i] = true;
                                     matched_any = true;
@@ -202,7 +248,9 @@ impl PlanExecutor {
                             }
                             if !matched_any {
                                 let right_nulls = null_extended(&Map::new(), &right_keys);
-                                out.push(Value::Object(merge_objs(lo, &right_nulls).as_object().unwrap().clone()));
+                                out.push(Value::Object(
+                                    merge_objs(lo, &right_nulls).as_object().unwrap().clone(),
+                                ));
                             }
                         }
 
@@ -211,7 +259,9 @@ impl PlanExecutor {
                             if !right_matched[i] {
                                 let ro = r.as_object().unwrap();
                                 let left_nulls = null_extended(&Map::new(), &left_keys);
-                                out.push(Value::Object(merge_objs(&left_nulls, ro).as_object().unwrap().clone()));
+                                out.push(Value::Object(
+                                    merge_objs(&left_nulls, ro).as_object().unwrap().clone(),
+                                ));
                             }
                         }
                     }
@@ -221,7 +271,6 @@ impl PlanExecutor {
             }
         }
     }
-
 
     // Build key sets for null-extension; prefer schema if the side is a Scan.
     fn keyset_for_side(side_plan: &LogicalPlan, rows: &Vec<Value>, db: &Db) -> BTreeSet<String> {
@@ -237,7 +286,9 @@ impl PlanExecutor {
         // fallback to observed row keys
         for v in rows {
             if let Some(m) = v.as_object() {
-                for k in m.keys() { keys.insert(k.clone()); }
+                for k in m.keys() {
+                    keys.insert(k.clone());
+                }
             }
         }
         keys
@@ -259,18 +310,22 @@ impl PlanExecutor {
             let obj = v.as_object().unwrap();
 
             // eval group key values
-            let gb_vals: Vec<Value> = group_keys.iter().map(|c| {
-                let expr = ScalarExpr::Column(c.clone());
-                Eval::eval_scalar(&expr, obj)
-            }).collect();
+            let gb_vals: Vec<Value> = group_keys
+                .iter()
+                .map(|c| {
+                    let expr = ScalarExpr::Column(c.clone());
+                    Eval::eval_scalar(&expr, obj)
+                })
+                .collect();
             let gk = Helpers::canonical_tuple(&gb_vals);
 
             // create group tuple on first sight
             let entry = groups.entry(gk.clone()).or_insert_with(|| {
                 // create accumulators per call
-                let accs: Vec<Box<dyn AggAcc>> = calls.iter().map(|call| {
-                    registry.get(&call.func).unwrap().create_accumulator()
-                }).collect();
+                let accs: Vec<Box<dyn AggAcc>> = calls
+                    .iter()
+                    .map(|call| registry.get(&call.func).unwrap().create_accumulator())
+                    .collect();
                 (gb_vals.clone(), accs)
             });
 
@@ -284,7 +339,10 @@ impl PlanExecutor {
                     // pass a definite non-null sentinel so CountImpl "counts" it
                     vec![Value::Bool(true)]
                 } else {
-                    call.args.iter().map(|a| Eval::eval_scalar(a, obj)).collect()
+                    call.args
+                        .iter()
+                        .map(|a| Eval::eval_scalar(a, obj))
+                        .collect()
                 };
 
                 if call.distinct {
@@ -307,7 +365,9 @@ impl PlanExecutor {
             // materialize group keys
             for (idx, c) in group_keys.iter().enumerate() {
                 let key = match c {
-                    Column::WithCollection { collection, name } => format!("{}.{}", collection, name),
+                    Column::WithCollection { collection, name } => {
+                        format!("{}.{}", collection, name)
+                    }
                     Column::Name { name } => name.clone(),
                 };
                 m.insert(key, gb_vals[idx].clone());
@@ -336,8 +396,10 @@ impl PlanExecutor {
     // Simple default naming when no alias is set (used by Project)
     pub fn default_name_for_expr(e: &ScalarExpr) -> String {
         match e {
-            ScalarExpr::Column(Column::WithCollection{ collection, name }) => format!("{}.{}", collection, name),
-            ScalarExpr::Column(Column::Name{ name }) => name.clone(),
+            ScalarExpr::Column(Column::WithCollection { collection, name }) => {
+                format!("{}.{}", collection, name)
+            }
+            ScalarExpr::Column(Column::Name { name }) => name.clone(),
             ScalarExpr::Function(f) => f.name.to_ascii_lowercase(),
             ScalarExpr::Literal(_) => "_lit".into(),
             ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) => "*".into(),
@@ -347,22 +409,26 @@ impl PlanExecutor {
     }
 }
 
-
 // src/executor/tests.rs
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-    use crate::database::{DbConfig, Db, IdType};
-    use crate::planner::plan_builder::PlanBuilder;
-    use crate::parser::analyzer::AnalyzedQuery;
-    use crate::parser::ast::{Column, ComparatorOp, Function, JoinType, Literal, OrderBy, Predicate, ScalarExpr};
-    use crate::parser::analyzer::AnalyzedIdentifier;
     use crate::JsonPrimitive;
+    use crate::database::{Db, DbConfig, IdType};
+    use crate::parser::analyzer::AnalyzedIdentifier;
+    use crate::parser::analyzer::AnalyzedQuery;
+    use crate::parser::ast::{
+        Column, ComparatorOp, Function, JoinType, Literal, OrderBy, Predicate, ScalarExpr,
+    };
     use crate::planner::logical_plan::LogicalPlan;
+    use crate::planner::plan_builder::PlanBuilder;
+    use serde_json::json;
 
     fn mk_db() -> Db {
-        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
         let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "cat": "a", "amt": 10.0 },
@@ -378,7 +444,10 @@ mod tests {
         AnalyzedQuery {
             projection: vec![
                 AnalyzedIdentifier {
-                    expression: ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"cat".into() }),
+                    expression: ScalarExpr::Column(Column::WithCollection {
+                        collection: "t".into(),
+                        name: "cat".into(),
+                    }),
                     alias: Some("cat".into()),
                     ty: JsonPrimitive::String,
                     nullable: false,
@@ -386,9 +455,12 @@ mod tests {
                 },
                 AnalyzedIdentifier {
                     expression: ScalarExpr::Function(Function {
-                        name:"sum".into(),
+                        name: "sum".into(),
                         distinct: false,
-                        args: vec![ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"amt".into() })],
+                        args: vec![ScalarExpr::Column(Column::WithCollection {
+                            collection: "t".into(),
+                            name: "amt".into(),
+                        })],
                     }),
                     alias: Some("total".into()),
                     ty: JsonPrimitive::Float, // analyzer would set Float for SUM(float)
@@ -398,23 +470,34 @@ mod tests {
             ],
             collections: vec![("t".into(), "t".into())],
             criteria: Some(Predicate::Compare {
-                left:  ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"id".into() }),
+                left: ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "id".into(),
+                }),
                 op: ComparatorOp::Gt,
                 right: ScalarExpr::Literal(Literal::Int(1)),
             }),
-            group_by: vec![Column::WithCollection{ collection:"t".into(), name:"cat".into() }],
+            group_by: vec![Column::WithCollection {
+                collection: "t".into(),
+                name: "cat".into(),
+            }],
             having: Some(Predicate::Compare {
-                left: ScalarExpr::Function(Function{
-                    name:"sum".into(),
-                    distinct:false,
-                    args: vec![ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"amt".into() })],
+                left: ScalarExpr::Function(Function {
+                    name: "sum".into(),
+                    distinct: false,
+                    args: vec![ScalarExpr::Column(Column::WithCollection {
+                        collection: "t".into(),
+                        name: "amt".into(),
+                    })],
                 }),
                 op: ComparatorOp::Gt,
-                right: ScalarExpr::Literal(Literal::Float(ordered_float::NotNan::new(20.0).unwrap())),
+                right: ScalarExpr::Literal(Literal::Float(
+                    ordered_float::NotNan::new(20.0).unwrap(),
+                )),
             }),
             order_by: vec![OrderBy {
-                expr: ScalarExpr::Column(Column::Name{ name: "cat".into() }), // already qualified in analyzer; kept simple
-                ascending: true
+                expr: ScalarExpr::Column(Column::Name { name: "cat".into() }), // already qualified in analyzer; kept simple
+                ascending: true,
             }],
             limit: Some(10),
             offset: None,
@@ -442,7 +525,10 @@ mod tests {
 
     fn mk_db_simple() -> Db {
         // id_type None so we keep provided ids
-        Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() })
+        Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        })
     }
 
     fn mk_db_for_scan() -> Db {
@@ -460,7 +546,10 @@ mod tests {
     #[test]
     fn scan_prefixes_columns_with_visible_name() {
         let db = mk_db_for_scan();
-        let plan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let plan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "t".into(),
+        };
         let out = PlanExecutor::run_plan(&plan, &db).unwrap();
         // Should have qualified keys like "t.id" and "t.name"
         for row in &out {
@@ -475,15 +564,24 @@ mod tests {
     #[test]
     fn filter_only_truth_rows_pass() {
         let db = mk_db_for_scan();
-        let scan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let scan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "t".into(),
+        };
 
         // WHERE t.val > 5  (row with null -> Unknown -> filtered out)
         let pred = Predicate::Compare {
-            left: ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"val".into() }),
+            left: ScalarExpr::Column(Column::WithCollection {
+                collection: "t".into(),
+                name: "val".into(),
+            }),
             op: ComparatorOp::Gt,
             right: ScalarExpr::Literal(Literal::Float(ordered_float::NotNan::new(5.0).unwrap())),
         };
-        let plan = LogicalPlan::Filter { input: Box::new(scan), predicate: pred };
+        let plan = LogicalPlan::Filter {
+            input: Box::new(scan),
+            predicate: pred,
+        };
         let out = PlanExecutor::run_plan(&plan, &db).unwrap();
         // Only id=1 has 10.0
         assert_eq!(out.len(), 1);
@@ -495,14 +593,20 @@ mod tests {
     #[test]
     fn project_uses_alias_or_default_names() {
         let db = mk_db_for_scan();
-        let scan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let scan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "t".into(),
+        };
         // SELECT UPPER(t.name) AS uname, t.k
         let exprs = vec![
             crate::parser::analyzer::AnalyzedIdentifier {
                 expression: ScalarExpr::Function(Function {
                     name: "upper".into(),
                     distinct: false,
-                    args: vec![ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"name".into() })],
+                    args: vec![ScalarExpr::Column(Column::WithCollection {
+                        collection: "t".into(),
+                        name: "name".into(),
+                    })],
                 }),
                 alias: Some("uname".into()),
                 ty: crate::JsonPrimitive::String,
@@ -510,18 +614,24 @@ mod tests {
                 output_name: "uname".into(),
             },
             crate::parser::analyzer::AnalyzedIdentifier {
-                expression: ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"k".into() }),
+                expression: ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "k".into(),
+                }),
                 alias: None,
                 ty: crate::JsonPrimitive::Int,
                 nullable: false,
                 output_name: "k".into(),
             },
         ];
-        let plan = LogicalPlan::Project { input: Box::new(scan), exprs };
+        let plan = LogicalPlan::Project {
+            input: Box::new(scan),
+            exprs,
+        };
         let out = PlanExecutor::run_plan(&plan, &db).unwrap();
         let row = out[0].as_object().unwrap();
         assert!(row.contains_key("uname")); // aliased
-        assert!(row.contains_key("k"));   // default name for qualified column
+        assert!(row.contains_key("k")); // default name for qualified column
     }
 
     // ---------- Sort (asc/desc, NULLS LAST) ---------------------------------
@@ -529,13 +639,19 @@ mod tests {
     #[test]
     fn sort_ascending_and_descending_nulls_last() {
         let db = mk_db_for_scan();
-        let scan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let scan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "t".into(),
+        };
 
         // ORDER BY t.val ASC (null last)
         let asc = LogicalPlan::Sort {
             input: Box::new(scan.clone()),
             keys: vec![OrderBy {
-                expr: ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"val".into() }),
+                expr: ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "val".into(),
+                }),
                 ascending: true,
             }],
         };
@@ -548,7 +664,10 @@ mod tests {
         let desc = LogicalPlan::Sort {
             input: Box::new(scan),
             keys: vec![OrderBy {
-                expr: ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"val".into() }),
+                expr: ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "val".into(),
+                }),
                 ascending: false,
             }],
         };
@@ -563,17 +682,27 @@ mod tests {
     #[test]
     fn limit_and_offset_bounds() {
         let db = mk_db_for_scan();
-        let scan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let scan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "t".into(),
+        };
         let sorted = LogicalPlan::Sort {
             input: Box::new(scan),
             keys: vec![OrderBy {
-                expr: ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"id".into() }),
+                expr: ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "id".into(),
+                }),
                 ascending: true,
             }],
         };
 
         // OFFSET 1 LIMIT 5 (overrun okay)
-        let p = LogicalPlan::Limit { input: Box::new(sorted), limit: Some(5), offset: Some(1) };
+        let p = LogicalPlan::Limit {
+            input: Box::new(sorted),
+            limit: Some(5),
+            offset: Some(1),
+        };
         let out = PlanExecutor::run_plan(&p, &db).unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0]["t.id"], json!(2));
@@ -599,38 +728,66 @@ mod tests {
     fn aggregate_group_by_with_multiple_aggs_and_having_and_order() {
         let db = mk_db_for_agg();
         // Scan -> Filter id > 1 -> Aggregate GROUP BY t.cat with SUM(t.amt), COUNT(*)
-        let scan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let scan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "t".into(),
+        };
         let filter = LogicalPlan::Filter {
             input: Box::new(scan),
             predicate: Predicate::Compare {
-                left: ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"id".into() }),
+                left: ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "id".into(),
+                }),
                 op: ComparatorOp::Gt,
                 right: ScalarExpr::Literal(Literal::Int(1)),
-            }
+            },
         };
         let aggs = vec![
-            AggregateCall { func: "sum".into(),  args: vec![ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"amt".into() })], distinct: false },
-            AggregateCall { func: "count".into(), args: vec![ScalarExpr::WildCard], distinct: false },
+            AggregateCall {
+                func: "sum".into(),
+                args: vec![ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "amt".into(),
+                })],
+                distinct: false,
+            },
+            AggregateCall {
+                func: "count".into(),
+                args: vec![ScalarExpr::WildCard],
+                distinct: false,
+            },
         ];
-        let group_keys = vec![Column::WithCollection{ collection:"t".into(), name:"cat".into() }];
-        let agg = LogicalPlan::Aggregate { input: Box::new(filter), group_keys: group_keys.clone(), aggs };
+        let group_keys = vec![Column::WithCollection {
+            collection: "t".into(),
+            name: "cat".into(),
+        }];
+        let agg = LogicalPlan::Aggregate {
+            input: Box::new(filter),
+            group_keys: group_keys.clone(),
+            aggs,
+        };
 
         // HAVING sum(t.amt) > 20  (simulate by Filter over Aggregate result)
         // sum is materialized under key "sum" (first agg name)
         let having = LogicalPlan::Filter {
             input: Box::new(agg),
             predicate: Predicate::Compare {
-                left: ScalarExpr::Column(Column::Name{ name: "sum".into() }),
+                left: ScalarExpr::Column(Column::Name { name: "sum".into() }),
                 op: ComparatorOp::Gt,
-                right: ScalarExpr::Literal(Literal::Float(ordered_float::NotNan::new(20.0).unwrap())),
-            }
+                right: ScalarExpr::Literal(Literal::Float(
+                    ordered_float::NotNan::new(20.0).unwrap(),
+                )),
+            },
         };
 
         // ORDER BY cat asc
         let sort = LogicalPlan::Sort {
             input: Box::new(having),
             keys: vec![OrderBy {
-                expr: ScalarExpr::Column(Column::Name{ name:"t.cat".into() }),
+                expr: ScalarExpr::Column(Column::Name {
+                    name: "t.cat".into(),
+                }),
                 ascending: true,
             }],
         };
@@ -640,21 +797,25 @@ mod tests {
             input: Box::new(sort),
             exprs: vec![
                 crate::parser::analyzer::AnalyzedIdentifier {
-                    expression: ScalarExpr::Column(Column::Name{ name:"t.cat".into() }),
+                    expression: ScalarExpr::Column(Column::Name {
+                        name: "t.cat".into(),
+                    }),
                     alias: Some("cat".into()),
                     ty: crate::JsonPrimitive::String,
                     nullable: false,
                     output_name: "cat".into(),
                 },
                 crate::parser::analyzer::AnalyzedIdentifier {
-                    expression: ScalarExpr::Column(Column::Name{ name:"sum".into() }),
+                    expression: ScalarExpr::Column(Column::Name { name: "sum".into() }),
                     alias: Some("total".into()),
                     ty: crate::JsonPrimitive::Float,
                     nullable: true,
                     output_name: "total".into(),
                 },
                 crate::parser::analyzer::AnalyzedIdentifier {
-                    expression: ScalarExpr::Column(Column::Name{ name:"count".into() }),
+                    expression: ScalarExpr::Column(Column::Name {
+                        name: "count".into(),
+                    }),
                     alias: Some("n".into()),
                     ty: crate::JsonPrimitive::Int,
                     nullable: false,
@@ -689,13 +850,37 @@ mod tests {
         drop(t);
 
         // GROUP BY t.x, COUNT(DISTINCT t.y), SUM(DISTINCT t.y)
-        let scan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let scan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "t".into(),
+        };
         let aggs = vec![
-            AggregateCall { func: "count".into(), args: vec![ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"y".into() })], distinct: true },
-            AggregateCall { func: "sum".into(),   args: vec![ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"y".into() })], distinct: true },
+            AggregateCall {
+                func: "count".into(),
+                args: vec![ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "y".into(),
+                })],
+                distinct: true,
+            },
+            AggregateCall {
+                func: "sum".into(),
+                args: vec![ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "y".into(),
+                })],
+                distinct: true,
+            },
         ];
-        let group_keys = vec![Column::WithCollection{ collection:"t".into(), name:"x".into() }];
-        let plan = LogicalPlan::Aggregate { input: Box::new(scan), group_keys: group_keys.clone(), aggs };
+        let group_keys = vec![Column::WithCollection {
+            collection: "t".into(),
+            name: "x".into(),
+        }];
+        let plan = LogicalPlan::Aggregate {
+            input: Box::new(scan),
+            group_keys: group_keys.clone(),
+            aggs,
+        };
         let out = PlanExecutor::run_plan(&plan, &db).unwrap();
 
         // Expect two groups:
@@ -728,21 +913,55 @@ mod tests {
         drop(t);
 
         // GROUP BY g: AVG(v), MIN(v), MAX(v)
-        let scan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let scan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "t".into(),
+        };
         let aggs = vec![
-            AggregateCall { func: "avg".into(), args: vec![ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"v".into() })], distinct: false },
-            AggregateCall { func: "min".into(), args: vec![ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"v".into() })], distinct: false },
-            AggregateCall { func: "max".into(), args: vec![ScalarExpr::Column(Column::WithCollection{ collection:"t".into(), name:"v".into() })], distinct: false },
+            AggregateCall {
+                func: "avg".into(),
+                args: vec![ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "v".into(),
+                })],
+                distinct: false,
+            },
+            AggregateCall {
+                func: "min".into(),
+                args: vec![ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "v".into(),
+                })],
+                distinct: false,
+            },
+            AggregateCall {
+                func: "max".into(),
+                args: vec![ScalarExpr::Column(Column::WithCollection {
+                    collection: "t".into(),
+                    name: "v".into(),
+                })],
+                distinct: false,
+            },
         ];
-        let group_keys = vec![Column::WithCollection{ collection:"t".into(), name:"g".into() }];
-        let plan = LogicalPlan::Aggregate { input: Box::new(scan), group_keys, aggs };
+        let group_keys = vec![Column::WithCollection {
+            collection: "t".into(),
+            name: "g".into(),
+        }];
+        let plan = LogicalPlan::Aggregate {
+            input: Box::new(scan),
+            group_keys,
+            aggs,
+        };
         let mut out = PlanExecutor::run_plan(&plan, &db).unwrap();
 
         // Create a map by group
         let mut map = std::collections::HashMap::new();
         for r in out.drain(..) {
             let o = r.as_object().unwrap();
-            map.insert(o["t.g"].clone(), (o["avg"].clone(), o["min"].clone(), o["max"].clone()));
+            map.insert(
+                o["t.g"].clone(),
+                (o["avg"].clone(), o["min"].clone(), o["max"].clone()),
+            );
         }
 
         // g=a: avg=3.0, min=2.0, max=4.0
@@ -765,7 +984,10 @@ mod tests {
         use serde_json::json;
 
         // Build a tiny DB with two tables
-        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
         let t = db.create("t");
         let u = db.create("u");
 
@@ -780,8 +1002,14 @@ mod tests {
 
         // Plan: INNER JOIN with ON TRUE (i.e., cross join)
         let plan = LogicalPlan::Join {
-            left: Box::new(LogicalPlan::Scan { backing: "t".into(), visible: "t".into() }),
-            right: Box::new(LogicalPlan::Scan { backing: "u".into(), visible: "u".into() }),
+            left: Box::new(LogicalPlan::Scan {
+                backing: "t".into(),
+                visible: "t".into(),
+            }),
+            right: Box::new(LogicalPlan::Scan {
+                backing: "u".into(),
+                visible: "u".into(),
+            }),
             join_type: JoinType::Inner,
             on: Predicate::Const3(Truth::True),
         };
@@ -801,9 +1029,12 @@ mod tests {
 
     #[test]
     fn left_join_emits_unmatched_left_rows_with_null_right_side() {
-        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
         let t = db.create("t");
-        let _u = db.create("u"); // keep it empty
+        let _u = db.create("u"); // keep it empty, only id will be inferred on the schema
 
         t.add_batch(json!([
             { "id": 1, "x": "A" },
@@ -811,8 +1042,14 @@ mod tests {
         ]));
 
         let plan = LogicalPlan::Join {
-            left: Box::new(LogicalPlan::Scan { backing: "t".into(), visible: "t".into() }),
-            right: Box::new(LogicalPlan::Scan { backing: "u".into(), visible: "u".into() }),
+            left: Box::new(LogicalPlan::Scan {
+                backing: "t".into(),
+                visible: "t".into(),
+            }),
+            right: Box::new(LogicalPlan::Scan {
+                backing: "u".into(),
+                visible: "u".into(),
+            }),
             join_type: JoinType::Left,
             on: Predicate::Const3(Truth::True),
         };
@@ -827,14 +1064,17 @@ mod tests {
             let obj = row.as_object().unwrap();
             assert!(obj.contains_key("t.id"));
             assert!(obj.contains_key("t.x"));
-            assert!(obj.keys().all(|k| !k.starts_with("u.")));
+            assert!(obj.contains_key("u.id"));
         }
     }
 
     #[test]
     fn left_join_null_ext_uses_schema_even_when_right_is_empty() {
         // Build DB
-        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
         let t = db.create("t");
         let u = db.create("u");
 
@@ -852,8 +1092,14 @@ mod tests {
 
         // LEFT JOIN with ON TRUE (right yields 0 rows)
         let plan = LogicalPlan::Join {
-            left: Box::new(LogicalPlan::Scan { backing: "t".into(), visible: "t".into() }),
-            right: Box::new(LogicalPlan::Scan { backing: "u".into(), visible: "u".into() }),
+            left: Box::new(LogicalPlan::Scan {
+                backing: "t".into(),
+                visible: "t".into(),
+            }),
+            right: Box::new(LogicalPlan::Scan {
+                backing: "u".into(),
+                visible: "u".into(),
+            }),
             join_type: JoinType::Left,
             on: Predicate::Const3(Truth::True),
         };
@@ -869,7 +1115,7 @@ mod tests {
 
             // u.id and u.y should exist and be null (schema-based null extension)
             assert!(obj.contains_key("u.id") && obj.get("u.id").unwrap().is_null());
-            assert!(obj.contains_key("u.y")  && obj.get("u.y").unwrap().is_null());
+            assert!(obj.contains_key("u.y") && obj.get("u.y").unwrap().is_null());
         }
     }
 
@@ -883,7 +1129,10 @@ mod tests {
             { "id": 2, "x": "B" }
         ]));
 
-        let plan = LogicalPlan::Scan { backing: "t".into(), visible: "tt".into() };
+        let plan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "tt".into(),
+        };
         let rows: Vec<serde_json::Value> = vec![]; // no observed rows needed
 
         let keys = PlanExecutor::keyset_for_side(&plan, &rows, &db);
@@ -901,7 +1150,10 @@ mod tests {
         // NOTE: if your clear() also clears schema, remove this line and adapt expectations.
         let _ = u.clear();
 
-        let plan = LogicalPlan::Scan { backing: "u".into(), visible: "uuu".into() };
+        let plan = LogicalPlan::Scan {
+            backing: "u".into(),
+            visible: "uuu".into(),
+        };
         let rows: Vec<serde_json::Value> = vec![];
 
         let keys = PlanExecutor::keyset_for_side(&plan, &rows, &db);
@@ -916,7 +1168,10 @@ mod tests {
         t.add_batch(json!([{ "id": 1, "x": "A" }]));
 
         // Produce observed rows by executing a scan, then ask keyset for a NON-Scan plan
-        let scan = LogicalPlan::Scan { backing: "t".into(), visible: "t".into() };
+        let scan = LogicalPlan::Scan {
+            backing: "t".into(),
+            visible: "t".into(),
+        };
         let observed = PlanExecutor::run_plan(&scan, &db).unwrap();
 
         // Non-scan node (e.g., Project), so helper must use observed keys
@@ -934,7 +1189,10 @@ mod tests {
     fn keyset_for_side_no_schema_and_no_rows_returns_empty_set() {
         let db = mk_db();
         // Intentionally do NOT create the table → no schema known
-        let plan = LogicalPlan::Scan { backing: "missing".into(), visible: "m".into() };
+        let plan = LogicalPlan::Scan {
+            backing: "missing".into(),
+            visible: "m".into(),
+        };
         let rows: Vec<Value> = vec![];
 
         let keys = PlanExecutor::keyset_for_side(&plan, &rows, &db);
