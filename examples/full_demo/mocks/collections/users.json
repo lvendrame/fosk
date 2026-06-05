@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "name": "Test User",
+    "username": "testuser",
+    "email": "testuser@example.test",
+    "roles": ["reader", "operator"],
+    "verified": true
+  },
+  {
+    "id": 2,
+    "name": "Jane Doe",
+    "username": "janedoe",
+    "email": "janedoe@example.test",
+    "roles": ["admin"],
+    "verified": true
+  },
+  {
+    "id": 3,
+    "name": "John Smith",
+    "username": "johnsmith",
+    "email": null,
+    "roles": [],
+    "verified": false
+  }
+]

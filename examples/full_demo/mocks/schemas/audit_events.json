@@ -1,0 +1,7 @@
+{
+  "event_uuid": "Uuid",
+  "actor_id": "Int!",
+  "action": "String!",
+  "resource": "String!",
+  "metadata": "Object!"
+}

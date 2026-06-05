@@ -1,0 +1,200 @@
+{
+  "People": [
+    {
+      "id": 1,
+      "full_name": "Alice Johnson",
+      "age": 29,
+      "city": "Porto",
+      "vip": true,
+      "profile": {
+        "segment": "consumer",
+        "newsletter": true
+      },
+      "tags": ["electronics", "priority"]
+    },
+    {
+      "id": 2,
+      "full_name": "Bruno Martins",
+      "age": 34,
+      "city": "Lisboa",
+      "vip": false,
+      "profile": {
+        "segment": "business",
+        "newsletter": false
+      },
+      "tags": ["furniture"]
+    },
+    {
+      "id": 3,
+      "full_name": "Carla Sousa",
+      "age": 41,
+      "city": "Braga",
+      "vip": false,
+      "profile": {
+        "segment": "consumer",
+        "newsletter": true
+      },
+      "tags": ["appliances", "books"]
+    },
+    {
+      "id": 4,
+      "full_name": "Diana Pereira",
+      "age": 30,
+      "city": "Lisboa",
+      "vip": true,
+      "profile": {
+        "segment": "consumer",
+        "newsletter": true
+      },
+      "tags": ["books", "priority"]
+    },
+    {
+      "id": 5,
+      "full_name": "Eduardo Ramos",
+      "age": 45,
+      "city": "Porto",
+      "vip": false,
+      "profile": {
+        "segment": "business",
+        "newsletter": null
+      },
+      "tags": []
+    },
+    {
+      "id": 6,
+      "full_name": "Fatima Costa",
+      "age": 27,
+      "city": "Faro",
+      "vip": false,
+      "profile": {
+        "segment": "consumer",
+        "newsletter": false
+      },
+      "tags": ["sports"]
+    }
+  ],
+  "Products": [
+    {
+      "id": 1,
+      "name": "Laptop Pro 15",
+      "category": "Electronics",
+      "price": 1200.5,
+      "metadata": {
+        "sku": "ELEC-LP15",
+        "warranty_months": 24
+      }
+    },
+    {
+      "id": 2,
+      "name": "Wireless Mouse",
+      "category": "Electronics",
+      "price": 25.99,
+      "metadata": {
+        "sku": "ELEC-MOUSE",
+        "warranty_months": 12
+      }
+    },
+    {
+      "id": 3,
+      "name": "Office Chair Deluxe",
+      "category": "Furniture",
+      "price": 230.0,
+      "metadata": {
+        "sku": "FURN-CHAIR",
+        "warranty_months": 36
+      }
+    },
+    {
+      "id": 4,
+      "name": "Cookbook Mediterranean",
+      "category": "Books",
+      "price": 24.0,
+      "metadata": {
+        "sku": "BOOK-MED",
+        "warranty_months": null
+      }
+    },
+    {
+      "id": 5,
+      "name": "Espresso Machine",
+      "category": "Appliances",
+      "price": 320.75,
+      "metadata": {
+        "sku": "APP-ESP",
+        "warranty_months": 24
+      }
+    },
+    {
+      "id": 6,
+      "name": "Running Shoes Alpha",
+      "category": "Sports",
+      "price": 120.0,
+      "metadata": {
+        "sku": "SPORT-SHOE",
+        "warranty_months": 6
+      }
+    }
+  ],
+  "Orders": [
+    {
+      "id": 1,
+      "person_id": 1,
+      "status": "delivered",
+      "order_date": "2025-02-01",
+      "shipping": {
+        "country": "PT",
+        "priority": true
+      }
+    },
+    {
+      "id": 2,
+      "person_id": 2,
+      "status": "processing",
+      "order_date": "2025-02-02",
+      "shipping": {
+        "country": "PT",
+        "priority": false
+      }
+    },
+    {
+      "id": 3,
+      "person_id": 4,
+      "status": "delivered",
+      "order_date": "2025-02-03",
+      "shipping": {
+        "country": "PT",
+        "priority": true
+      }
+    },
+    {
+      "id": 4,
+      "person_id": 5,
+      "status": "shipped",
+      "order_date": "2025-02-04",
+      "shipping": {
+        "country": "PT",
+        "priority": false
+      }
+    },
+    {
+      "id": 5,
+      "person_id": 6,
+      "status": "new",
+      "order_date": "2025-02-05",
+      "shipping": {
+        "country": "PT",
+        "priority": false
+      }
+    }
+  ],
+  "OrderItems": [
+    { "id": 1, "order_id": 1, "product_id": 1, "quantity": 1, "unit_price": 1200.5, "discount": null },
+    { "id": 2, "order_id": 1, "product_id": 2, "quantity": 2, "unit_price": 25.99, "discount": 0.05 },
+    { "id": 3, "order_id": 2, "product_id": 3, "quantity": 1, "unit_price": 230.0, "discount": null },
+    { "id": 4, "order_id": 3, "product_id": 4, "quantity": 3, "unit_price": 24.0, "discount": 0.1 },
+    { "id": 5, "order_id": 3, "product_id": 2, "quantity": 1, "unit_price": 25.99, "discount": null },
+    { "id": 6, "order_id": 4, "product_id": 5, "quantity": 1, "unit_price": 320.75, "discount": 0.15 },
+    { "id": 7, "order_id": 4, "product_id": 1, "quantity": 1, "unit_price": 1200.5, "discount": null },
+    { "id": 8, "order_id": 5, "product_id": 6, "quantity": 2, "unit_price": 120.0, "discount": null }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "ticket_id": "Id",
+  "user_id": "Int!",
+  "priority": "String!",
+  "status": "String!",
+  "subject": "String!",
+  "labels": "Array!"
+}

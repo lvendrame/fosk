@@ -1,0 +1,57 @@
+{
+  "companies": {
+    "id": "Uuid",
+    "name": "String!",
+    "industry": "String!",
+    "founded": "Int!",
+    "headquarters": "String!",
+    "employees": "Int!",
+    "revenue": "Int!",
+    "website": "String!",
+    "ceo": "String!",
+    "description": "String",
+    "isPublic": "Bool!",
+    "offices": "Array!",
+    "compliance": "Object!"
+  },
+  "products": {
+    "_id": "Id",
+    "name": "String!",
+    "description": "String!",
+    "price": "Float!",
+    "category": "String!",
+    "brand": "String!",
+    "inStock": "Bool!",
+    "quantity": "Int!",
+    "sku": "String!",
+    "rating": "Float!",
+    "tags": "Array!",
+    "dimensions": "Object"
+  },
+  "cities": {
+    "id": "None:Int",
+    "name": "String!",
+    "country": "String!",
+    "population": "Int!",
+    "area": "Float!",
+    "coordinates": "Object!",
+    "aliases": "Array!"
+  },
+  "orders": {
+    "id": "Id",
+    "customerId": "Int!",
+    "orderDate": "String!",
+    "status": "String!",
+    "totalAmount": "Float!",
+    "shipping": "Object!",
+    "notes": "String"
+  },
+  "orderitems": {
+    "id": "Id",
+    "order_id": "Int!",
+    "product_id": "Int!",
+    "quantity": "Int!",
+    "price": "Float!",
+    "tax": "Float"
+  }
+}

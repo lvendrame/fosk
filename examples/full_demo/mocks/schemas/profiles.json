@@ -1,0 +1,5 @@
+{
+  "profile_id": "Id",
+  "user_id": "Int!",
+  "bio": "String"
+}

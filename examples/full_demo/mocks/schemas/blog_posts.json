@@ -1,0 +1,8 @@
+{
+  "slug": "None:String",
+  "author_id": "Int!",
+  "title": "String!",
+  "published": "Bool!",
+  "tags": "Array!",
+  "stats": "Object!"
+}

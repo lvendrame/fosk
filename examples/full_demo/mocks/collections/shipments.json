@@ -1,0 +1,19 @@
+[
+  {
+    "tracking_number": "1Z-DEMO-001",
+    "order_id": 1,
+    "carrier": "UPS",
+    "status": "in_transit",
+    "checkpoints": [
+      { "city": "New York", "at": "2026-02-01T10:00:00Z" },
+      { "city": "Boston", "at": "2026-02-02T08:30:00Z" }
+    ]
+  },
+  {
+    "tracking_number": "DHL-DEMO-002",
+    "order_id": 3,
+    "carrier": "DHL",
+    "status": "delivered",
+    "checkpoints": [{ "city": "Lisboa", "at": "2026-02-04T14:00:00Z" }]
+  }
+]

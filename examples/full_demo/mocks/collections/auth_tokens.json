@@ -1,0 +1,16 @@
+[
+  {
+    "token": "tok_live_001",
+    "user_id": 1,
+    "scope": "read:reports",
+    "expires_at": "2026-12-31T23:59:59Z",
+    "revoked": false
+  },
+  {
+    "token": "tok_live_002",
+    "user_id": 2,
+    "scope": "write:orders",
+    "expires_at": "2026-08-15T00:00:00Z",
+    "revoked": false
+  }
+]

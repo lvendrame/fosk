@@ -1,0 +1,7 @@
+{
+  "id": "Id",
+  "post_slug": "String!",
+  "user_id": "Int!",
+  "body": "String!",
+  "moderation": "Object!"
+}

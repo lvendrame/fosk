@@ -1,0 +1,12 @@
+{
+  "invoices": {
+    "invoice_id": "Id",
+    "user_id": "Int!",
+    "amount": "Float!"
+  },
+  "payments": {
+    "payment_uuid": "Uuid",
+    "invoice_id": "Int!",
+    "status": "String!"
+  }
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "ticket_id": 9001,
+    "user_id": 1,
+    "priority": "high",
+    "status": "open",
+    "subject": "Cannot export database snapshot",
+    "labels": ["export", "json"]
+  },
+  {
+    "ticket_id": 9002,
+    "user_id": 3,
+    "priority": "low",
+    "status": "closed",
+    "subject": "Schema example request",
+    "labels": ["docs"]
+  }
+]

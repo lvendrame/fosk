@@ -1,0 +1,53 @@
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440010",
+    "name": "TechNova Solutions",
+    "industry": "Software Development",
+    "founded": 2015,
+    "headquarters": "San Francisco, CA",
+    "employees": 250,
+    "revenue": 45000000,
+    "website": "https://technova.example",
+    "ceo": "Sarah Chen",
+    "description": "Cloud enterprise software provider",
+    "isPublic": false,
+    "offices": [
+      { "city": "San Francisco", "country": "US", "primary": true },
+      { "city": "Lisboa", "country": "PT", "primary": false }
+    ],
+    "compliance": { "soc2": true, "iso27001": false }
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440009",
+    "name": "GreenEarth Manufacturing",
+    "industry": "Renewable Energy",
+    "founded": 2008,
+    "headquarters": "Austin, TX",
+    "employees": 850,
+    "revenue": 120000000,
+    "website": "https://greenearth.example",
+    "ceo": "Michael Rodriguez",
+    "description": "Manufacturer of solar panels and wind turbine components",
+    "isPublic": true,
+    "offices": [
+      { "city": "Austin", "country": "US", "primary": true },
+      { "city": "Porto", "country": "PT", "primary": false }
+    ],
+    "compliance": { "soc2": false, "iso27001": true }
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440008",
+    "name": "DataFlow Analytics",
+    "industry": "Data Science",
+    "founded": 2019,
+    "headquarters": "New York, NY",
+    "employees": 95,
+    "revenue": 12000000,
+    "website": "https://dataflow.example",
+    "ceo": "Emma Watson",
+    "description": "AI-powered business intelligence and analytics platform",
+    "isPublic": false,
+    "offices": [{ "city": "New York", "country": "US", "primary": true }],
+    "compliance": { "soc2": true, "iso27001": null }
+  }
+]

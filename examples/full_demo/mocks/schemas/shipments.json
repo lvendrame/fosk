@@ -1,0 +1,7 @@
+{
+  "tracking_number": "None:String",
+  "order_id": "Int!",
+  "carrier": "String!",
+  "status": "String!",
+  "checkpoints": "Array!"
+}

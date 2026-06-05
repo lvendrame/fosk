@@ -1,0 +1,18 @@
+[
+  {
+    "movement_id": 1001,
+    "product_id": 1,
+    "warehouse_id": "LIS-A",
+    "delta": 25,
+    "reason": "purchase_order",
+    "audit": { "by": "ops", "at": "2026-01-02T09:00:00Z" }
+  },
+  {
+    "movement_id": 1002,
+    "product_id": 4,
+    "warehouse_id": "LIS-A",
+    "delta": -3,
+    "reason": "sale",
+    "audit": { "by": "checkout", "at": "2026-01-03T11:30:00Z" }
+  }
+]

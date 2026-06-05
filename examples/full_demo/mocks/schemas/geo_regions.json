@@ -1,0 +1,7 @@
+{
+  "region_code": "None:String",
+  "name": "String!",
+  "country": "String!",
+  "bbox": "Array!",
+  "properties": "Object!"
+}

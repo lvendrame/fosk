@@ -1,0 +1,74 @@
+{
+  "people": [
+    {
+      "id": 1,
+      "name": "Ada Lovelace",
+      "email": "ada@example.test",
+      "active": true,
+      "profile": {
+        "city": "London",
+        "skills": ["math", "systems"]
+      }
+    },
+    {
+      "id": 2,
+      "name": "Grace Hopper",
+      "email": "grace@example.test",
+      "active": true,
+      "profile": {
+        "city": "Arlington",
+        "skills": ["compilers", "navy"]
+      }
+    },
+    {
+      "id": 3,
+      "name": "Katherine Johnson",
+      "email": null,
+      "active": false,
+      "profile": {
+        "city": "White Sulphur Springs",
+        "skills": ["orbital mechanics"]
+      }
+    }
+  ],
+  "companies": [
+    {
+      "id": 1,
+      "name": "Analytical Engines Ltd",
+      "industry": "Research",
+      "founded": 1843,
+      "public": false,
+      "metrics": {
+        "employees": 24,
+        "revenue": 1250000.50
+      }
+    },
+    {
+      "id": 2,
+      "name": "Compiler Labs",
+      "industry": "Software",
+      "founded": 1952,
+      "public": true,
+      "metrics": {
+        "employees": 480,
+        "revenue": 98000000.0
+      }
+    }
+  ],
+  "memberships": [
+    {
+      "id": 1,
+      "people_id": 1,
+      "company_id": 1,
+      "role": "founder",
+      "since": "1843-06-05"
+    },
+    {
+      "id": 2,
+      "people_id": 2,
+      "company_id": 2,
+      "role": "director",
+      "since": "1952-01-01"
+    }
+  ]
+}

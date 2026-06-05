@@ -1,0 +1,8 @@
+{
+  "code": "None:String",
+  "name": "String!",
+  "country": "String!",
+  "capacity": "Int!",
+  "temperature_controlled": "Bool!",
+  "zones": "Array!"
+}

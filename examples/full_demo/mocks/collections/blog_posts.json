@@ -1,0 +1,18 @@
+[
+  {
+    "slug": "schema-loading-guide",
+    "author_id": 1,
+    "title": "Loading schemas from compact files",
+    "published": true,
+    "tags": ["schema", "json", "docs"],
+    "stats": { "views": 1200, "likes": 88 }
+  },
+  {
+    "slug": "in-memory-reports",
+    "author_id": 2,
+    "title": "Querying mock data with SQL",
+    "published": false,
+    "tags": ["sql"],
+    "stats": { "views": 210, "likes": 9 }
+  }
+]

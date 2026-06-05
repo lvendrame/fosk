@@ -1,0 +1,8 @@
+{
+  "payment_id": "Id",
+  "order_id": "Int!",
+  "amount": "Float!",
+  "currency": "String!",
+  "status": "String!",
+  "method": "Object!"
+}

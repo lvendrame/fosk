@@ -1,0 +1,8 @@
+{
+  "id": "Id",
+  "name": "String!",
+  "username": "String!",
+  "email": "String",
+  "roles": "Array!",
+  "verified": "Bool!"
+}

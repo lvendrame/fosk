@@ -1,0 +1,14 @@
+[
+  {
+    "key": "schema-file-loading",
+    "enabled": true,
+    "rollout": 100,
+    "rules": [{ "field": "tenant", "op": "in", "values": ["demo", "internal"] }]
+  },
+  {
+    "key": "strict-nullability",
+    "enabled": false,
+    "rollout": 25,
+    "rules": []
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "movement_id": "Id",
+  "product_id": "Int!",
+  "warehouse_id": "String!",
+  "delta": "Int!",
+  "reason": "String!",
+  "audit": "Object!"
+}

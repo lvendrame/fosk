@@ -1,0 +1,16 @@
+[
+  {
+    "event_uuid": "7e58e6c0-9b23-48b9-9b28-061eaec7aa01",
+    "actor_id": 1,
+    "action": "collection.load",
+    "resource": "products",
+    "metadata": { "rows": 4, "source": "file" }
+  },
+  {
+    "event_uuid": "7e58e6c0-9b23-48b9-9b28-061eaec7aa02",
+    "actor_id": 2,
+    "action": "schema.load",
+    "resource": "orders",
+    "metadata": { "fields": 7, "source": "json" }
+  }
+]

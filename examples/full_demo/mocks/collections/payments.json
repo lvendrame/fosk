@@ -1,0 +1,18 @@
+[
+  {
+    "payment_id": 5001,
+    "order_id": 1,
+    "amount": 150.75,
+    "currency": "USD",
+    "status": "captured",
+    "method": { "type": "card", "last4": "4242" }
+  },
+  {
+    "payment_id": 5002,
+    "order_id": 2,
+    "amount": 89.5,
+    "currency": "USD",
+    "status": "authorized",
+    "method": { "type": "bank_transfer", "last4": null }
+  }
+]

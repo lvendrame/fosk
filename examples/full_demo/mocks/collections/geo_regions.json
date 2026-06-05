@@ -1,0 +1,16 @@
+[
+  {
+    "region_code": "PT-LIS",
+    "name": "Lisboa",
+    "country": "PT",
+    "bbox": [-9.3, 38.6, -9.0, 38.9],
+    "properties": { "timezone": "Europe/Lisbon", "coastal": true }
+  },
+  {
+    "region_code": "US-NY",
+    "name": "New York",
+    "country": "US",
+    "bbox": [-74.3, 40.4, -73.7, 40.9],
+    "properties": { "timezone": "America/New_York", "coastal": true }
+  }
+]

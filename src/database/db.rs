@@ -11,7 +11,8 @@ use serde_json::{Map, Value};
 use crate::{
     database::{
         DbCollection, DbConfig, DbReferences, ReferenceColumn, ReferenceFieldMap, SchemaProvider,
-        SchemaWithRefs,
+        SchemaWithRefs, apply_schema_to_collection, collection_name_from_file_stem,
+        config_for_missing_collection, parse_schema_for_load, read_schema_json_file,
     },
     executor::plan_executor::{Executor, PlanExecutor},
     parser::{
@@ -146,6 +147,39 @@ impl InternalDb {
         let data = self.write_to_json();
         serde_json::to_writer_pretty(&mut w, &data).expect("Failed to write to a json file");
         Ok(())
+    }
+
+    pub fn load_collection_schema_from_json(
+        &mut self,
+        collection_name: &str,
+        json_value: Value,
+    ) -> Result<(), String> {
+        let parsed = parse_schema_for_load(&json_value)?;
+        let collection = match self.get(collection_name) {
+            Some(collection) => collection,
+            None => {
+                let config = config_for_missing_collection(&parsed, &self.config);
+                self.create_with_config(collection_name, config)
+            }
+        };
+
+        apply_schema_to_collection(&collection, parsed)
+    }
+
+    pub fn load_schemas_from_json(&mut self, json_value: Value) -> Result<usize, String> {
+        let Value::Object(object) = json_value else {
+            return Err(
+                "Schema JSON must contain an object of collection names to schemas".to_string(),
+            );
+        };
+
+        let mut total = 0;
+        for (collection_name, schema_value) in object {
+            self.load_collection_schema_from_json(&collection_name, schema_value)?;
+            total += 1;
+        }
+
+        Ok(total)
     }
 }
 
@@ -445,6 +479,130 @@ impl Db {
         self.internal_db.write().unwrap().load_from_file(file_path)
     }
 
+    /// Load one collection schema from a compact JSON object.
+    ///
+    /// `collection_name` is required because a raw [`serde_json::Value`] has no
+    /// filename or root key from which a single collection name can be inferred.
+    /// Missing collections are created with an ID marker-derived config when
+    /// present, otherwise with the DB default config. After a successful load,
+    /// references are inferred across registered collections.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, JsonPrimitive};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new();
+    /// db.load_collection_schema_from_json(
+    ///     "people",
+    ///     json!({ "person_id": "Id", "name": "String!" })
+    /// )
+    /// .unwrap();
+    ///
+    /// let schema = db.get("people").unwrap().schema().unwrap();
+    /// assert_eq!(schema.fields["person_id"].ty, JsonPrimitive::Int);
+    /// ```
+    pub fn load_collection_schema_from_json(
+        &self,
+        collection_name: &str,
+        json_value: Value,
+    ) -> Result<(), String> {
+        self.internal_db
+            .write()
+            .unwrap()
+            .load_collection_schema_from_json(collection_name, json_value)?;
+        self.infer_all_references();
+        Ok(())
+    }
+
+    /// Load one collection schema from a JSON file.
+    ///
+    /// The collection name is inferred from the file stem. For example,
+    /// `people.json` loads the schema into the `people` collection. After a
+    /// successful load, references are inferred across registered collections.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use fosk::Db;
+    /// use std::ffi::OsString;
+    ///
+    /// let db = Db::new();
+    /// let status = db.load_collection_schema_from_file(&OsString::from("people.json"))?;
+    ///
+    /// println!("{status}");
+    /// # Ok::<(), String>(())
+    /// ```
+    pub fn load_collection_schema_from_file(&self, file_path: &OsString) -> Result<String, String> {
+        let collection_name = collection_name_from_file_stem(file_path)?;
+        let json_value = read_schema_json_file(file_path)?;
+        self.load_collection_schema_from_json(&collection_name, json_value)?;
+        Ok(format!(
+            "Loaded schema for collection {} from {}",
+            collection_name,
+            file_path.to_string_lossy()
+        ))
+    }
+
+    /// Load multiple collection schemas from a compact DB schema JSON object.
+    ///
+    /// The root object keys are collection names and values are compact
+    /// collection schemas. After a successful load, references are inferred
+    /// across registered collections.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::Db;
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new();
+    /// let loaded = db.load_schemas_from_json(json!({
+    ///     "users": { "user_id": "Id", "name": "String!" },
+    ///     "orders": { "id": "Id", "user_id": "Int!" }
+    /// })).unwrap();
+    ///
+    /// assert_eq!(loaded, 2);
+    /// assert!(db.get_collection_column_ref("orders", "user_id").is_some());
+    /// ```
+    pub fn load_schemas_from_json(&self, json_value: Value) -> Result<usize, String> {
+        let loaded = self
+            .internal_db
+            .write()
+            .unwrap()
+            .load_schemas_from_json(json_value)?;
+        self.infer_all_references();
+        Ok(loaded)
+    }
+
+    /// Load multiple collection schemas from a JSON file.
+    ///
+    /// The file must contain the same object shape accepted by
+    /// [`Db::load_schemas_from_json`]. After a successful load, references are
+    /// inferred across registered collections.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use fosk::Db;
+    /// use std::ffi::OsString;
+    ///
+    /// let db = Db::new();
+    /// let status = db.load_schemas_from_file(&OsString::from("schemas.json"))?;
+    ///
+    /// println!("{status}");
+    /// # Ok::<(), String>(())
+    /// ```
+    pub fn load_schemas_from_file(&self, file_path: &OsString) -> Result<String, String> {
+        let json_value = read_schema_json_file(file_path)?;
+        let loaded = self.load_schemas_from_json(json_value)?;
+        Ok(format!(
+            "Loaded {loaded} collection schemas from {}",
+            file_path.to_string_lossy()
+        ))
+    }
+
     /// Serialize all collections to a JSON object.
     ///
     /// The returned value uses collection names as object keys and arrays of
@@ -733,6 +891,22 @@ impl Db {
 
         Some(SchemaWithRefs::new(collection_name, &schema, self))
     }
+
+    fn infer_all_references(&self) -> usize {
+        let names = self.list_collections();
+        let mut inferred = 0;
+        for collection_name in &names {
+            for ref_collection_name in &names {
+                if collection_name == ref_collection_name {
+                    continue;
+                }
+                if self.infer_reference(collection_name, ref_collection_name) {
+                    inferred += 1;
+                }
+            }
+        }
+        inferred
+    }
 }
 
 impl SchemaProvider for Db {
@@ -973,6 +1147,133 @@ mod tests {
         let out = db.write_to_json();
         let arr = out.get("b").unwrap().as_array().unwrap();
         assert_eq!(arr[0].get("y").unwrap(), 42);
+    }
+
+    #[test]
+    fn load_collection_schema_from_json_creates_collection_with_custom_int_id() {
+        let db = Db::new();
+
+        db.load_collection_schema_from_json(
+            "users",
+            json!({
+                "user_id": "Id",
+                "name": "String!"
+            }),
+        )
+        .unwrap();
+
+        let users = db.get("users").unwrap();
+        assert_eq!(users.get_config(), DbConfig::int("user_id"));
+
+        let schema = users.schema().unwrap();
+        assert_eq!(schema.fields["user_id"].ty, crate::JsonPrimitive::Int);
+        assert!(!schema.fields["user_id"].nullable);
+    }
+
+    #[test]
+    fn load_schemas_from_json_derives_id_configs_with_different_names() {
+        let db = Db::new();
+
+        let loaded = db
+            .load_schemas_from_json(json!({
+                "users": {
+                    "user_id": "Id",
+                    "name": "String!"
+                },
+                "sessions": {
+                    "session_uuid": "Uuid",
+                    "user_id": "Int!",
+                    "token": "String!"
+                },
+                "legacy": {
+                    "external_key": "None:String",
+                    "value": "String"
+                },
+                "numeric_legacy": {
+                    "legacy_id": "None:Int",
+                    "value": "String"
+                }
+            }))
+            .unwrap();
+
+        assert_eq!(loaded, 4);
+        assert_eq!(
+            db.get("users").unwrap().get_config(),
+            DbConfig::int("user_id")
+        );
+        assert_eq!(
+            db.get("sessions").unwrap().get_config(),
+            DbConfig::uuid("session_uuid")
+        );
+        assert_eq!(
+            db.get("legacy").unwrap().get_config(),
+            DbConfig::none("external_key")
+        );
+        assert_eq!(
+            db.get("numeric_legacy").unwrap().get_config(),
+            DbConfig::none("legacy_id")
+        );
+    }
+
+    #[test]
+    fn load_schema_rejects_conflicting_existing_collection_id_config() {
+        let db = Db::new();
+        db.create_with_config("users", DbConfig::uuid("user_id"));
+
+        let err = db
+            .load_collection_schema_from_json("users", json!({ "user_id": "Id" }))
+            .unwrap_err();
+
+        assert!(err.contains("conflicts"));
+    }
+
+    #[test]
+    fn load_schemas_from_json_infers_references_after_loading() {
+        let db = Db::new();
+
+        db.load_schemas_from_json(json!({
+            "users": {
+                "user_id": "Id",
+                "name": "String!"
+            },
+            "orders": {
+                "order_id": "Id",
+                "user_id": "Int!",
+                "total": "Float!"
+            }
+        }))
+        .unwrap();
+
+        let reference = db.get_collection_column_ref("orders", "user_id").unwrap();
+        assert_eq!(reference.ref_collection, "users");
+        assert_eq!(reference.ref_column, "user_id");
+    }
+
+    #[test]
+    fn load_collection_schema_from_file_infers_collection_name_from_file_stem() {
+        use std::{ffi::OsString, fs::File, io::Write};
+        use tempfile::TempDir;
+
+        let db = Db::new();
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("people.json");
+        let mut file = File::create(&path).unwrap();
+        file.write_all(
+            json!({ "person_id": "Id", "name": "String!" })
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+
+        let status = db
+            .load_collection_schema_from_file(&OsString::from(path.to_string_lossy().into_owned()))
+            .unwrap();
+
+        assert!(status.contains("people"));
+        assert_eq!(
+            db.get("people").unwrap().get_config(),
+            DbConfig::int("person_id")
+        );
     }
 
     #[test]

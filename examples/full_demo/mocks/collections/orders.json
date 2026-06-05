@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1,
+    "customerId": 101,
+    "orderDate": "2023-10-01T10:15:30Z",
+    "status": "Shipped",
+    "totalAmount": 150.75,
+    "shipping": { "city": "New York", "expedited": true },
+    "notes": null
+  },
+  {
+    "id": 2,
+    "customerId": 102,
+    "orderDate": "2023-10-02T11:20:45Z",
+    "status": "Processing",
+    "totalAmount": 89.5,
+    "shipping": { "city": "Los Angeles", "expedited": false },
+    "notes": "gift wrap"
+  },
+  {
+    "id": 3,
+    "customerId": 103,
+    "orderDate": "2023-10-03T12:25:50Z",
+    "status": "Delivered",
+    "totalAmount": 200.0,
+    "shipping": { "city": "Lisboa", "expedited": false },
+    "notes": null
+  }
+]

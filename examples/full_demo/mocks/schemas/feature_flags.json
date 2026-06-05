@@ -1,0 +1,6 @@
+{
+  "key": "None:String",
+  "enabled": "Bool!",
+  "rollout": "Int!",
+  "rules": "Array!"
+}

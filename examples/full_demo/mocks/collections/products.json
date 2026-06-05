@@ -1,0 +1,58 @@
+[
+  {
+    "_id": 1,
+    "name": "Wireless Bluetooth Headphones",
+    "description": "Premium quality wireless headphones with noise cancellation and 30-hour battery life",
+    "price": 199.99,
+    "category": "Electronics",
+    "brand": "TechSound",
+    "inStock": true,
+    "quantity": 45,
+    "sku": "TS-WBH-001",
+    "rating": 4.5,
+    "tags": ["audio", "wireless", "travel"],
+    "dimensions": { "weightGrams": 265, "widthCm": 18.5, "heightCm": 21.0 }
+  },
+  {
+    "_id": 2,
+    "name": "Organic Coffee Beans",
+    "description": "Single-origin organic coffee beans from Colombian highlands, medium roast",
+    "price": 24.99,
+    "category": "Food & Beverages",
+    "brand": "Mountain Peak Coffee",
+    "inStock": true,
+    "quantity": 120,
+    "sku": "MPC-OCB-002",
+    "rating": 4.8,
+    "tags": ["organic", "coffee"],
+    "dimensions": { "weightGrams": 1000, "widthCm": 12.0, "heightCm": 30.0 }
+  },
+  {
+    "_id": 3,
+    "name": "Ergonomic Office Chair",
+    "description": "Adjustable office chair with lumbar support and breathable mesh back",
+    "price": 299.99,
+    "category": "Furniture",
+    "brand": "ComfortWork",
+    "inStock": true,
+    "quantity": 15,
+    "sku": "CW-EOC-003",
+    "rating": 4.3,
+    "tags": ["office", "ergonomic"],
+    "dimensions": { "weightGrams": 18000, "widthCm": 65.0, "heightCm": 120.0 }
+  },
+  {
+    "_id": 4,
+    "name": "Smart Fitness Tracker",
+    "description": "Fitness tracker with heart rate monitoring, GPS, and 7-day battery life",
+    "price": 149.99,
+    "category": "Electronics",
+    "brand": "FitTech",
+    "inStock": false,
+    "quantity": 0,
+    "sku": "FT-SFT-004",
+    "rating": 4.4,
+    "tags": ["fitness", "wearable"],
+    "dimensions": null
+  }
+]

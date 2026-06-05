@@ -1,0 +1,18 @@
+[
+  {
+    "code": "LIS-A",
+    "name": "Lisboa Central",
+    "country": "PT",
+    "capacity": 50000,
+    "temperature_controlled": true,
+    "zones": ["ambient", "cold"]
+  },
+  {
+    "code": "OPO-B",
+    "name": "Porto North",
+    "country": "PT",
+    "capacity": 32000,
+    "temperature_controlled": false,
+    "zones": ["ambient"]
+  }
+]

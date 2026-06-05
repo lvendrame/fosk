@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "post_slug": "schema-loading-guide",
+    "user_id": 2,
+    "body": "The compact schema format is easy to scan.",
+    "moderation": { "state": "approved", "reason": null }
+  },
+  {
+    "id": 2,
+    "post_slug": "schema-loading-guide",
+    "user_id": 3,
+    "body": "Can this infer references too?",
+    "moderation": { "state": "pending", "reason": "new-user" }
+  }
+]

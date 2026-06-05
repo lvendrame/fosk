@@ -12,6 +12,15 @@ pub use field_info::*;
 pub mod schema_dict;
 pub use schema_dict::*;
 
+pub(crate) mod compact_schema;
+pub(crate) use compact_schema::*;
+
+pub(crate) mod schema_file;
+pub(crate) use schema_file::*;
+
+pub(crate) mod schema_load;
+pub(crate) use schema_load::*;
+
 /// Foreign-key-like collection reference metadata.
 pub mod reference_column;
 pub use reference_column::*;

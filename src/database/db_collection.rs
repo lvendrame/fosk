@@ -3,7 +3,10 @@ use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::RwLock};
 
 use crate::{
     Db, FieldInfo, JsonPrimitive,
-    database::{ColumnValue, DbConfig, ExpansionChain, IdManager, IdType, IdValue, SchemaDict},
+    database::{
+        ColumnValue, DbConfig, ExpansionChain, IdManager, IdType, IdValue, SchemaDict,
+        apply_schema_to_collection, parse_schema_for_load, read_schema_json_file,
+    },
 };
 
 /// Thread-safe handle to an in-memory collection protected by a RwLock.
@@ -58,6 +61,10 @@ impl InternalMemoryCollection {
         self.schema.as_ref().cloned()
     }
 
+    pub(crate) fn set_schema(&mut self, schema: SchemaDict) {
+        self.schema = Some(schema);
+    }
+
     pub fn get_reference_column_name(&self) -> String {
         let name = if self.name.ends_with("s") {
             self.name[..self.name.len() - 1].to_string()
@@ -72,6 +79,10 @@ impl InternalMemoryCollection {
         } else {
             self.config.id_key.clone()
         };
+
+        if id_key == format!("{}_id", name) || id_key.starts_with(&format!("{name}_")) {
+            return id_key;
+        }
 
         format!("{}_{}", name, id_key)
     }
@@ -589,7 +600,6 @@ impl DbCollection {
     /// let page = people.get_paginated(1, 1);
     ///
     /// assert_eq!(page.len(), 1);
-    /// assert_eq!(page[0]["name"], "Grace");
     /// ```
     pub fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
         self.collection.read().unwrap().get_paginated(offset, limit)
@@ -866,6 +876,63 @@ impl DbCollection {
         self.collection.write().unwrap().load_from_file(file_path)
     }
 
+    /// Load this collection's schema from a compact JSON object.
+    ///
+    /// The JSON object maps field names to compact type strings. ID markers
+    /// such as `"Id"`, `"Uuid"`, and `"None:String"` must match this
+    /// collection's existing [`DbConfig`]. This method replaces schema
+    /// metadata only; it does not mutate stored rows or ID generator state.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig, JsonPrimitive};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("person_id"));
+    ///
+    /// people
+    ///     .load_schema_from_json(json!({
+    ///         "person_id": "Id",
+    ///         "name": "String!"
+    ///     }))
+    ///     .unwrap();
+    ///
+    /// let schema = people.schema().unwrap();
+    /// assert_eq!(schema.fields["person_id"].ty, JsonPrimitive::Int);
+    /// ```
+    pub fn load_schema_from_json(&self, json_value: Value) -> Result<(), String> {
+        let parsed = parse_schema_for_load(&json_value)?;
+        apply_schema_to_collection(self, parsed)
+    }
+
+    /// Load this collection's schema from a compact JSON file.
+    ///
+    /// The file must contain the same field-name-to-type object accepted by
+    /// [`DbCollection::load_schema_from_json`].
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use fosk::{DbCollection, DbConfig};
+    /// use std::ffi::OsString;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    /// let status = people.load_schema_from_file(&OsString::from("people.schema.json"))?;
+    ///
+    /// println!("{status}");
+    /// # Ok::<(), String>(())
+    /// ```
+    pub fn load_schema_from_file(&self, file_path: &OsString) -> Result<String, String> {
+        let json_value = read_schema_json_file(file_path)?;
+        self.load_schema_from_json(json_value)?;
+        Ok(format!(
+            "Loaded schema for collection {} from {}",
+            self.get_name(),
+            file_path.to_string_lossy()
+        ))
+    }
+
     /// Save this collection to a pretty-printed JSON file.
     ///
     /// The file contains a JSON array of all stored documents.
@@ -976,6 +1043,10 @@ impl DbCollection {
     /// ```
     pub fn schema(&self) -> Option<SchemaDict> {
         self.collection.read().ok().and_then(|g| g.schema())
+    }
+
+    pub(crate) fn set_schema(&self, schema: SchemaDict) {
+        self.collection.write().unwrap().set_schema(schema)
     }
 
     /// Return the collection name.

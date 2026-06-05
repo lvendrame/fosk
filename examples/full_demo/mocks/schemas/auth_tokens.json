@@ -1,0 +1,7 @@
+{
+  "token": "None:String",
+  "user_id": "Int!",
+  "scope": "String!",
+  "expires_at": "String!",
+  "revoked": "Bool!"
+}
