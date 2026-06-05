@@ -270,6 +270,10 @@ impl InternalMemoryCollection {
         };
 
         if let Some(id_string) = id_string {
+            if self.config.id_type == IdType::None && self.collection.contains_key(&id_string) {
+                return None;
+            }
+
             self.ensure_update_schema_for_item(&item);
 
             self.collection.insert(id_string, item.clone());
@@ -322,6 +326,12 @@ impl InternalMemoryCollection {
 
                     // Extract the ID from the item using the configured id_key
                     if let Some(id) = id {
+                        let duplicate_none_id =
+                            self.config.id_type == IdType::None && self.collection.contains_key(&id);
+                        if duplicate_none_id {
+                            continue;
+                        }
+
                         // Insert the item with its existing ID
                         self.collection.insert(id.clone(), item.clone());
                         added_items.push(item);
@@ -861,6 +871,36 @@ mod tests {
     }
 
     #[test]
+    fn test_add_with_none_id_duplicate_is_rejected() {
+        let mut collection = create_none_collection();
+
+        let first = collection.add(json!({"id": "custom-id", "name": "Original"}));
+        assert!(first.is_some());
+
+        let duplicate = collection.add(json!({"id": "custom-id", "name": "Replacement"}));
+        assert!(duplicate.is_none());
+        assert_eq!(collection.count(), 1);
+
+        let stored = collection.get("custom-id").unwrap();
+        assert_eq!(stored.get("name").unwrap(), "Original");
+    }
+
+    #[test]
+    fn test_add_with_none_numeric_id_duplicate_is_rejected() {
+        let mut collection = create_none_collection();
+
+        let first = collection.add(json!({"id": 7, "name": "Original"}));
+        assert!(first.is_some());
+
+        let duplicate = collection.add(json!({"id": 7, "name": "Replacement"}));
+        assert!(duplicate.is_none());
+        assert_eq!(collection.count(), 1);
+
+        let stored = collection.get("7").unwrap();
+        assert_eq!(stored.get("name").unwrap(), "Original");
+    }
+
+    #[test]
     fn test_add_batch_int() {
         let mut collection = create_test_collection();
 
@@ -909,6 +949,122 @@ mod tests {
         let added_items = collection.add_batch(batch);
         assert_eq!(added_items.len(), 3);
         assert_eq!(collection.count(), 3);
+    }
+
+    #[test]
+    fn test_add_batch_duplicate_id_is_rejected() {
+        let mut collection = create_none_collection();
+
+        let batch = json!([
+            {"id": "custom-1", "name": "Original"},
+            {"id": "custom-1", "name": "Replacement"},
+        ]);
+
+        let added_items = collection.add_batch(batch);
+        assert_eq!(added_items.len(), 1);
+        assert_eq!(collection.count(), 1);
+
+        let stored = collection.get("custom-1").unwrap();
+        assert_eq!(stored.get("name").unwrap(), "Original");
+    }
+
+    #[test]
+    fn test_add_batch_duplicate_id_against_existing_record_is_rejected() {
+        let mut collection = create_none_collection();
+        collection.add(json!({"id": "custom-1", "name": "Existing"}));
+
+        let batch = json!([
+            {"id": "custom-1", "name": "Replacement"},
+            {"id": "custom-2", "name": "New"},
+        ]);
+
+        let added_items = collection.add_batch(batch);
+        assert_eq!(added_items.len(), 1);
+        assert_eq!(collection.count(), 2);
+
+        let existing = collection.get("custom-1").unwrap();
+        assert_eq!(existing.get("name").unwrap(), "Existing");
+
+        let new_item = collection.get("custom-2").unwrap();
+        assert_eq!(new_item.get("name").unwrap(), "New");
+    }
+
+    #[test]
+    fn test_add_batch_none_rejects_duplicate_numeric_ids() {
+        let mut collection = create_none_collection();
+
+        let batch = json!([
+            {"id": 42, "name": "Original"},
+            {"id": 42, "name": "Replacement"},
+            {"id": 43, "name": "Other"},
+        ]);
+
+        let added_items = collection.add_batch(batch);
+        assert_eq!(added_items.len(), 2);
+        assert_eq!(collection.count(), 2);
+
+        let original = collection.get("42").unwrap();
+        assert_eq!(original.get("name").unwrap(), "Original");
+
+        let other = collection.get("43").unwrap();
+        assert_eq!(other.get("name").unwrap(), "Other");
+    }
+
+    #[test]
+    fn test_add_batch_none_rejects_later_duplicate_but_keeps_following_valid_items() {
+        let mut collection = create_none_collection();
+
+        let batch = json!([
+            {"id": "custom-1", "name": "Original"},
+            {"id": "custom-2", "name": "Second"},
+            {"id": "custom-1", "name": "Replacement"},
+            {"name": "Missing Id"},
+            {"id": "custom-3", "name": "Third"},
+        ]);
+
+        let added_items = collection.add_batch(batch);
+        assert_eq!(added_items.len(), 3);
+        assert_eq!(collection.count(), 3);
+
+        let original = collection.get("custom-1").unwrap();
+        assert_eq!(original.get("name").unwrap(), "Original");
+
+        assert!(collection.get("custom-2").is_some());
+        assert!(collection.get("custom-3").is_some());
+    }
+
+    #[test]
+    fn test_add_batch_int_keeps_existing_replacement_behavior_for_explicit_ids() {
+        let mut collection = create_test_collection();
+
+        let batch = json!([
+            {"id": 5, "name": "Original"},
+            {"id": 5, "name": "Replacement"},
+        ]);
+
+        let added_items = collection.add_batch(batch);
+        assert_eq!(added_items.len(), 2);
+        assert_eq!(collection.count(), 1);
+
+        let stored = collection.get("5").unwrap();
+        assert_eq!(stored.get("name").unwrap(), "Replacement");
+    }
+
+    #[test]
+    fn test_add_batch_uuid_keeps_existing_replacement_behavior_for_explicit_ids() {
+        let mut collection = create_uuid_collection();
+
+        let batch = json!([
+            {"id": "uuid-1", "name": "Original"},
+            {"id": "uuid-1", "name": "Replacement"},
+        ]);
+
+        let added_items = collection.add_batch(batch);
+        assert_eq!(added_items.len(), 2);
+        assert_eq!(collection.count(), 1);
+
+        let stored = collection.get("uuid-1").unwrap();
+        assert_eq!(stored.get("name").unwrap(), "Replacement");
     }
 
     #[test]
