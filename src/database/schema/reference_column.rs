@@ -1,6 +1,6 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
-use crate::{database::SchemaProvider, Db};
+use crate::{Db, database::SchemaProvider};
 
 /// Metadata for a relationship between two collections via a specific field.
 ///
@@ -15,21 +15,41 @@ use crate::{database::SchemaProvider, Db};
 /// Used by `Db` to register and traverse object expansions based on defined references.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReferenceColumn {
+    /// Name of the collection that stores the reference field.
     pub collection: String,
+    /// Field in `collection` that stores the referenced id.
     pub column: String,
+    /// Name of the target collection.
     pub ref_collection: String,
+    /// Field in `ref_collection` that is referenced by `column`.
     pub ref_column: String,
+    /// Whether this value represents the inverse side of the reference.
     pub is_referrer: bool,
 }
 
 impl ReferenceColumn {
-    pub fn new(collection: String, column: String, ref_collection: String, ref_column: String, is_referrer: bool) -> Self {
-        Self { collection, column, ref_collection, ref_column, is_referrer }
+    /// Create reference metadata between two collection fields.
+    pub fn new(
+        collection: String,
+        column: String,
+        ref_collection: String,
+        ref_column: String,
+        is_referrer: bool,
+    ) -> Self {
+        Self {
+            collection,
+            column,
+            ref_collection,
+            ref_column,
+            is_referrer,
+        }
     }
 }
 
+/// References for one collection, keyed by the local reference field name.
 pub type ReferenceFieldMap = HashMap<String, ReferenceColumn>;
 
+/// Registry of references between collections in a database.
 #[derive(Debug, Default)]
 pub struct DbReferences {
     /// Map of collections name -> field name and reference
@@ -37,43 +57,85 @@ pub struct DbReferences {
 }
 
 impl DbReferences {
-    pub fn create_reference(&mut self, db: &Db, collection_name: &str, column: &str, ref_collection_name: &str, ref_column: &str) -> bool {
+    /// Register a bidirectional reference after validating both fields exist.
+    pub fn create_reference(
+        &mut self,
+        db: &Db,
+        collection_name: &str,
+        column: &str,
+        ref_collection_name: &str,
+        ref_column: &str,
+    ) -> bool {
         // referenced
-        let collection_references = self.references
-            .entry(collection_name.to_string()).or_default();
+        let collection_references = self
+            .references
+            .entry(collection_name.to_string())
+            .or_default();
 
-        if !collection_references.create_reference(db, collection_name, column, ref_collection_name, ref_column, false) {
+        if !collection_references.create_reference(
+            db,
+            collection_name,
+            column,
+            ref_collection_name,
+            ref_column,
+            false,
+        ) {
             return false;
         }
 
         // referrer
-        let collection_references = self.references
-            .entry(ref_collection_name.to_string()).or_default();
+        let collection_references = self
+            .references
+            .entry(ref_collection_name.to_string())
+            .or_default();
 
-        collection_references.create_reference(db, collection_name, column, ref_collection_name, ref_column, true)
+        collection_references.create_reference(
+            db,
+            collection_name,
+            column,
+            ref_collection_name,
+            ref_column,
+            true,
+        )
     }
 
-    pub fn infer_reference(&mut self, db: &Db, collection_name: &str, ref_collection_name: &str) -> bool {
+    /// Infer and register a bidirectional reference using collection naming conventions.
+    pub fn infer_reference(
+        &mut self,
+        db: &Db,
+        collection_name: &str,
+        ref_collection_name: &str,
+    ) -> bool {
         // referenced
-        let collection_references = self.references
-            .entry(collection_name.to_string()).or_default();
+        let collection_references = self
+            .references
+            .entry(collection_name.to_string())
+            .or_default();
 
         if !collection_references.infer_reference(db, collection_name, ref_collection_name, false) {
             return false;
         }
 
         // referrer
-        let collection_references = self.references
-            .entry(ref_collection_name.to_string()).or_default();
+        let collection_references = self
+            .references
+            .entry(ref_collection_name.to_string())
+            .or_default();
 
         collection_references.infer_reference(db, collection_name, ref_collection_name, true)
     }
 
+    /// Return all references registered for `collection_name`.
     pub fn get_collection_refs(&self, collection_name: &str) -> Option<&ReferenceFieldMap> {
         self.references.get(collection_name)
     }
 
-    pub fn get_collection_column_ref(&self, collection_name: &str, column: &str) -> Option<&ReferenceColumn> {
+    /// Return one reference registered for `collection_name.column`.
+    pub fn get_collection_column_ref(
+        &self,
+        collection_name: &str,
+        column: &str,
+    ) -> Option<&ReferenceColumn> {
         match self.references.get(collection_name) {
             Some(collection_refs) => collection_refs.get(column),
             None => None,
@@ -81,19 +143,42 @@ impl DbReferences {
     }
 }
 
-
 trait CollectionReferences {
-    fn create_reference(&mut self, db: &Db, collection_name: &str, column: &str, ref_collection_name: &str, ref_column: &str, is_referrer: bool) -> bool;
-    fn infer_reference(&mut self, db: &Db, collection_name: &str, ref_collection_name: &str, is_referrer: bool) -> bool;
+    fn create_reference(
+        &mut self,
+        db: &Db,
+        collection_name: &str,
+        column: &str,
+        ref_collection_name: &str,
+        ref_column: &str,
+        is_referrer: bool,
+    ) -> bool;
+    fn infer_reference(
+        &mut self,
+        db: &Db,
+        collection_name: &str,
+        ref_collection_name: &str,
+        is_referrer: bool,
+    ) -> bool;
 }
 
 impl CollectionReferences for HashMap<String, ReferenceColumn> {
-    fn create_reference(&mut self, db: &Db, collection_name: &str, column: &str, ref_collection_name: &str, ref_column: &str, is_referrer: bool) -> bool {
+    fn create_reference(
+        &mut self,
+        db: &Db,
+        collection_name: &str,
+        column: &str,
+        ref_collection_name: &str,
+        ref_column: &str,
+        is_referrer: bool,
+    ) -> bool {
         let collection_schema = db.schema_of(collection_name);
         let ref_collection_schema = db.schema_of(ref_collection_name);
         match (collection_schema, ref_collection_schema) {
             (Some(collection_schema), Some(ref_collection_schema)) => {
-                if collection_schema.fields.contains_key(column) && ref_collection_schema.fields.contains_key(ref_column){
+                if collection_schema.fields.contains_key(column)
+                    && ref_collection_schema.fields.contains_key(ref_column)
+                {
                     let key = if is_referrer { ref_column } else { column };
                     self.insert(
                         key.to_string(),
@@ -103,17 +188,23 @@ impl CollectionReferences for HashMap<String, ReferenceColumn> {
                             ref_collection_name.to_string(),
                             ref_column.to_string(),
                             is_referrer,
-                        )
+                        ),
                     );
                     return true;
                 }
                 false
-            },
+            }
             _ => false,
         }
     }
 
-    fn infer_reference(&mut self, db: &Db, collection_name: &str, ref_collection_name: &str, is_referrer: bool) -> bool {
+    fn infer_reference(
+        &mut self,
+        db: &Db,
+        collection_name: &str,
+        ref_collection_name: &str,
+        is_referrer: bool,
+    ) -> bool {
         let ref_collection = db.get(ref_collection_name);
         let ref_collection = match ref_collection {
             Some(collection) => collection,
@@ -123,6 +214,13 @@ impl CollectionReferences for HashMap<String, ReferenceColumn> {
         let column = ref_collection.get_reference_column_name();
         let ref_column = ref_collection.get_config().id_key;
 
-        self.create_reference(db, collection_name, &column, ref_collection_name, &ref_column, is_referrer)
+        self.create_reference(
+            db,
+            collection_name,
+            &column,
+            ref_collection_name,
+            &ref_column,
+            is_referrer,
+        )
     }
 }

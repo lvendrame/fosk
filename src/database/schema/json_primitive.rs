@@ -28,6 +28,17 @@ impl JsonPrimitive {
     /// Classify a serde_json `Value` into a `JsonPrimitive`.
     ///
     /// Returns a single variant indicating the basic shape of the value.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::JsonPrimitive;
+    /// use serde_json::json;
+    ///
+    /// assert_eq!(JsonPrimitive::of_value(&json!(42)), JsonPrimitive::Int);
+    /// assert_eq!(JsonPrimitive::of_value(&json!(4.2)), JsonPrimitive::Float);
+    /// assert_eq!(JsonPrimitive::of_value(&json!({ "ok": true })), JsonPrimitive::Object);
+    /// ```
     pub fn of_value(v: &Value) -> JsonPrimitive {
         match v {
             Value::Null => JsonPrimitive::Null,
@@ -50,20 +61,29 @@ impl JsonPrimitive {
     /// Numeric types promote `Int` + `Float` -> `Float`. For different
     /// non-numeric types the left-hand value is preserved except when it is
     /// `Null`, in which case the right-hand type is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::JsonPrimitive;
+    ///
+    /// assert_eq!(
+    ///     JsonPrimitive::promote(JsonPrimitive::Int, JsonPrimitive::Float),
+    ///     JsonPrimitive::Float
+    /// );
+    /// ```
     pub fn promote(a: JsonPrimitive, b: JsonPrimitive) -> JsonPrimitive {
         use JsonPrimitive::*;
-        if a == b { return a; }
+        if a == b {
+            return a;
+        }
         match (a, b) {
             (Int, Float) | (Float, Int) => Float,
             // Different non-numeric types stay as the left (first seen) type.
             // You can change this to a Mixed variant if you prefer.
             (x, y) => {
                 // If one is Null, keep the other (nullability is tracked separately)
-                if x == Null {
-                    y
-                } else {
-                    x
-                }
+                if x == Null { y } else { x }
             }
         }
     }

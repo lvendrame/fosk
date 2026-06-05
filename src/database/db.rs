@@ -1,16 +1,25 @@
-use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::{Arc, RwLock}};
+use std::{
+    collections::HashMap,
+    ffi::OsString,
+    fs,
+    io::BufWriter,
+    sync::{Arc, RwLock},
+};
 
 use serde_json::{Map, Value};
 
 use crate::{
-    database::{DbCollection, DbConfig, DbReferences, ReferenceColumn, ReferenceFieldMap, SchemaProvider, SchemaWithRefs},
+    database::{
+        DbCollection, DbConfig, DbReferences, ReferenceColumn, ReferenceFieldMap, SchemaProvider,
+        SchemaWithRefs,
+    },
     executor::plan_executor::{Executor, PlanExecutor},
     parser::{
         aggregators_helper::AggregateRegistry,
         analyzer::{AnalysisContext, AnalyzerError},
-        ast::Query
+        ast::Query,
     },
-    planner::plan_builder::PlanBuilder
+    planner::plan_builder::PlanBuilder,
 };
 
 /// Thread-safe pointer to the internal database state.
@@ -25,7 +34,6 @@ pub(crate) struct InternalDb {
 }
 
 impl InternalDb {
-
     /// Convert the internal DB into a thread-safe `ProtectedDb`.
     pub fn into_protected(self) -> ProtectedDb {
         Arc::new(RwLock::new(self))
@@ -51,14 +59,17 @@ impl InternalDb {
     /// Create or register a new collection with a specific `Config`.
     pub fn create_with_config(&mut self, coll_name: &str, config: DbConfig) -> Arc<DbCollection> {
         let collection = Arc::new(DbCollection::new_coll(coll_name, config));
-        self.collections.insert(coll_name.to_ascii_lowercase(), Arc::clone(&collection));
+        self.collections
+            .insert(coll_name.to_ascii_lowercase(), Arc::clone(&collection));
 
         collection
     }
 
     /// Get a shared handle to a collection by name.
     pub fn get(&self, col_name: &str) -> Option<Arc<DbCollection>> {
-        self.collections.get(&col_name.to_ascii_lowercase()).map(Arc::clone)
+        self.collections
+            .get(&col_name.to_ascii_lowercase())
+            .map(Arc::clone)
     }
 
     /// List collection names registered in this database instance.
@@ -68,7 +79,9 @@ impl InternalDb {
 
     /// Remove a collection from the database.
     pub fn drop_collection(&mut self, col_name: &str) -> bool {
-        self.collections.remove(&col_name.to_ascii_lowercase()).is_some()
+        self.collections
+            .remove(&col_name.to_ascii_lowercase())
+            .is_some()
     }
 
     /// Remove all collections.
@@ -104,8 +117,14 @@ impl InternalDb {
             .map_err(|_| format!("File {} does not contain valid JSON", file_path_lossy))?;
 
         match self.load_from_json(json_value, false) {
-            Ok(loaded_collections) => Ok(format!("✔️ Loaded {} initial collections from {}", loaded_collections, file_path_lossy)),
-            Err(error) => Err(format!("Error to process the file {}. Details: {}", file_path_lossy, error)),
+            Ok(loaded_collections) => Ok(format!(
+                "✔️ Loaded {} initial collections from {}",
+                loaded_collections, file_path_lossy
+            )),
+            Err(error) => Err(format!(
+                "Error to process the file {}. Details: {}",
+                file_path_lossy, error
+            )),
         }
     }
 
@@ -143,92 +162,367 @@ impl Default for Db {
 }
 
 impl Db {
-
-    /// Create a new in-memory database with default configuration.
+    /// Create a new in-memory database with the default configuration.
+    ///
+    /// The default configuration uses UUID ids stored under the `"id"` field.
+    /// Collections created with [`Db::create`] inherit this configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, IdType};
+    ///
+    /// let db = Db::new();
+    ///
+    /// assert_eq!(db.get_config().id_type, IdType::Uuid);
+    /// assert_eq!(db.get_config().id_key, "id");
+    /// ```
     pub fn new() -> Self {
-        Self{
+        Self {
             internal_db: InternalDb::new_db().into_protected(),
         }
     }
 
-    /// Create a new in-memory database with default configuration.
+    /// Create a new reference-counted database handle.
+    ///
+    /// Use this helper when multiple owners need to share the same database
+    /// handle without wrapping it in [`Arc`] manually.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::Db;
+    /// use std::sync::Arc;
+    ///
+    /// let db = Db::new_arc();
+    /// let cloned = Arc::clone(&db);
+    ///
+    /// cloned.create("people");
+    /// assert!(db.get("people").is_some());
+    /// ```
     pub fn new_arc() -> Arc<Self> {
-        Arc::new(Self{
+        Arc::new(Self {
             internal_db: InternalDb::new_db().into_protected(),
         })
     }
 
-    /// Create a new in-memory database with an explicit `Config`.
+    /// Create a new in-memory database with an explicit [`DbConfig`].
+    ///
+    /// The database-level configuration is copied into collections created
+    /// with [`Db::create`]. Use [`Db::create_with_config`] when a single
+    /// collection needs different id behavior.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig, IdType};
+    ///
+    /// let db = Db::new_with_config(DbConfig::int("id"));
+    ///
+    /// assert_eq!(db.get_config().id_type, IdType::Int);
+    /// ```
     pub fn new_with_config(config: DbConfig) -> Self {
-        Self{
+        Self {
             internal_db: InternalDb::new_db_with_config(config).into_protected(),
         }
     }
 
-    /// Create a collection using the DB's internal lock (concurrent-safe).
+    /// Create or replace a collection using the database default configuration.
+    ///
+    /// Collection names are stored case-insensitively, so later calls to
+    /// [`Db::get`] can use any casing. If a collection with the same name
+    /// already exists, the new empty collection replaces it.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::int("id"));
+    /// let people = db.create("People");
+    ///
+    /// let inserted = people.add(json!({ "name": "Ada" })).unwrap();
+    ///
+    /// assert_eq!(inserted["id"], 1);
+    /// assert!(db.get("people").is_some());
+    /// ```
     pub fn create(&self, coll_name: &str) -> Arc<DbCollection> {
         self.internal_db.write().unwrap().create(coll_name)
     }
 
-    /// Create a collection with explicit `Config` using the DB's internal lock.
+    /// Create or replace a collection with its own [`DbConfig`].
+    ///
+    /// This is useful when most collections use one id strategy, but a
+    /// specific collection should generate, store, or require ids differently.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new();
+    /// let logs = db.create_with_config("logs", DbConfig::none("key"));
+    ///
+    /// assert!(logs.add(json!({ "key": "startup", "ok": true })).is_some());
+    /// assert!(logs.add(json!({ "ok": false })).is_none());
+    /// ```
     pub fn create_with_config(&self, coll_name: &str, config: DbConfig) -> Arc<DbCollection> {
-        self.internal_db.write().unwrap().create_with_config(coll_name, config)
+        self.internal_db
+            .write()
+            .unwrap()
+            .create_with_config(coll_name, config)
     }
 
-    /// Get a shared handle to a collection by name.
+    /// Get a collection by name.
+    ///
+    /// Name lookup is case-insensitive. The returned handle points to the
+    /// existing collection and can be used for reads, writes, loads, and
+    /// schema inspection.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::Db;
+    ///
+    /// let db = Db::new();
+    /// db.create("People");
+    ///
+    /// assert!(db.get("people").is_some());
+    /// assert!(db.get("missing").is_none());
+    /// ```
     pub fn get(&self, col_name: &str) -> Option<Arc<DbCollection>> {
         self.internal_db.read().unwrap().get(col_name)
     }
 
     /// List registered collection names.
+    ///
+    /// Names are returned in their internal lowercase form.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::Db;
+    ///
+    /// let db = Db::new();
+    /// db.create("People");
+    /// db.create("Orders");
+    ///
+    /// let mut names = db.list_collections();
+    /// names.sort();
+    ///
+    /// assert_eq!(names, vec!["orders", "people"]);
+    /// ```
     pub fn list_collections(&self) -> Vec<String> {
         self.internal_db.read().unwrap().list_collections()
     }
 
     /// Remove a collection from the database.
+    ///
+    /// Returns `true` when a collection existed and was removed, or `false`
+    /// when no collection with that name was registered.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::Db;
+    ///
+    /// let db = Db::new();
+    /// db.create("People");
+    ///
+    /// assert!(db.drop_collection("people"));
+    /// assert!(!db.drop_collection("people"));
+    /// ```
     pub fn drop_collection(&self, col_name: &str) -> bool {
         self.internal_db.write().unwrap().drop_collection(col_name)
     }
 
-    /// Remove all collections.
+    /// Remove all collections from the database.
+    ///
+    /// This clears collection registration but does not change the database
+    /// default configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::Db;
+    ///
+    /// let db = Db::new();
+    /// db.create("people");
+    /// db.create("orders");
+    ///
+    /// db.clear();
+    ///
+    /// assert!(db.list_collections().is_empty());
+    /// ```
     pub fn clear(&self) {
         self.internal_db.write().unwrap().clear();
     }
 
-    // Get the current DBConfig
+    /// Return the database-level default configuration used for new collections.
+    ///
+    /// The returned value is a clone. Mutating it will not affect the database;
+    /// create a new database or use [`Db::create_with_config`] for a different
+    /// collection configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    ///
+    /// let db = Db::new_with_config(DbConfig::int("id"));
+    ///
+    /// assert_eq!(db.get_config(), DbConfig::int("id"));
+    /// ```
     pub fn get_config(&self) -> DbConfig {
         self.internal_db.read().unwrap().config.clone()
     }
 
-    /// Load collections from a serde_json `Value` (must be an object) and return
-    /// the total of added collections. Errors if the value is not an object.
+    /// Load multiple collections from a JSON object.
+    ///
+    /// The root value must be an object whose keys are collection names and
+    /// whose values are arrays of documents. Returns the number of collections
+    /// processed. If `keep` is `true`, each loaded document keeps its existing
+    /// id where possible; otherwise ids may be regenerated according to each
+    /// collection's configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string when the root value is not an object or when a
+    /// collection value cannot be loaded as an array.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    ///
+    /// let loaded = db
+    ///     .load_from_json(json!({
+    ///         "people": [
+    ///             { "id": 1, "name": "Ada" },
+    ///             { "id": 2, "name": "Grace" }
+    ///         ]
+    ///     }), true)
+    ///     .unwrap();
+    ///
+    /// assert_eq!(loaded, 1);
+    /// assert_eq!(db.get("people").unwrap().count(), 2);
+    /// ```
     pub fn load_from_json(&self, json_value: Value, keep: bool) -> Result<usize, String> {
-        self.internal_db.write().unwrap().load_from_json(json_value, keep)
+        self.internal_db
+            .write()
+            .unwrap()
+            .load_from_json(json_value, keep)
     }
 
-    /// Load collections from a file path. Returns a human-readable status on
-    /// success or an error string on failure.
+    /// Load multiple collections from a JSON file.
+    ///
+    /// The file must contain the same object shape accepted by
+    /// [`Db::load_from_json`]. Returns a human-readable success message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error string when the file cannot be read, cannot be parsed
+    /// as JSON, or does not contain loadable collections.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use fosk::Db;
+    /// use std::ffi::OsString;
+    ///
+    /// let db = Db::new();
+    /// let status = db.load_from_file(&OsString::from("seed.json"))?;
+    ///
+    /// println!("{status}");
+    /// # Ok::<(), String>(())
+    /// ```
     pub fn load_from_file(&self, file_path: &OsString) -> Result<String, String> {
         self.internal_db.write().unwrap().load_from_file(file_path)
     }
 
-    /// Write all collection to a JSON.
+    /// Serialize all collections to a JSON object.
+    ///
+    /// The returned value uses collection names as object keys and arrays of
+    /// stored documents as values.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// db.create("people").add(json!({ "id": 1, "name": "Ada" }));
+    ///
+    /// let dump = db.write_to_json();
+    ///
+    /// assert_eq!(dump["people"][0]["name"], "Ada");
+    /// ```
     pub fn write_to_json(&self) -> Value {
         self.internal_db.read().unwrap().write_to_json()
     }
 
-    /// Write all collection to a file path.
+    /// Serialize all collections to a pretty-printed JSON file.
+    ///
+    /// The output format matches [`Db::write_to_json`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error only if serialization fails after the file is created.
+    /// File creation currently panics if the path cannot be opened.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use fosk::Db;
+    /// use std::ffi::OsString;
+    ///
+    /// let db = Db::new();
+    ///
+    /// db.write_to_file(&OsString::from("collections.json"))?;
+    /// # Ok::<(), String>(())
+    /// ```
     pub fn write_to_file(&self, file_path: &OsString) -> Result<(), String> {
         self.internal_db.read().unwrap().write_to_file(file_path)
     }
 
     /// Execute a SQL query through the parser, analyzer, planner and executor.
     ///
-    /// Returns a vector of JSON `Value` rows on success or an `AnalyzerError`.
+    /// Use this when the SQL has no positional parameters. The result is a
+    /// vector of JSON object rows containing the selected fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`AnalyzerError`] when parsing, name resolution, planning,
+    /// or execution fails.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::int("id"));
+    /// let people = db.create("people");
+    ///
+    /// people.add(json!({ "name": "Ada", "age": 37 }));
+    /// people.add(json!({ "name": "Grace", "age": 29 }));
+    ///
+    /// let rows = db
+    ///     .query("SELECT name FROM people WHERE age > 30")
+    ///     .unwrap();
+    ///
+    /// assert_eq!(rows[0]["name"], "Ada");
+    /// ```
     pub fn query(&self, sql: &str) -> Result<Vec<serde_json::Value>, AnalyzerError> {
         // 1) Parse
-        let q = Query::try_from(sql)
-            .map_err(|e| AnalyzerError::Other(format!("parse error: {e}")))?;
+        let q =
+            Query::try_from(sql).map_err(|e| AnalyzerError::Other(format!("parse error: {e}")))?;
 
         // 2) Analyze (Db implements SchemaProvider)
         let aggregates = AggregateRegistry::default_aggregate_registry();
@@ -244,11 +538,40 @@ impl Db {
 
     /// Execute a SQL query through the parser, analyzer, planner and executor.
     ///
-    /// Returns a vector of JSON `Value` rows on success or an `AnalyzerError`.
+    /// Positional `?` placeholders are filled from `args`. Pass a single JSON
+    /// value for one placeholder, or a JSON array for multiple placeholders.
+    /// Arrays can also be used inside `IN (?)` predicates.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`AnalyzerError`] when parsing, parameter binding, name
+    /// resolution, planning, or execution fails.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// db.create("people").add_batch(json!([
+    ///     { "id": 1, "name": "Ada" },
+    ///     { "id": 2, "name": "Grace" }
+    /// ]));
+    ///
+    /// let rows = db
+    ///     .query_with_args(
+    ///         "SELECT name FROM people WHERE id IN (?) ORDER BY id",
+    ///         json!([[1, 2]])
+    ///     )
+    ///     .unwrap();
+    ///
+    /// assert_eq!(rows.len(), 2);
+    /// ```
     pub fn query_with_args(&self, sql: &str, args: Value) -> Result<Vec<Value>, AnalyzerError> {
         // 1) Parse
-        let q = Query::try_from(sql)
-            .map_err(|e| AnalyzerError::Other(format!("parse error: {e}")))?;
+        let q =
+            Query::try_from(sql).map_err(|e| AnalyzerError::Other(format!("parse error: {e}")))?;
 
         // 2) Analyze (Db implements SchemaProvider)
         let aggregates = AggregateRegistry::default_aggregate_registry();
@@ -266,16 +589,61 @@ impl Db {
     ///
     /// Creates a reference from `collection_name.column` to `ref_collection_name.ref_column`
     /// and also registers the inverse (referrer) side. Returns `true` if both mappings succeed.
-    pub fn create_reference(&self, collection_name: &str, column: &str, ref_collection_name: &str, ref_column: &str) -> bool {
+    ///
+    /// References are used by [`DbCollection::expand_row`] and
+    /// [`DbCollection::expand_list`] to include related records.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// db.create("people").add(json!({ "id": 1, "name": "Ada" }));
+    /// db.create("orders").add(json!({ "id": 10, "person_id": 1 }));
+    ///
+    /// assert!(db.create_reference("orders", "person_id", "people", "id"));
+    /// assert!(db.get_collection_column_ref("orders", "person_id").is_some());
+    /// ```
+    pub fn create_reference(
+        &self,
+        collection_name: &str,
+        column: &str,
+        ref_collection_name: &str,
+        ref_column: &str,
+    ) -> bool {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let mut rm = rm.write().unwrap();
-        rm.create_reference(self, collection_name, column, ref_collection_name, ref_column)
+        rm.create_reference(
+            self,
+            collection_name,
+            column,
+            ref_collection_name,
+            ref_column,
+        )
     }
 
     /// Infer and register a foreign-key-like reference automatically based on default conventions.
     ///
     /// Attempts to link `collection_name` to `ref_collection_name` by matching the latter's
     /// reference column name and its primary key. Returns `true` if successful.
+    ///
+    /// For a referenced collection named `people` with id key `"id"`, the
+    /// inferred local reference field is `"people_id"`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// db.create("people").add(json!({ "id": 1, "name": "Ada" }));
+    /// db.create("orders").add(json!({ "id": 10, "people_id": 1 }));
+    ///
+    /// assert!(db.infer_reference("orders", "people"));
+    /// ```
     pub fn infer_reference(&self, collection_name: &str, ref_collection_name: &str) -> bool {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let mut rm = rm.write().unwrap();
@@ -285,25 +653,79 @@ impl Db {
     /// Retrieve all reference mappings defined for a collection.
     ///
     /// Returns a `HashMap` of field names to `ReferenceColumn` entries if any exist.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// db.create("people").add(json!({ "id": 1 }));
+    /// db.create("orders").add(json!({ "id": 10, "person_id": 1 }));
+    /// db.create_reference("orders", "person_id", "people", "id");
+    ///
+    /// let refs = db.get_collection_refs("orders").unwrap();
+    ///
+    /// assert!(refs.contains_key("person_id"));
+    /// ```
     pub fn get_collection_refs(&self, collection_name: &str) -> Option<ReferenceFieldMap> {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let rm = rm.read().unwrap();
-        rm.get_collection_refs(collection_name)
-            .cloned()
+        rm.get_collection_refs(collection_name).cloned()
     }
 
     /// Retrieve the reference mapping for a specific field in a collection.
     ///
     /// Returns the `ReferenceColumn` if a reference was defined on `collection_name.column`.
-    pub fn get_collection_column_ref(&self, collection_name: &str, column: &str) -> Option<ReferenceColumn> {
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// db.create("people").add(json!({ "id": 1 }));
+    /// db.create("orders").add(json!({ "id": 10, "person_id": 1 }));
+    /// db.create_reference("orders", "person_id", "people", "id");
+    ///
+    /// let reference = db
+    ///     .get_collection_column_ref("orders", "person_id")
+    ///     .unwrap();
+    ///
+    /// assert_eq!(reference.ref_collection, "people");
+    /// ```
+    pub fn get_collection_column_ref(
+        &self,
+        collection_name: &str,
+        column: &str,
+    ) -> Option<ReferenceColumn> {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
         let rm = rm.read().unwrap();
         rm.get_collection_column_ref(collection_name, column)
             .cloned()
     }
 
-    /// Given a collection name,
-    /// return its schema with inbound and outbound references if known.
+    /// Return inferred schema metadata plus inbound and outbound references.
+    ///
+    /// Returns `None` when the collection does not exist or no schema has been
+    /// inferred yet. A schema is inferred as documents are added or loaded.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig, JsonPrimitive};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// db.create("people").add(json!({ "id": 1, "name": "Ada" }));
+    ///
+    /// let schema = db.schema_with_refs_of("people").unwrap();
+    ///
+    /// assert_eq!(schema.name, "people");
+    /// assert_eq!(schema.fields["name"].ty, JsonPrimitive::String);
+    /// ```
     pub fn schema_with_refs_of(&self, collection_name: &str) -> Option<SchemaWithRefs> {
         let guard = self.internal_db.read().ok()?;
         let coll = guard.get(collection_name)?;
@@ -311,7 +733,6 @@ impl Db {
 
         Some(SchemaWithRefs::new(collection_name, &schema, self))
     }
-
 }
 
 impl SchemaProvider for Db {
@@ -326,11 +747,14 @@ impl SchemaProvider for Db {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use crate::database::{DbConfig, IdType};
+    use serde_json::json;
 
     fn mk_db() -> Db {
-        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
         let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "cat": "a", "amt": 10.0 },
@@ -387,7 +811,9 @@ mod tests {
             WHERE id = ?
         "#;
 
-        let rows = db.query_with_args(sql, json!(3)).expect("query should succeed");
+        let rows = db
+            .query_with_args(sql, json!(3))
+            .expect("query should succeed");
         assert_eq!(rows.len(), 1);
 
         let obj = rows[0].as_object().unwrap();
@@ -406,7 +832,9 @@ mod tests {
             ORDER BY id
         "#;
 
-        let rows = db.query_with_args(sql, json!([[2, 3]])).expect("query should succeed");
+        let rows = db
+            .query_with_args(sql, json!([[2, 3]]))
+            .expect("query should succeed");
         assert_eq!(rows.len(), 2);
 
         let obj = rows[0].as_object().unwrap();
@@ -424,13 +852,15 @@ mod tests {
     fn db_runner_in_with_empty_array_param_returns_no_rows() {
         let db = mk_db();
         // WHERE id IN (?) with [] should match nothing
-        let rows = db.query_with_args(
-            r#"
+        let rows = db
+            .query_with_args(
+                r#"
                 SELECT id FROM t
                 WHERE id IN (?)
             "#,
-            serde_json::json!([[]]),
-        ).expect("query should succeed");
+                serde_json::json!([[]]),
+            )
+            .expect("query should succeed");
         assert!(rows.is_empty());
     }
 
@@ -438,19 +868,19 @@ mod tests {
     fn db_runner_multiple_positional_params() {
         let db = mk_db();
         // Two ? scalars, both must be provided in order
-        let rows = db.query_with_args(
-            r#"
+        let rows = db
+            .query_with_args(
+                r#"
                 SELECT id, cat
                 FROM t
                 WHERE id >= ? AND cat = ?
                 ORDER BY id
             "#,
-            serde_json::json!([2, "a"]),
-        ).expect("query should succeed");
+                serde_json::json!([2, "a"]),
+            )
+            .expect("query should succeed");
         // Expect rows with id >= 2 and cat='a' -> ids 2 and 5 in mk_db fixture
-        let ids: Vec<i64> = rows.iter()
-            .map(|r| r["id"].as_i64().unwrap())
-            .collect();
+        let ids: Vec<i64> = rows.iter().map(|r| r["id"].as_i64().unwrap()).collect();
         assert_eq!(ids, vec![2, 5]);
     }
 
@@ -464,7 +894,8 @@ mod tests {
             WHERE cat = ?
             ORDER BY c DESC
         "#;
-        let rows = db.query_with_args(sql, serde_json::json!("a"))
+        let rows = db
+            .query_with_args(sql, serde_json::json!("a"))
             .expect("query should succeed");
         // All rows have cat='a' -> UPPER('a') == 'A'
         assert!(!rows.is_empty());
@@ -484,7 +915,8 @@ mod tests {
             WHERE id IN (1, ?)
             ORDER BY id
         "#;
-        let rows = db.query_with_args(sql, serde_json::json!([[2, 3]]))
+        let rows = db
+            .query_with_args(sql, serde_json::json!([[2, 3]]))
             .expect("query should succeed");
         let ids: Vec<i64> = rows.iter().map(|r| r["id"].as_i64().unwrap()).collect();
         assert_eq!(ids, vec![1, 2, 3]);
@@ -522,9 +954,9 @@ mod tests {
 
     #[test]
     fn test_db_load_from_file() {
-        use tempfile::TempDir;
-        use std::{fs::File, io::Write, ffi::OsString};
         use serde_json::json;
+        use std::{ffi::OsString, fs::File, io::Write};
+        use tempfile::TempDir;
 
         // Create temp JSON file for loading
         let tmp = TempDir::new().unwrap();
@@ -559,9 +991,9 @@ mod tests {
 
     #[test]
     fn test_db_write_to_file() {
-        use tempfile::TempDir;
-        use std::{ffi::OsString, fs};
         use serde_json::json;
+        use std::{ffi::OsString, fs};
+        use tempfile::TempDir;
 
         // Setup and write to file
         let tmp = TempDir::new().unwrap();

@@ -326,8 +326,8 @@ impl InternalMemoryCollection {
 
                     // Extract the ID from the item using the configured id_key
                     if let Some(id) = id {
-                        let duplicate_none_id =
-                            self.config.id_type == IdType::None && self.collection.contains_key(&id);
+                        let duplicate_none_id = self.config.id_type == IdType::None
+                            && self.collection.contains_key(&id);
                         if duplicate_none_id {
                             continue;
                         }
@@ -509,6 +509,20 @@ impl DbCollection {
     /// Create a new `DbCollection` backed by an internal in-memory collection.
     ///
     /// `name` is the collection name and `config` controls id strategy and key.
+    ///
+    /// Most users create collections through [`Db::create`](crate::Db::create)
+    /// or [`Db::create_with_config`](crate::Db::create_with_config), which
+    /// register the collection in a database.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    ///
+    /// assert_eq!(people.get_name(), "people");
+    /// ```
     pub fn new_coll(name: &str, config: DbConfig) -> Self {
         Self {
             collection: InternalMemoryCollection::new_coll(name, config).into_protected(),
@@ -518,6 +532,19 @@ impl DbCollection {
     /// Get the default reference field name for this collection based on its name and id key.
     ///
     /// For a collection named `users` with id key `id`, this returns `user_id`.
+    ///
+    /// This value is used by [`Db::infer_reference`](crate::Db::infer_reference)
+    /// when it searches for conventional foreign-key-like fields.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    ///
+    /// let users = DbCollection::new_coll("users", DbConfig::int("id"));
+    ///
+    /// assert_eq!(users.get_reference_column_name(), "user_id");
+    /// ```
     pub fn get_reference_column_name(&self) -> String {
         self.collection.read().unwrap().get_reference_column_name()
     }
@@ -526,12 +553,44 @@ impl DbCollection {
     ///
     /// This clones stored JSON values and is intended for small collections or
     /// tests; prefer paginated access for large datasets.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    /// people.add(json!({ "id": 1, "name": "Ada" }));
+    ///
+    /// let all = people.get_all();
+    ///
+    /// assert_eq!(all[0]["name"], "Ada");
+    /// ```
     pub fn get_all(&self) -> Vec<Value> {
         self.collection.read().unwrap().get_all()
     }
 
     /// Return a page of documents starting at `offset` with at most `limit`
     /// items.
+    ///
+    /// `offset` is zero-based. If `offset` is past the end of the collection,
+    /// an empty vector is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    /// people.add_batch(json!([{ "name": "Ada" }, { "name": "Grace" }]));
+    ///
+    /// let page = people.get_paginated(1, 1);
+    ///
+    /// assert_eq!(page.len(), 1);
+    /// assert_eq!(page[0]["name"], "Grace");
+    /// ```
     pub fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
         self.collection.read().unwrap().get_paginated(offset, limit)
     }
@@ -548,17 +607,59 @@ impl DbCollection {
             .get_filtered_by_columns_values(columns_values, expansion_type, db)
     }
 
-    /// Retrieve a single document by its string id.
+    /// Retrieve a single document by id.
+    ///
+    /// Ids are addressed as strings even when the stored id value is numeric.
+    /// The returned value is a clone of the stored JSON document.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    /// people.add(json!({ "name": "Ada" }));
+    ///
+    /// let ada = people.get("1").unwrap();
+    ///
+    /// assert_eq!(ada["name"], "Ada");
+    /// ```
     pub fn get(&self, id: &str) -> Option<Value> {
         self.collection.read().unwrap().get(id)
     }
 
     /// Check whether a document with `id` exists in the collection.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    /// people.add(json!({ "id": "ada", "name": "Ada" }));
+    ///
+    /// assert!(people.exists("ada"));
+    /// assert!(!people.exists("grace"));
+    /// ```
     pub fn exists(&self, id: &str) -> bool {
         self.collection.read().unwrap().exists(id)
     }
 
     /// Return the number of documents currently stored in the collection.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    /// people.add_batch(json!([{ "name": "Ada" }, { "name": "Grace" }]));
+    ///
+    /// assert_eq!(people.count(), 2);
+    /// ```
     pub fn count(&self) -> usize {
         self.collection.read().unwrap().count()
     }
@@ -569,24 +670,107 @@ impl DbCollection {
     /// id and insert it into the document. Returns the stored document on
     /// success (with id populated) or `None` if the item could not be added
     /// (for example when ids are required but missing).
+    ///
+    /// The input must be a JSON object. For `IdType::Int` and `IdType::Uuid`,
+    /// an id is generated when the configured id key is absent. For
+    /// `IdType::None`, the document must contain the configured id key.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    ///
+    /// let inserted = people.add(json!({ "name": "Ada" })).unwrap();
+    ///
+    /// assert_eq!(inserted["id"], 1);
+    /// assert_eq!(inserted["name"], "Ada");
+    /// ```
     pub fn add(&self, item: Value) -> Option<Value> {
         self.collection.write().unwrap().add(item)
     }
 
     /// Add multiple items from a JSON array value; returns the subset of
     /// items that were actually added.
+    ///
+    /// Non-array input returns an empty vector. Items that cannot be added
+    /// are skipped, while valid later items may still be inserted.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    ///
+    /// let inserted = people.add_batch(json!([
+    ///     { "id": "ada", "name": "Ada" },
+    ///     { "id": "grace", "name": "Grace" }
+    /// ]));
+    ///
+    /// assert_eq!(inserted.len(), 2);
+    /// assert_eq!(people.count(), 2);
+    /// ```
     pub fn add_batch(&self, items: Value) -> Vec<Value> {
         self.collection.write().unwrap().add_batch(items)
     }
 
     /// Replace the document with id `id` with `item`. Returns the stored
     /// document on success or `None` if the id was not present.
+    ///
+    /// This is a full replacement. Fields not present in `item` are removed
+    /// from the stored document, except for id handling performed by the
+    /// collection.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    /// people.add(json!({ "id": "ada", "name": "Ada", "age": 37 }));
+    ///
+    /// let updated = people
+    ///     .update("ada", json!({ "id": "ada", "name": "Ada Lovelace" }))
+    ///     .unwrap();
+    ///
+    /// assert_eq!(updated["name"], "Ada Lovelace");
+    /// assert!(updated.get("age").is_none());
+    /// ```
     pub fn update(&self, id: &str, item: Value) -> Option<Value> {
         self.collection.write().unwrap().update(id, item)
     }
 
     /// Apply a partial update to the document with `id` by merging JSON
     /// values; returns the updated document or `None` if the id is not found.
+    ///
+    /// Object fields are merged recursively. Non-object values replace the
+    /// existing value at that field.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    /// people.add(json!({
+    ///     "id": "ada",
+    ///     "name": "Ada",
+    ///     "profile": { "city": "London" }
+    /// }));
+    ///
+    /// let updated = people
+    ///     .update_partial("ada", json!({ "profile": { "role": "engineer" } }))
+    ///     .unwrap();
+    ///
+    /// assert_eq!(updated["profile"]["city"], "London");
+    /// assert_eq!(updated["profile"]["role"], "engineer");
+    /// ```
     pub fn update_partial(&self, id: &str, partial_item: Value) -> Option<Value> {
         self.collection
             .write()
@@ -595,17 +779,65 @@ impl DbCollection {
     }
 
     /// Remove and return the document with `id` if it exists.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    /// people.add(json!({ "id": "ada", "name": "Ada" }));
+    ///
+    /// let removed = people.delete("ada").unwrap();
+    ///
+    /// assert_eq!(removed["name"], "Ada");
+    /// assert!(!people.exists("ada"));
+    /// ```
     pub fn delete(&self, id: &str) -> Option<Value> {
         self.collection.write().unwrap().delete(id)
     }
 
     /// Remove all documents and return the number of removed items.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    /// people.add_batch(json!([{ "name": "Ada" }, { "name": "Grace" }]));
+    ///
+    /// assert_eq!(people.clear(), 2);
+    /// assert_eq!(people.count(), 0);
+    /// ```
     pub fn clear(&self) -> usize {
         self.collection.write().unwrap().clear()
     }
 
     /// Load documents from a serde_json `Value` (must be an array) and return
     /// the list of items actually added. Errors if the value is not an array.
+    ///
+    /// If `keep` is `true`, existing ids in the input are preserved where
+    /// possible. If `keep` is `false`, ids may be regenerated according to
+    /// the collection configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    ///
+    /// let inserted = people
+    ///     .load_from_json(json!([{ "id": 1, "name": "Ada" }]), true)
+    ///     .unwrap();
+    ///
+    /// assert_eq!(inserted.len(), 1);
+    /// assert_eq!(people.get("1").unwrap()["name"], "Ada");
+    /// ```
     pub fn load_from_json(&self, json_value: Value, keep: bool) -> Result<Vec<Value>, String> {
         self.collection
             .write()
@@ -615,11 +847,45 @@ impl DbCollection {
 
     /// Load documents from a file path. Returns a human-readable status on
     /// success or an error string on failure.
+    ///
+    /// The file must contain a JSON array of documents.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use fosk::{DbCollection, DbConfig};
+    /// use std::ffi::OsString;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    /// let status = people.load_from_file(&OsString::from("people.json"))?;
+    ///
+    /// println!("{status}");
+    /// # Ok::<(), String>(())
+    /// ```
     pub fn load_from_file(&self, file_path: &OsString) -> Result<String, String> {
         self.collection.write().unwrap().load_from_file(file_path)
     }
 
-    /// Save collection to a file path.
+    /// Save this collection to a pretty-printed JSON file.
+    ///
+    /// The file contains a JSON array of all stored documents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error only if serialization fails after the file is created.
+    /// File creation currently panics if the path cannot be opened.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use fosk::{DbCollection, DbConfig};
+    /// use std::ffi::OsString;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    ///
+    /// people.write_to_file(&OsString::from("people.json"))?;
+    /// # Ok::<(), String>(())
+    /// ```
     pub fn write_to_file(&self, file_path: &OsString) -> Result<(), String> {
         let file = std::fs::File::create(file_path).expect("Failed to create json file");
         let mut w = BufWriter::new(file);
@@ -633,6 +899,29 @@ impl DbCollection {
     ///
     /// `expansion` specifies which related collection to include. For example,
     /// calling `expand_row(row, "orders.items", &db)` will nest `items` under `orders`.
+    ///
+    /// References must be registered first with
+    /// [`Db::create_reference`](crate::Db::create_reference) or
+    /// [`Db::infer_reference`](crate::Db::infer_reference).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// let people = db.create("people");
+    /// let orders = db.create("orders");
+    ///
+    /// people.add(json!({ "id": 1, "name": "Ada" }));
+    /// orders.add(json!({ "id": 10, "person_id": 1 }));
+    /// db.create_reference("orders", "person_id", "people", "id");
+    ///
+    /// let expanded = orders.expand_row(&orders.get("10").unwrap(), "people", &db);
+    ///
+    /// assert_eq!(expanded["people"][0]["name"], "Ada");
+    /// ```
     pub fn expand_row(&self, row: &Value, expansion: &str, db: &Db) -> Value {
         self.collection
             .read()
@@ -643,6 +932,25 @@ impl DbCollection {
     /// Expand each JSON `Value` in a list by applying the same expansion chain.
     ///
     /// Returns a new `Vec<Value>` where each element has been passed through `expand_row`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// let people = db.create("people");
+    /// let orders = db.create("orders");
+    ///
+    /// people.add(json!({ "id": 1, "name": "Ada" }));
+    /// orders.add(json!({ "id": 10, "person_id": 1 }));
+    /// db.create_reference("orders", "person_id", "people", "id");
+    ///
+    /// let expanded = orders.expand_list(orders.get_all(), "people", &db);
+    ///
+    /// assert_eq!(expanded[0]["people"][0]["name"], "Ada");
+    /// ```
     pub fn expand_list(&self, list: Vec<Value>, expansion: &str, db: &Db) -> Vec<Value> {
         self.collection
             .read()
@@ -652,16 +960,53 @@ impl DbCollection {
 
     /// Return the optionally-inferred `SchemaDict` for this collection (if
     /// any documents have been added that allowed schema inference).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig, JsonPrimitive};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    /// people.add(json!({ "id": 1, "name": "Ada" }));
+    ///
+    /// let schema = people.schema().unwrap();
+    ///
+    /// assert_eq!(schema.fields["name"].ty, JsonPrimitive::String);
+    /// ```
     pub fn schema(&self) -> Option<SchemaDict> {
         self.collection.read().ok().and_then(|g| g.schema())
     }
 
-    /// Get the collection name
+    /// Return the collection name.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    ///
+    /// assert_eq!(people.get_name(), "people");
+    /// ```
     pub fn get_name(&self) -> String {
         self.collection.read().unwrap().name.clone()
     }
 
-    /// Get the collection DBConfig
+    /// Return this collection's configuration.
+    ///
+    /// The returned value is a clone. Mutating it does not affect the
+    /// collection.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    ///
+    /// assert_eq!(people.get_config(), DbConfig::none("id"));
+    /// ```
     pub fn get_config(&self) -> DbConfig {
         self.collection.read().unwrap().config.clone()
     }

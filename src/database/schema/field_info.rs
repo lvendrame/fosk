@@ -20,10 +20,26 @@ impl FieldInfo {
     /// Infer a `FieldInfo` from a single `serde_json::Value`.
     ///
     /// If the value is `null` the returned `FieldInfo` will have `nullable = true`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{FieldInfo, JsonPrimitive};
+    /// use serde_json::json;
+    ///
+    /// let info = FieldInfo::infer_field_info(&json!("Ada"));
+    ///
+    /// assert_eq!(info.ty, JsonPrimitive::String);
+    /// assert!(!info.nullable);
+    /// ```
     pub fn infer_field_info(value: &Value) -> FieldInfo {
         let ty = JsonPrimitive::of_value(value);
         FieldInfo {
-            ty: if ty == JsonPrimitive::Null { JsonPrimitive::Null } else { ty },
+            ty: if ty == JsonPrimitive::Null {
+                JsonPrimitive::Null
+            } else {
+                ty
+            },
             nullable: ty == JsonPrimitive::Null,
         }
     }
@@ -31,10 +47,28 @@ impl FieldInfo {
     /// Merge this `FieldInfo` with another observation returning the promoted
     /// result. Promotion handles numeric widening (Int -> Float) and
     /// preserves nullability if either side is nullable.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{FieldInfo, JsonPrimitive};
+    /// use serde_json::json;
+    ///
+    /// let int_info = FieldInfo::infer_field_info(&json!(1));
+    /// let float_info = FieldInfo::infer_field_info(&json!(1.5));
+    ///
+    /// let merged = int_info.merge_field_info(&float_info);
+    ///
+    /// assert_eq!(merged.ty, JsonPrimitive::Float);
+    /// ```
     pub fn merge_field_info(&self, new: &FieldInfo) -> FieldInfo {
         let promoted = JsonPrimitive::promote(self.ty, new.ty);
         FieldInfo {
-            ty: if promoted == JsonPrimitive::Null { self.ty } else { promoted },
+            ty: if promoted == JsonPrimitive::Null {
+                self.ty
+            } else {
+                promoted
+            },
             nullable: self.nullable || new.nullable || new.ty == JsonPrimitive::Null,
         }
     }
@@ -46,8 +80,14 @@ mod tests {
 
     #[test]
     fn test_type_promotion_int_to_float() {
-        let a = FieldInfo { ty: JsonPrimitive::Int,   nullable: false };
-        let b = FieldInfo { ty: JsonPrimitive::Float, nullable: false };
+        let a = FieldInfo {
+            ty: JsonPrimitive::Int,
+            nullable: false,
+        };
+        let b = FieldInfo {
+            ty: JsonPrimitive::Float,
+            nullable: false,
+        };
         let c = a.merge_field_info(&b);
         assert_eq!(c.ty, JsonPrimitive::Float);
         assert!(!c.nullable);

@@ -16,17 +16,44 @@ pub struct DbConfig {
 
 impl Default for DbConfig {
     fn default() -> Self {
-        Self { id_type: Default::default(), id_key: "id".to_string() }
+        Self {
+            id_type: Default::default(),
+            id_key: "id".to_string(),
+        }
     }
 }
 
 impl DbConfig {
-    /// Create default configuration.
+    /// Create the default configuration.
+    ///
+    /// Equivalent to [`DbConfig::default`]: UUID ids stored under `"id"`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbConfig, IdType};
+    ///
+    /// let config = DbConfig::new();
+    ///
+    /// assert_eq!(config.id_type, IdType::Uuid);
+    /// assert_eq!(config.id_key, "id");
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Create a configuration with explicit `id_type` and `id_key`.
+    /// Create a configuration with explicit [`IdType`] and id key.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbConfig, IdType};
+    ///
+    /// let config = DbConfig::from(IdType::Int, "row_id");
+    ///
+    /// assert_eq!(config.id_type, IdType::Int);
+    /// assert_eq!(config.id_key, "row_id");
+    /// ```
     pub fn from(id_type: IdType, id_key: &str) -> Self {
         Self {
             id_type,
@@ -34,7 +61,19 @@ impl DbConfig {
         }
     }
 
-    /// Convenience: create a config for integer ids using `id_key`.
+    /// Create a configuration that generates sequential integer ids.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
+    /// let inserted = people.add(json!({ "name": "Ada" })).unwrap();
+    ///
+    /// assert_eq!(inserted["id"], 1);
+    /// ```
     pub fn int(id_key: &str) -> Self {
         Self {
             id_type: IdType::Int,
@@ -42,7 +81,19 @@ impl DbConfig {
         }
     }
 
-    /// Convenience: create a config for UUID ids using `id_key`.
+    /// Create a configuration that generates UUID string ids.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::uuid("id"));
+    /// let inserted = people.add(json!({ "name": "Ada" })).unwrap();
+    ///
+    /// assert!(inserted["id"].as_str().unwrap().contains('-'));
+    /// ```
     pub fn uuid(id_key: &str) -> Self {
         Self {
             id_type: IdType::Uuid,
@@ -50,8 +101,22 @@ impl DbConfig {
         }
     }
 
-    /// Convenience: create a config with no id generation; caller must
-    /// provide ids in documents under `id_key`.
+    /// Create a configuration with no automatic id generation.
+    ///
+    /// Callers must provide ids in documents under `id_key`; documents without
+    /// that key are rejected.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{DbCollection, DbConfig};
+    /// use serde_json::json;
+    ///
+    /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
+    ///
+    /// assert!(people.add(json!({ "id": "ada", "name": "Ada" })).is_some());
+    /// assert!(people.add(json!({ "name": "Grace" })).is_none());
+    /// ```
     pub fn none(id_key: &str) -> Self {
         Self {
             id_type: IdType::None,
@@ -59,4 +124,3 @@ impl DbConfig {
         }
     }
 }
-

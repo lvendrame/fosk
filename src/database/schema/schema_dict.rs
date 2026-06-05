@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
-use crate::{database::{FieldInfo, ReferenceColumn}, Db};
+use crate::{
+    Db,
+    database::{FieldInfo, ReferenceColumn},
+};
 
 /// A small dictionary describing the inferred schema for a collection.
 ///
@@ -18,12 +21,42 @@ pub struct SchemaDict {
 
 impl SchemaDict {
     /// Return the `FieldInfo` for a field name if present.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{JsonPrimitive, SchemaDict};
+    /// use serde_json::json;
+    ///
+    /// let object = json!({ "name": "Ada" }).as_object().unwrap().clone();
+    /// let schema = SchemaDict::infer_schema_from_object(&object);
+    ///
+    /// assert_eq!(schema.get("name").unwrap().ty, JsonPrimitive::String);
+    /// assert!(schema.get("missing").is_none());
+    /// ```
     pub fn get(&self, name: &str) -> Option<&FieldInfo> {
         self.fields.get(name)
     }
 
     /// Build a `SchemaDict` from a single JSON object by inferring each field's
     /// primitive type and nullability.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{JsonPrimitive, SchemaDict};
+    /// use serde_json::json;
+    ///
+    /// let object = json!({ "id": 1, "name": "Ada" })
+    ///     .as_object()
+    ///     .unwrap()
+    ///     .clone();
+    ///
+    /// let schema = SchemaDict::infer_schema_from_object(&object);
+    ///
+    /// assert_eq!(schema.fields["id"].ty, JsonPrimitive::Int);
+    /// assert_eq!(schema.fields["name"].ty, JsonPrimitive::String);
+    /// ```
     pub fn infer_schema_from_object(obj: &Map<String, Value>) -> SchemaDict {
         let mut fields = IndexMap::new();
         for (k, v) in obj {
@@ -36,6 +69,24 @@ impl SchemaDict {
     /// Merge a new JSON object into the schema, promoting types where
     /// necessary and marking fields as nullable if they are absent or null in
     /// the new object.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{JsonPrimitive, SchemaDict};
+    /// use serde_json::json;
+    ///
+    /// let mut schema = SchemaDict::default();
+    ///
+    /// let first = json!({ "id": 1, "age": 37 }).as_object().unwrap().clone();
+    /// schema.merge_schema(&first);
+    ///
+    /// let second = json!({ "id": 2 }).as_object().unwrap().clone();
+    /// schema.merge_schema(&second);
+    ///
+    /// assert_eq!(schema.fields["age"].ty, JsonPrimitive::Int);
+    /// assert!(schema.fields["age"].nullable);
+    /// ```
     pub fn merge_schema(&mut self, obj: &Map<String, Value>) {
         // First, mark missing keys as nullable (they weren't present on this row)
         // (Optional) If you want "missing means nullable", uncomment:
@@ -60,17 +111,40 @@ impl SchemaDict {
     }
 }
 
-
+/// A collection schema combined with registered inbound and outbound references.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SchemaWithRefs {
+    /// Collection name this schema describes.
     pub name: String,
     /// Map of field name -> field metadata
     pub fields: IndexMap<String, FieldInfo>,
+    /// References from this collection to other collections, keyed by field name.
     pub outbound_refs: HashMap<String, ReferenceColumn>,
+    /// References from other collections to this collection, keyed by field name.
     pub inbound_refs: HashMap<String, ReferenceColumn>,
 }
 
 impl SchemaWithRefs {
+    /// Build schema metadata with references for `collection_name`.
+    ///
+    /// Most callers use [`Db::schema_with_refs_of`](crate::Db::schema_with_refs_of)
+    /// instead of constructing this value directly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fosk::{Db, DbConfig, SchemaWithRefs};
+    /// use serde_json::json;
+    ///
+    /// let db = Db::new_with_config(DbConfig::none("id"));
+    /// let people = db.create("people");
+    /// people.add(json!({ "id": 1, "name": "Ada" }));
+    ///
+    /// let schema = people.schema().unwrap();
+    /// let with_refs = SchemaWithRefs::new("people", &schema, &db);
+    ///
+    /// assert_eq!(with_refs.name, "people");
+    /// ```
     pub fn new(collection_name: &str, schema_dict: &SchemaDict, db: &Db) -> Self {
         let fields = schema_dict.fields.clone();
         let mut outbound_refs = HashMap::new();
@@ -86,7 +160,12 @@ impl SchemaWithRefs {
             }
         }
 
-        Self { name: collection_name.to_string(), fields, outbound_refs, inbound_refs }
+        Self {
+            name: collection_name.to_string(),
+            fields,
+            outbound_refs,
+            inbound_refs,
+        }
     }
 }
 
@@ -102,7 +181,10 @@ mod tests {
         let mut s = SchemaDict::default();
 
         // first row: present "age" as Int
-        let r1 = json!({"id": 1, "name": "Ana", "age": 30}).as_object().unwrap().clone();
+        let r1 = json!({"id": 1, "name": "Ana", "age": 30})
+            .as_object()
+            .unwrap()
+            .clone();
         s.merge_schema(&r1);
         assert_eq!(s.get("age").unwrap().ty, JsonPrimitive::Int);
         assert!(!s.get("age").unwrap().nullable);
@@ -114,7 +196,10 @@ mod tests {
         assert!(!s.get("name").unwrap().nullable);
 
         // third row: age is explicitly null -> nullable remains true
-        let r3 = json!({"id": 3, "name": "Cara", "age": null}).as_object().unwrap().clone();
+        let r3 = json!({"id": 3, "name": "Cara", "age": null})
+            .as_object()
+            .unwrap()
+            .clone();
         s.merge_schema(&r3);
         assert!(s.get("age").unwrap().nullable);
     }
@@ -126,7 +211,10 @@ mod tests {
         s.merge_schema(&r1);
         assert!(s.get("email").is_none());
 
-        let r2 = json!({"id": 2, "name": "Bob", "email": "b@x.com"}).as_object().unwrap().clone();
+        let r2 = json!({"id": 2, "name": "Bob", "email": "b@x.com"})
+            .as_object()
+            .unwrap()
+            .clone();
         s.merge_schema(&r2);
         let email = s.get("email").unwrap();
         assert_eq!(email.ty, JsonPrimitive::String);
@@ -136,12 +224,12 @@ mod tests {
     #[test]
     fn test_numeric_promotion_over_time() {
         let mut s = SchemaDict::default();
-        let r1 = json!({"price": 10}).as_object().unwrap().clone();      // Int
+        let r1 = json!({"price": 10}).as_object().unwrap().clone(); // Int
         s.merge_schema(&r1);
         assert_eq!(s.get("price").unwrap().ty, JsonPrimitive::Int);
 
-        let r2 = json!({"price": 10.5}).as_object().unwrap().clone();    // Float
+        let r2 = json!({"price": 10.5}).as_object().unwrap().clone(); // Float
         s.merge_schema(&r2);
-        assert_eq!(s.get("price").unwrap().ty, JsonPrimitive::Float);    // promoted
+        assert_eq!(s.get("price").unwrap().ty, JsonPrimitive::Float); // promoted
     }
 }
