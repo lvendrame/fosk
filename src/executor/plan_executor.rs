@@ -274,21 +274,72 @@ impl PlanExecutor {
 
     // Build key sets for null-extension; prefer schema if the side is a Scan.
     fn keyset_for_side(side_plan: &LogicalPlan, rows: &Vec<Value>, db: &Db) -> BTreeSet<String> {
-        let mut keys: BTreeSet<String> = BTreeSet::new();
-        if let LogicalPlan::Scan { backing, visible } = side_plan {
-            if let Some(schema) = db.schema_of(backing) {
-                for (col, _fi) in schema.fields {
-                    keys.insert(format!("{}.{}", visible, col));
-                }
-                return keys;
-            }
+        let derived = Self::keyset_for_plan(side_plan, db);
+        if !derived.is_empty() {
+            return derived;
         }
+
+        let mut keys: BTreeSet<String> = BTreeSet::new();
         // fallback to observed row keys
         for v in rows {
             if let Some(m) = v.as_object() {
                 for k in m.keys() {
                     keys.insert(k.clone());
                 }
+            }
+        }
+        keys
+    }
+
+    fn keyset_for_plan(plan: &LogicalPlan, db: &Db) -> BTreeSet<String> {
+        let mut keys = BTreeSet::new();
+        match plan {
+            LogicalPlan::Scan { backing, visible } => {
+                if let Some(schema) = db.schema_of(backing) {
+                    for (col, _fi) in schema.fields {
+                        keys.insert(format!("{}.{}", visible, col));
+                    }
+                }
+            }
+            LogicalPlan::Filter { input, .. }
+            | LogicalPlan::Sort { input, .. }
+            | LogicalPlan::Limit { input, .. } => {
+                keys.extend(Self::keyset_for_plan(input, db));
+            }
+            LogicalPlan::Project { exprs, .. } => {
+                for id in exprs {
+                    keys.insert(id.output_name.clone());
+                }
+            }
+            LogicalPlan::Aggregate {
+                group_keys, aggs, ..
+            } => {
+                for c in group_keys {
+                    let key = match c {
+                        Column::WithCollection { collection, name } => {
+                            format!("{}.{}", collection, name)
+                        }
+                        Column::Name { name } => name.clone(),
+                    };
+                    keys.insert(key);
+                }
+
+                let mut used = keys.clone();
+                for call in aggs {
+                    let base = call.func.to_ascii_lowercase();
+                    let mut name = base.clone();
+                    let mut k = 1usize;
+                    while used.contains(&name) {
+                        name = format!("{}_{}", base, k);
+                        k += 1;
+                    }
+                    used.insert(name.clone());
+                    keys.insert(name);
+                }
+            }
+            LogicalPlan::Join { left, right, .. } => {
+                keys.extend(Self::keyset_for_plan(left, db));
+                keys.extend(Self::keyset_for_plan(right, db));
             }
         }
         keys
@@ -305,6 +356,29 @@ impl PlanExecutor {
         let mut groups: HashMap<String, GroupEntry> = HashMap::new();
         let registry = AggregateRegistry::default_aggregate_registry();
         let mut distinct: HashMap<(String, usize), HashSet<String>> = HashMap::new();
+
+        if rows.is_empty() && group_keys.is_empty() {
+            let accs: Vec<Box<dyn AggAcc>> = calls
+                .iter()
+                .map(|call| registry.get(&call.func).unwrap().create_accumulator())
+                .collect();
+            let mut m = Map::new();
+            let mut used = HashSet::new();
+
+            for (call, acc) in calls.iter().zip(accs.iter()) {
+                let base = call.func.to_ascii_lowercase();
+                let mut name = base.clone();
+                let mut k = 1usize;
+                while used.contains(&name) {
+                    name = format!("{}_{}", base, k);
+                    k += 1;
+                }
+                used.insert(name.clone());
+                m.insert(name, acc.finalize());
+            }
+
+            return Ok(vec![Value::Object(m)]);
+        }
 
         for v in rows {
             let obj = v.as_object().unwrap();
@@ -1120,6 +1194,56 @@ mod tests {
     }
 
     #[test]
+    fn left_join_null_ext_derives_keys_for_empty_nested_join_side() {
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
+        let l = db.create("l");
+        let r1 = db.create("r1");
+        let r2 = db.create("r2");
+
+        l.add_batch(json!([{ "id": 1, "name": "left" }]));
+        r1.add_batch(json!([{ "id": 10, "l_id": 1, "a": "a" }]));
+        r2.add_batch(json!([{ "id": 20, "r1_id": 10, "b": "b" }]));
+        r1.clear();
+        r2.clear();
+
+        let nested_empty_right = LogicalPlan::Join {
+            left: Box::new(LogicalPlan::Scan {
+                backing: "r1".into(),
+                visible: "r1".into(),
+            }),
+            right: Box::new(LogicalPlan::Scan {
+                backing: "r2".into(),
+                visible: "r2".into(),
+            }),
+            join_type: JoinType::Inner,
+            on: Predicate::Const3(Truth::True),
+        };
+        let plan = LogicalPlan::Join {
+            left: Box::new(LogicalPlan::Scan {
+                backing: "l".into(),
+                visible: "l".into(),
+            }),
+            right: Box::new(nested_empty_right),
+            join_type: JoinType::Left,
+            on: Predicate::Const3(Truth::True),
+        };
+
+        let rows = PlanExecutor::run_plan(&plan, &db).expect("left join should execute");
+        assert_eq!(rows.len(), 1);
+        let obj = rows[0].as_object().unwrap();
+        assert_eq!(obj["l.name"], json!("left"));
+        for key in ["r1.id", "r1.l_id", "r1.a", "r2.id", "r2.r1_id", "r2.b"] {
+            assert!(
+                obj.get(key).is_some_and(Value::is_null),
+                "expected {key} to be present and null in {obj:?}"
+            );
+        }
+    }
+
+    #[test]
     fn keyset_for_side_scan_uses_schema_with_visible_prefix() {
         let db = mk_db();
         let t = db.create("t");
@@ -1197,5 +1321,163 @@ mod tests {
 
         let keys = PlanExecutor::keyset_for_side(&plan, &rows, &db);
         assert!(keys.is_empty());
+    }
+
+    #[test]
+    fn keyset_for_plan_derives_project_and_aggregate_output_names() {
+        let db = mk_db();
+        let project = LogicalPlan::Project {
+            input: Box::new(LogicalPlan::Scan {
+                backing: "t".into(),
+                visible: "t".into(),
+            }),
+            exprs: vec![AnalyzedIdentifier {
+                expression: ScalarExpr::Column(Column::Name { name: "x".into() }),
+                alias: None,
+                ty: JsonPrimitive::String,
+                nullable: false,
+                output_name: "projected_x".into(),
+            }],
+        };
+        let aggregate = LogicalPlan::Aggregate {
+            input: Box::new(project),
+            group_keys: vec![
+                Column::WithCollection {
+                    collection: "t".into(),
+                    name: "grp".into(),
+                },
+                Column::Name { name: "sum".into() },
+            ],
+            aggs: vec![
+                AggregateCall {
+                    func: "sum".into(),
+                    args: vec![ScalarExpr::Column(Column::WithCollection {
+                        collection: "t".into(),
+                        name: "v".into(),
+                    })],
+                    distinct: false,
+                },
+                AggregateCall {
+                    func: "sum".into(),
+                    args: vec![ScalarExpr::Column(Column::WithCollection {
+                        collection: "t".into(),
+                        name: "v2".into(),
+                    })],
+                    distinct: false,
+                },
+            ],
+        };
+
+        let project_keys = PlanExecutor::keyset_for_plan(
+            match &aggregate {
+                LogicalPlan::Aggregate { input, .. } => input,
+                _ => unreachable!(),
+            },
+            &db,
+        );
+        let aggregate_keys = PlanExecutor::keyset_for_plan(&aggregate, &db);
+
+        assert_eq!(project_keys, BTreeSet::from_iter(["projected_x".to_string()]));
+        assert_eq!(
+            aggregate_keys,
+            BTreeSet::from_iter([
+                "t.grp".to_string(),
+                "sum".to_string(),
+                "sum_1".to_string(),
+                "sum_2".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn keyset_for_plan_recurses_through_filter_sort_limit_and_join() {
+        let db = mk_db();
+        let left = LogicalPlan::Limit {
+            input: Box::new(LogicalPlan::Sort {
+                input: Box::new(LogicalPlan::Filter {
+                    input: Box::new(LogicalPlan::Project {
+                        input: Box::new(LogicalPlan::Scan {
+                            backing: "left".into(),
+                            visible: "l".into(),
+                        }),
+                        exprs: vec![AnalyzedIdentifier {
+                            expression: ScalarExpr::Column(Column::Name { name: "id".into() }),
+                            alias: None,
+                            ty: JsonPrimitive::Int,
+                            nullable: false,
+                            output_name: "l_id".into(),
+                        }],
+                    }),
+                    predicate: Predicate::Const3(Truth::True),
+                }),
+                keys: vec![],
+            }),
+            limit: Some(1),
+            offset: None,
+        };
+        let right = LogicalPlan::Project {
+            input: Box::new(LogicalPlan::Scan {
+                backing: "right".into(),
+                visible: "r".into(),
+            }),
+            exprs: vec![AnalyzedIdentifier {
+                expression: ScalarExpr::Column(Column::Name { name: "id".into() }),
+                alias: None,
+                ty: JsonPrimitive::Int,
+                nullable: false,
+                output_name: "r_id".into(),
+            }],
+        };
+        let join = LogicalPlan::Join {
+            left: Box::new(left),
+            right: Box::new(right),
+            join_type: JoinType::Inner,
+            on: Predicate::Const3(Truth::True),
+        };
+
+        let keys = PlanExecutor::keyset_for_plan(&join, &db);
+
+        assert_eq!(keys, BTreeSet::from_iter(["l_id".to_string(), "r_id".to_string()]));
+    }
+
+    #[test]
+    fn default_name_for_expr_covers_all_expression_variants() {
+        assert_eq!(
+            PlanExecutor::default_name_for_expr(&ScalarExpr::Column(Column::WithCollection {
+                collection: "t".into(),
+                name: "id".into(),
+            })),
+            "t.id"
+        );
+        assert_eq!(
+            PlanExecutor::default_name_for_expr(&ScalarExpr::Column(Column::Name {
+                name: "id".into(),
+            })),
+            "id"
+        );
+        assert_eq!(
+            PlanExecutor::default_name_for_expr(&ScalarExpr::Function(Function {
+                name: "UPPER".into(),
+                args: vec![],
+                distinct: false,
+            })),
+            "upper"
+        );
+        assert_eq!(
+            PlanExecutor::default_name_for_expr(&ScalarExpr::Literal(Literal::Int(1))),
+            "_lit"
+        );
+        assert_eq!(PlanExecutor::default_name_for_expr(&ScalarExpr::WildCard), "*");
+        assert_eq!(
+            PlanExecutor::default_name_for_expr(&ScalarExpr::WildCardWithCollection("t".into())),
+            "*"
+        );
+        assert_eq!(PlanExecutor::default_name_for_expr(&ScalarExpr::Parameter), "?");
+        assert_eq!(
+            PlanExecutor::default_name_for_expr(&ScalarExpr::Args(vec![ScalarExpr::Literal(
+                Literal::Int(1)
+            )])),
+            "(...)"
+        );
     }
 }

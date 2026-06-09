@@ -49,4 +49,41 @@ impl fmt::Debug for Truth {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::Truth;
+
+    #[test]
+    fn not_uses_three_valued_logic() {
+        assert_eq!(Truth::True.not(), Truth::False);
+        assert_eq!(Truth::False.not(), Truth::True);
+        assert_eq!(Truth::Unknown.not(), Truth::Unknown);
+    }
+
+    #[test]
+    fn and_uses_three_valued_logic() {
+        assert_eq!(Truth::False.and(Truth::True), Truth::False);
+        assert_eq!(Truth::True.and(Truth::False), Truth::False);
+        assert_eq!(Truth::Unknown.and(Truth::True), Truth::Unknown);
+        assert_eq!(Truth::True.and(Truth::Unknown), Truth::Unknown);
+        assert_eq!(Truth::True.and(Truth::True), Truth::True);
+    }
+
+    #[test]
+    fn or_uses_three_valued_logic() {
+        assert_eq!(Truth::True.or(Truth::False), Truth::True);
+        assert_eq!(Truth::False.or(Truth::True), Truth::True);
+        assert_eq!(Truth::Unknown.or(Truth::False), Truth::Unknown);
+        assert_eq!(Truth::False.or(Truth::Unknown), Truth::Unknown);
+        assert_eq!(Truth::False.or(Truth::False), Truth::False);
+    }
+
+    #[test]
+    fn display_and_debug_name_truth_values() {
+        assert_eq!(Truth::True.to_string(), "True");
+        assert_eq!(Truth::False.to_string(), "False");
+        assert_eq!(Truth::Unknown.to_string(), "Unknown");
+        assert_eq!(format!("{:?}", Truth::Unknown), "Truth(Unknown)");
+    }
+}
 

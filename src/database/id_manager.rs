@@ -86,3 +86,85 @@ impl Iterator for IdManager {
         self.current.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{IdManager, IdValue};
+    use crate::IdType;
+    use serde_json::json;
+
+    #[test]
+    fn id_value_display_formats_inner_value() {
+        assert_eq!(IdValue::Int(42).to_string(), "42");
+        assert_eq!(IdValue::Uuid("abc".to_string()).to_string(), "abc");
+    }
+
+    #[test]
+    fn id_value_from_json_maps_numbers_to_int_and_others_to_uuid() {
+        assert_eq!(IdValue::from(json!(7)), IdValue::Int(7));
+        assert_eq!(IdValue::from(json!("abc")), IdValue::Uuid("abc".to_string()));
+        assert_eq!(IdValue::from(json!(true)), IdValue::Uuid("true".to_string()));
+    }
+
+    #[test]
+    fn set_current_accepts_values_matching_manager_type() {
+        let mut int_manager = IdManager::new(IdType::Int);
+        assert_eq!(int_manager.set_current(IdValue::Int(9)), Ok(()));
+        assert_eq!(int_manager.current, Some(IdValue::Int(9)));
+
+        let mut uuid_manager = IdManager::new(IdType::Uuid);
+        assert_eq!(uuid_manager.set_current(IdValue::Uuid("abc".to_string())), Ok(()));
+        assert_eq!(uuid_manager.current, Some(IdValue::Uuid("abc".to_string())));
+    }
+
+    #[test]
+    fn set_current_rejects_mismatched_or_disabled_id_types() {
+        let mut none_manager = IdManager::new(IdType::None);
+        assert_eq!(
+            none_manager.set_current(IdValue::Int(1)),
+            Err("Cannot set current value for IdType::None".to_string())
+        );
+
+        let mut int_manager = IdManager::new(IdType::Int);
+        assert_eq!(
+            int_manager.set_current(IdValue::Uuid("abc".to_string())),
+            Err("Cannot set UUID value for Int IdManager".to_string())
+        );
+
+        let mut uuid_manager = IdManager::new(IdType::Uuid);
+        assert_eq!(
+            uuid_manager.set_current(IdValue::Int(1)),
+            Err("Cannot set Int value for UUID IdManager".to_string())
+        );
+    }
+
+    #[test]
+    fn iterator_generates_int_ids_from_empty_current_and_existing_current() {
+        let mut manager = IdManager::new(IdType::Int);
+
+        assert_eq!(manager.next(), Some(IdValue::Int(1)));
+        assert_eq!(manager.next(), Some(IdValue::Int(2)));
+    }
+
+    #[test]
+    fn iterator_wraps_int_id_after_max_value() {
+        let mut manager = IdManager::new(IdType::Int);
+        manager.set_current(IdValue::Int(u64::MAX)).unwrap();
+
+        assert_eq!(manager.next(), Some(IdValue::Int(0)));
+    }
+
+    #[test]
+    fn iterator_generates_uuid_ids_and_none_for_disabled_ids() {
+        let mut uuid_manager = IdManager::new(IdType::Uuid);
+        let first = uuid_manager.next();
+        let second = uuid_manager.next();
+
+        assert!(matches!(first, Some(IdValue::Uuid(ref id)) if id.contains('-')));
+        assert!(matches!(second, Some(IdValue::Uuid(ref id)) if id.contains('-')));
+        assert_ne!(first, second);
+
+        let mut none_manager = IdManager::new(IdType::None);
+        assert_eq!(none_manager.next(), None);
+    }
+}

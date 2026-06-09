@@ -113,4 +113,36 @@ LIMIT 20
         assert_eq!(query.offset.unwrap(), 60);
         assert_eq!(query.limit.unwrap(), 20);
     }
+
+    #[test]
+    fn try_from_parses_minimal_query() {
+        let query = Query::try_from("SELECT * FROM people").expect("query should parse");
+
+        assert_eq!(query.projection.len(), 1);
+        assert_eq!(query.collections.len(), 1);
+        assert!(query.joins.is_empty());
+        assert!(query.criteria.is_none());
+        assert!(query.group_by.is_empty());
+        assert!(query.having.is_none());
+        assert!(query.order_by.is_empty());
+        assert_eq!(query.limit, None);
+        assert_eq!(query.offset, None);
+    }
+
+    #[test]
+    fn display_and_debug_include_all_query_sections() {
+        let query = Query::try_from("SELECT * FROM people LIMIT 5").expect("query should parse");
+        let display = query.to_string();
+
+        assert!(display.starts_with("Query(projection=["));
+        assert!(display.contains("collections=["));
+        assert!(display.contains("joins=[]"));
+        assert!(display.contains("criteria=None"));
+        assert!(display.contains("group_by=[]"));
+        assert!(display.contains("having=None"));
+        assert!(display.contains("order_by=[]"));
+        assert!(display.contains("limit=Some(5)"));
+        assert!(display.contains("offset=None"));
+        assert_eq!(format!("{:?}", query), format!("Query({display})"));
+    }
 }

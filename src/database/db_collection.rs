@@ -2262,4 +2262,106 @@ mod tests {
             panic!("Expected expanded order object for multi-level expansion");
         }
     }
+
+    #[test]
+    fn internal_reference_column_name_handles_plural_and_prefixed_id_keys() {
+        let people = InternalMemoryCollection::new("people", DbConfig::int("_id"));
+        let categories = InternalMemoryCollection::new("categories", DbConfig::int("category_id"));
+        let audit = InternalMemoryCollection::new("audit", DbConfig::uuid("audit_uuid"));
+
+        assert_eq!(people.get_reference_column_name(), "people_id");
+        assert_eq!(categories.get_reference_column_name(), "categorie_category_id");
+        assert_eq!(audit.get_reference_column_name(), "audit_uuid");
+    }
+
+    #[test]
+    fn internal_schema_update_initializes_missing_schema_and_ignores_non_objects() {
+        let mut collection = InternalMemoryCollection::new("items", DbConfig::int("id"));
+        collection.schema = None;
+
+        collection.ensure_update_schema_for_item(&json!(42));
+        assert!(collection.schema.is_none());
+
+        collection.ensure_update_schema_for_item(&json!({ "id": 1, "name": "Ada" }));
+        let schema = collection.schema.unwrap();
+        assert!(schema.fields.contains_key("name"));
+    }
+
+    #[test]
+    fn internal_filtered_lookup_skips_non_objects_missing_columns_and_mismatches() {
+        let db = Db::new_with_config(DbConfig::none("id"));
+        let mut collection = InternalMemoryCollection::new("items", DbConfig::none("id"));
+        collection.add(json!({ "id": "a", "kind": "book", "title": "SQL" }));
+        collection.add(json!({ "id": "b", "kind": "game", "title": "Rust" }));
+        collection.collection.insert("raw".to_string(), json!("not an object"));
+
+        let matches = collection.get_filtered_by_columns_values(
+            vec![ColumnValue::new("kind".to_string(), json!("book"))],
+            ExpansionChain::None,
+            &db,
+        );
+        let missing = collection.get_filtered_by_columns_values(
+            vec![ColumnValue::new("missing".to_string(), json!("book"))],
+            ExpansionChain::None,
+            &db,
+        );
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["title"], "SQL");
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn public_collection_wrappers_cover_basic_read_write_paths() {
+        let collection = DbCollection::new_coll("people", DbConfig::int("id"));
+        let inserted = collection.add(json!({ "name": "Ada" })).unwrap();
+        assert_eq!(inserted["id"], 1);
+
+        assert_eq!(collection.get("1").unwrap()["name"], "Ada");
+        assert!(collection.exists("1"));
+        assert_eq!(collection.count(), 1);
+        assert_eq!(collection.get_all().len(), 1);
+        assert_eq!(collection.get_paginated(0, 1).len(), 1);
+
+        let updated = collection.update("1", json!({ "name": "Ada Lovelace" })).unwrap();
+        assert_eq!(updated["id"], 1);
+        assert_eq!(updated["name"], "Ada Lovelace");
+
+        let partial = collection
+            .update_partial("1", json!({ "profile": { "city": "London" } }))
+            .unwrap();
+        assert_eq!(partial["id"], 1);
+        assert_eq!(partial["profile"]["city"], "London");
+
+        assert_eq!(collection.delete("1").unwrap()["name"], "Ada Lovelace");
+        assert_eq!(collection.clear(), 0);
+    }
+
+    #[test]
+    fn public_collection_schema_file_wrapper_reports_success() {
+        use std::{ffi::OsString, fs::File, io::Write};
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("people.schema.json");
+        File::create(&path)
+            .unwrap()
+            .write_all(
+                json!({
+                    "person_id": "Id",
+                    "name": "String!"
+                })
+                .to_string()
+                .as_bytes(),
+            )
+            .unwrap();
+
+        let collection = DbCollection::new_coll("people", DbConfig::int("person_id"));
+        let status = collection
+            .load_schema_from_file(&OsString::from(path.to_string_lossy().into_owned()))
+            .unwrap();
+
+        assert!(status.contains("Loaded schema for collection people"));
+        assert!(collection.schema().unwrap().fields.contains_key("name"));
+    }
 }

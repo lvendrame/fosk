@@ -176,7 +176,7 @@ impl fmt::Debug for Predicate {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{ComparatorOp, Predicate}, QueryParser};
+    use crate::parser::{ast::{ComparatorOp, Literal, Predicate, ScalarExpr, Truth}, QueryParser};
 
     #[test]
     pub fn test_predicate_single_equal() {
@@ -500,5 +500,61 @@ mod tests {
                 assert_eq!(err.end, 26);
             },
         };
+    }
+
+    fn int(value: i64) -> ScalarExpr {
+        ScalarExpr::Literal(Literal::Int(value))
+    }
+
+    #[test]
+    fn is_start_detects_on_keyword() {
+        assert!(Predicate::is_start(&QueryParser::new("ON people.id = orders.person_id")));
+        assert!(!Predicate::is_start(&QueryParser::new("WHERE id = 1")));
+    }
+
+    #[test]
+    fn display_and_debug_cover_predicate_variants() {
+        let compare = Predicate::Compare {
+            left: int(1),
+            op: ComparatorOp::Eq,
+            right: int(2),
+        };
+        let is_null = Predicate::IsNull { expr: int(1), negated: false };
+        let is_not_null = Predicate::IsNull { expr: int(1), negated: true };
+        let in_list = Predicate::InList {
+            expr: int(1),
+            list: vec![int(1), int(2)],
+            negated: false,
+        };
+        let not_in = Predicate::InList {
+            expr: int(1),
+            list: vec![int(1), int(2)],
+            negated: true,
+        };
+        let like = Predicate::Like {
+            expr: int(1),
+            pattern: ScalarExpr::Literal(Literal::String("%a%".to_string())),
+            negated: false,
+        };
+        let not_like = Predicate::Like {
+            expr: int(1),
+            pattern: ScalarExpr::Literal(Literal::String("%a%".to_string())),
+            negated: true,
+        };
+        let and = Predicate::And(vec![compare.clone(), is_null.clone()]);
+        let or = Predicate::Or(vec![compare.clone(), is_not_null.clone()]);
+        let truth = Predicate::Const3(Truth::Unknown);
+
+        assert_eq!(compare.to_string(), "lit: i: 1 = lit: i: 2");
+        assert_eq!(is_null.to_string(), "lit: i: 1 IS NULL");
+        assert_eq!(is_not_null.to_string(), "lit: i: 1 IS NOT NULL");
+        assert_eq!(in_list.to_string(), "lit: i: 1 IN [lit: i: 1, lit: i: 2]");
+        assert_eq!(not_in.to_string(), "lit: i: 1 NOT IN [lit: i: 1, lit: i: 2]");
+        assert_eq!(like.to_string(), "lit: i: 1 LIKE lit: s: \"%a%\"");
+        assert_eq!(not_like.to_string(), "lit: i: 1 NOT LIKE lit: s: \"%a%\"");
+        assert_eq!(and.to_string(), "(lit: i: 1 = lit: i: 2 AND lit: i: 1 IS NULL)");
+        assert_eq!(or.to_string(), "(lit: i: 1 = lit: i: 2 OR lit: i: 1 IS NOT NULL)");
+        assert_eq!(truth.to_string(), "Unknown");
+        assert_eq!(format!("{:?}", truth), "Predicate(Unknown)");
     }
 }

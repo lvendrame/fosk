@@ -67,3 +67,48 @@ impl Accumulator for SumAcc {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SumImpl;
+    use crate::parser::aggregators_helper::AggregateImpl;
+    use serde_json::json;
+
+    #[test]
+    fn accumulator_sums_ints_and_ignores_nulls() {
+        let mut acc = SumImpl.create_accumulator();
+
+        acc.update(&[json!(1)]).unwrap();
+        acc.update(&[json!(null)]).unwrap();
+        acc.update(&[json!(2)]).unwrap();
+
+        assert_eq!(acc.finalize(), json!(3));
+    }
+
+    #[test]
+    fn accumulator_sums_floats_and_ints_after_float_start() {
+        let mut acc = SumImpl.create_accumulator();
+
+        acc.update(&[json!(1.5)]).unwrap();
+        acc.update(&[json!(2)]).unwrap();
+
+        assert_eq!(acc.finalize(), json!(3.5));
+    }
+
+    #[test]
+    fn accumulator_rejects_bad_arg_count_and_non_numeric_values() {
+        let mut acc = SumImpl.create_accumulator();
+
+        assert!(acc.update(&[]).is_err());
+        assert!(acc.update(&[json!("bad")]).is_err());
+    }
+
+    #[test]
+    fn accumulator_rejects_float_after_int_start() {
+        let mut acc = SumImpl.create_accumulator();
+
+        acc.update(&[json!(1)]).unwrap();
+
+        assert!(acc.update(&[json!(1.5)]).is_err());
+    }
+}

@@ -78,7 +78,7 @@ impl fmt::Debug for ScalarExpr {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{Column, Literal, ScalarExpr}, QueryParser};
+    use crate::parser::{ast::{Column, Function, Literal, ScalarExpr}, QueryParser};
 
     #[test]
     pub fn test_scalar_column_name() {
@@ -319,5 +319,38 @@ mod tests {
                 assert_eq!(err.end, 12);
             },
         }
+    }
+
+    #[test]
+    fn display_and_debug_cover_all_scalar_expr_variants() {
+        let literal = ScalarExpr::Literal(Literal::Int(1));
+        let column = ScalarExpr::Column(Column::Name { name: "age".to_string() });
+        let function = ScalarExpr::Function(Function {
+            name: "sum".to_string(),
+            args: vec![column.clone()],
+            distinct: false,
+        });
+        let wildcard = ScalarExpr::WildCard;
+        let collection_wildcard = ScalarExpr::WildCardWithCollection("people".to_string());
+        let parameter = ScalarExpr::Parameter;
+        let args = ScalarExpr::Args(vec![literal.clone(), parameter.clone()]);
+
+        assert_eq!(literal.to_string(), "lit: i: 1");
+        assert_eq!(format!("{:?}", literal), "Literal(lit: i: 1)");
+        assert_eq!(column.to_string(), "col: age");
+        assert_eq!(format!("{:?}", column), "Column(col: age)");
+        assert_eq!(function.to_string(), "sum(col: age)");
+        assert_eq!(format!("{:?}", function), "Function(sum(col: age))");
+        assert_eq!(wildcard.to_string(), "*");
+        assert_eq!(format!("{:?}", wildcard), "WildCard(*)");
+        assert_eq!(collection_wildcard.to_string(), "people.*");
+        assert_eq!(
+            format!("{:?}", collection_wildcard),
+            "WildCardWithCollection(people.*)"
+        );
+        assert_eq!(parameter.to_string(), "?");
+        assert_eq!(format!("{:?}", parameter), "Parameter(?)");
+        assert_eq!(args.to_string(), "(lit: i: 1, ?)");
+        assert_eq!(format!("{:?}", args), "Parameter((lit: i: 1, ?))");
     }
 }

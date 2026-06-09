@@ -24,3 +24,40 @@ impl fmt::Debug for Function {
         write!(f, "Function({})", self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Function;
+    use crate::parser::ast::{Literal, ScalarExpr};
+
+    fn int_arg(value: i64) -> ScalarExpr {
+        ScalarExpr::Literal(Literal::Int(value))
+    }
+
+    fn string_arg(value: &str) -> ScalarExpr {
+        ScalarExpr::Literal(Literal::String(value.to_string()))
+    }
+
+    #[test]
+    fn display_formats_regular_function_call() {
+        let function = Function {
+            name: "lower".to_string(),
+            args: vec![string_arg("Ada")],
+            distinct: false,
+        };
+
+        assert_eq!(function.to_string(), "lower(lit: s: \"Ada\")");
+        assert_eq!(format!("{:?}", function), "Function(lower(lit: s: \"Ada\"))");
+    }
+
+    #[test]
+    fn display_formats_distinct_function_call_with_multiple_args() {
+        let function = Function {
+            name: "count".to_string(),
+            args: vec![int_arg(1), string_arg("Ada")],
+            distinct: true,
+        };
+
+        assert_eq!(function.to_string(), "count(distinct lit: i: 1, lit: s: \"Ada\")");
+    }
+}

@@ -44,3 +44,36 @@ impl Accumulator for AvgAcc {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AvgImpl;
+    use crate::parser::aggregators_helper::AggregateImpl;
+    use serde_json::json;
+
+    #[test]
+    fn accumulator_averages_numbers_and_ignores_nulls() {
+        let mut acc = AvgImpl.create_accumulator();
+
+        acc.update(&[json!(2)]).unwrap();
+        acc.update(&[json!(null)]).unwrap();
+        acc.update(&[json!(4.0)]).unwrap();
+
+        assert_eq!(acc.finalize(), json!(3.0));
+    }
+
+    #[test]
+    fn accumulator_returns_null_when_no_values_seen() {
+        let acc = AvgImpl.create_accumulator();
+
+        assert_eq!(acc.finalize(), json!(null));
+    }
+
+    #[test]
+    fn accumulator_rejects_bad_arg_count_and_non_numeric_values() {
+        let mut acc = AvgImpl.create_accumulator();
+
+        assert!(acc.update(&[]).is_err());
+        assert!(acc.update(&[json!("bad")]).is_err());
+    }
+}

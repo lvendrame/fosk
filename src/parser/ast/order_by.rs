@@ -314,4 +314,21 @@ mod tests {
             },
         }
     }
+
+    #[test]
+    fn display_and_debug_format_direction() {
+        let asc = OrderBy {
+            expr: ScalarExpr::Column(Column::Name { name: "age".to_string() }),
+            ascending: true,
+        };
+        let desc = OrderBy {
+            expr: ScalarExpr::Column(Column::Name { name: "age".to_string() }),
+            ascending: false,
+        };
+
+        assert_eq!(asc.to_string(), "col: age ASC");
+        assert_eq!(format!("{:?}", asc), "OrderBy(col: age ASC)");
+        assert_eq!(desc.to_string(), "col: age DESC");
+        assert_eq!(format!("{:?}", desc), "OrderBy(col: age DESC)");
+    }
 }

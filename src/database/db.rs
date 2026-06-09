@@ -940,6 +940,72 @@ mod tests {
         db
     }
 
+    fn mk_people_order_db() -> Db {
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
+        let people = db.create("people");
+        people.add_batch(json!([
+            { "id": 3, "name": "Carla", "age": 30 },
+            { "id": 1, "name": "Ada", "age": 37 },
+            { "id": 4, "name": "Grace", "age": 30 },
+            { "id": 2, "name": "Bob", "age": 25 }
+        ]));
+        db
+    }
+
+    fn mk_empty_agg_db() -> Db {
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
+        let empty = db.create("empty_table");
+        empty.add_batch(json!([
+            { "id": 1, "grp": "x", "v": 10.0, "w": 20.0, "sum": "reserved" }
+        ]));
+        empty.clear();
+        db
+    }
+
+    fn mk_phase2_agg_db() -> Db {
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
+        let metrics = db.create("metrics");
+        metrics.add_batch(json!([
+            { "id": 1, "grp": "a", "v": 10.0, "w": 1.0, "sum": "z" },
+            { "id": 2, "grp": "a", "v": 3.0, "w": 2.0, "sum": "z" },
+            { "id": 3, "grp": "b", "v": 5.0, "w": 7.0, "sum": "y" }
+        ]));
+        db
+    }
+
+    fn mk_outer_join_db() -> Db {
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
+        let people = db.create("people");
+        people.add_batch(json!([
+            { "id": 1, "name": "Ada" },
+            { "id": 2, "name": "Bob" }
+        ]));
+        let pets = db.create("pets");
+        pets.add_batch(json!([
+            { "id": 10, "owner_id": 1, "name": "Milo" },
+            { "id": 11, "owner_id": 3, "name": "Ghost" }
+        ]));
+        db
+    }
+
+    fn string_values(rows: &[Value], key: &str) -> Vec<String> {
+        rows.iter()
+            .map(|row| row[key].as_str().expect("string field").to_string())
+            .collect()
+    }
+
     #[test]
     fn db_runner_full_pipeline_group_by_having() {
         let db = mk_db();
@@ -974,6 +1040,285 @@ mod tests {
         assert_eq!(rows.len(), 1);
         // t has 5 rows -> t × t has 25 rows
         assert_eq!(rows[0]["n"].as_i64().unwrap(), 25);
+    }
+
+    #[test]
+    fn db_runner_order_by_aggregate_not_projected() {
+        let db = mk_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT t.cat AS cat
+                FROM t
+                GROUP BY t.cat
+                ORDER BY SUM(t.amt) DESC
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(string_values(&rows, "cat"), vec!["a", "b"]);
+        assert!(rows.iter().all(|row| row.get("sum").is_none()));
+    }
+
+    #[test]
+    fn db_runner_order_by_aggregate_not_projected_preserves_projection_alias() {
+        let db = mk_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT t.cat AS g
+                FROM t
+                GROUP BY t.cat
+                ORDER BY SUM(t.amt) DESC
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(string_values(&rows, "g"), vec!["a", "b"]);
+        assert!(rows.iter().all(|row| row.get("cat").is_none()));
+        assert!(rows.iter().all(|row| row.get("sum").is_none()));
+    }
+
+    #[test]
+    fn db_runner_global_count_star_over_empty_table_returns_one_zero_row() {
+        let db = mk_empty_agg_db();
+        let rows = db.query("SELECT COUNT(*) AS n FROM empty_table").unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["n"], json!(0));
+    }
+
+    #[test]
+    fn db_runner_global_sum_over_empty_table_returns_one_null_row() {
+        let db = mk_empty_agg_db();
+        let rows = db.query("SELECT SUM(v) AS s FROM empty_table").unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0]["s"].is_null());
+    }
+
+    #[test]
+    fn db_runner_global_avg_min_max_over_empty_table_return_nulls() {
+        let db = mk_empty_agg_db();
+        let rows = db
+            .query("SELECT AVG(v) AS a, MIN(v) AS mn, MAX(v) AS mx FROM empty_table")
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0]["a"].is_null());
+        assert!(rows[0]["mn"].is_null());
+        assert!(rows[0]["mx"].is_null());
+    }
+
+    #[test]
+    fn db_runner_empty_grouped_aggregate_returns_zero_rows() {
+        let db = mk_empty_agg_db();
+        let rows = db
+            .query("SELECT grp, COUNT(*) AS n FROM empty_table GROUP BY grp")
+            .unwrap();
+
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn db_runner_multiple_sum_calls_receive_distinct_internal_names() {
+        let db = mk_phase2_agg_db();
+        let rows = db
+            .query("SELECT SUM(v) AS sv, SUM(w) AS sw FROM metrics")
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["sv"], json!(18.0));
+        assert_eq!(rows[0]["sw"], json!(10.0));
+    }
+
+    #[test]
+    fn db_runner_aggregate_name_does_not_collide_with_group_key_named_sum() {
+        let db = mk_phase2_agg_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT sum AS bucket, SUM(v) AS total
+                FROM metrics
+                GROUP BY sum
+                ORDER BY SUM(v) DESC
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(string_values(&rows, "bucket"), vec!["z", "y"]);
+        assert_eq!(rows[0]["total"], json!(13.0));
+        assert_eq!(rows[1]["total"], json!(5.0));
+    }
+
+    #[test]
+    fn db_runner_having_can_use_hidden_aggregate() {
+        let db = mk_phase2_agg_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT grp
+                FROM metrics
+                GROUP BY grp
+                HAVING SUM(v) > 6
+                ORDER BY grp
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(string_values(&rows, "grp"), vec!["a"]);
+        assert!(rows.iter().all(|row| row.get("sum").is_none()));
+    }
+
+    #[test]
+    fn db_runner_right_join_emits_unmatched_right_rows_with_null_left_fields() {
+        let db = mk_outer_join_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT pe.name AS person, p.name AS pet
+                FROM people pe
+                RIGHT JOIN pets p ON pe.id = p.owner_id
+                ORDER BY p.id
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["person"], json!("Ada"));
+        assert_eq!(rows[0]["pet"], json!("Milo"));
+        assert!(rows[1]["person"].is_null());
+        assert_eq!(rows[1]["pet"], json!("Ghost"));
+    }
+
+    #[test]
+    fn db_runner_full_join_emits_matched_and_unmatched_rows() {
+        let db = mk_outer_join_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT pe.name AS person, p.name AS pet
+                FROM people pe
+                FULL JOIN pets p ON pe.id = p.owner_id
+                ORDER BY pe.id
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0]["person"], json!("Ada"));
+        assert_eq!(rows[0]["pet"], json!("Milo"));
+        assert_eq!(rows[1]["person"], json!("Bob"));
+        assert!(rows[1]["pet"].is_null());
+        assert!(rows[2]["person"].is_null());
+        assert_eq!(rows[2]["pet"], json!("Ghost"));
+    }
+
+    #[test]
+    fn db_runner_order_by_non_projected_column() {
+        let db = mk_people_order_db();
+        let rows = db.query("SELECT name FROM people ORDER BY age").unwrap();
+        let names = string_values(&rows, "name");
+        let mut tied = names[1..3].to_vec();
+        tied.sort();
+
+        assert_eq!(names.first().unwrap(), "Bob");
+        assert_eq!(names.last().unwrap(), "Ada");
+        assert_eq!(tied, vec!["Carla", "Grace"]);
+        assert!(
+            rows.iter().all(|row| row.get("age").is_none()),
+            "hidden sort key leaked"
+        );
+    }
+
+    #[test]
+    fn db_runner_order_by_non_projected_column_with_alias_desc() {
+        let db = mk_people_order_db();
+        let rows = db
+            .query("SELECT name AS n FROM people ORDER BY age DESC")
+            .unwrap();
+        let names = string_values(&rows, "n");
+        let mut tied = names[1..3].to_vec();
+        tied.sort();
+
+        assert_eq!(names.first().unwrap(), "Ada");
+        assert_eq!(names.last().unwrap(), "Bob");
+        assert_eq!(tied, vec!["Carla", "Grace"]);
+        assert!(
+            rows.iter().all(|row| row.get("age").is_none()),
+            "hidden sort key leaked"
+        );
+    }
+
+    #[test]
+    fn db_runner_order_by_hidden_key_with_expression_projection() {
+        let db = mk_people_order_db();
+        let rows = db
+            .query("SELECT UPPER(name) AS n FROM people ORDER BY age")
+            .unwrap();
+        let names = string_values(&rows, "n");
+        let mut tied = names[1..3].to_vec();
+        tied.sort();
+
+        assert_eq!(names.first().unwrap(), "BOB");
+        assert_eq!(names.last().unwrap(), "ADA");
+        assert_eq!(tied, vec!["CARLA", "GRACE"]);
+        assert!(
+            rows.iter().all(|row| row.get("age").is_none()),
+            "hidden sort key leaked"
+        );
+    }
+
+    #[test]
+    fn db_runner_order_by_hidden_multi_key() {
+        let db = mk_people_order_db();
+        let rows = db
+            .query("SELECT name FROM people ORDER BY age ASC, id DESC")
+            .unwrap();
+
+        assert_eq!(
+            string_values(&rows, "name"),
+            vec!["Bob", "Grace", "Carla", "Ada"]
+        );
+        assert!(rows.iter().all(|row| row.get("age").is_none()));
+        assert!(rows.iter().all(|row| row.get("id").is_none()));
+    }
+
+    #[test]
+    fn db_runner_order_by_projected_position_still_works() {
+        let db = mk_people_order_db();
+        let rows = db.query("SELECT name FROM people ORDER BY 1").unwrap();
+
+        assert_eq!(
+            string_values(&rows, "name"),
+            vec!["Ada", "Bob", "Carla", "Grace"]
+        );
+    }
+
+    #[test]
+    fn db_runner_order_by_position_out_of_range_errors() {
+        let db = mk_people_order_db();
+        let err = db.query("SELECT name FROM people ORDER BY 2").unwrap_err();
+        let msg = format!("{err:?}").to_lowercase();
+
+        assert!(
+            msg.contains("order by position"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn db_runner_order_by_missing_column_errors() {
+        let db = mk_people_order_db();
+        let err = db
+            .query("SELECT name FROM people ORDER BY missing_column")
+            .unwrap_err();
+        let msg = format!("{err:?}").to_lowercase();
+
+        assert!(
+            msg.contains("unknowncolumn") || msg.contains("missing_column"),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[test]
@@ -1310,5 +1655,104 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&content).unwrap();
         let arr = v.get("c").unwrap().as_array().unwrap();
         assert_eq!(arr[0].get("n").unwrap(), 3);
+    }
+
+    #[test]
+    fn public_database_wrappers_cover_lifecycle_and_config_paths() {
+        let db = Db::new_with_config(DbConfig::int("row_id"));
+        assert_eq!(db.get_config(), DbConfig::int("row_id"));
+
+        db.create("People");
+        db.create("Orders");
+        let mut names = db.list_collections();
+        names.sort();
+        assert_eq!(names, vec!["orders", "people"]);
+
+        assert!(db.drop_collection("people"));
+        assert!(!db.drop_collection("people"));
+        assert!(db.get("people").is_none());
+
+        db.clear();
+        assert!(db.list_collections().is_empty());
+    }
+
+    #[test]
+    fn new_arc_shares_the_same_database_handle() {
+        let db = Db::new_arc();
+        let cloned = std::sync::Arc::clone(&db);
+
+        cloned.create("people");
+
+        assert!(db.get("people").is_some());
+    }
+
+    #[test]
+    fn schema_with_refs_of_returns_none_for_missing_or_unschematized_collection() {
+        let db = Db::new();
+
+        assert!(db.schema_with_refs_of("missing").is_none());
+        db.create("empty");
+        assert!(db.schema_with_refs_of("empty").is_some());
+    }
+
+    #[test]
+    fn load_from_json_and_schema_json_reject_non_object_roots() {
+        let db = Db::new();
+
+        assert!(db.load_from_json(json!([]), false).unwrap_err().contains("root"));
+        assert!(db
+            .load_schemas_from_json(json!([]))
+            .unwrap_err()
+            .contains("collection names"));
+    }
+
+    #[test]
+    fn load_from_file_wraps_root_processing_errors() {
+        use std::{ffi::OsString, fs::File, io::Write};
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("bad_root.json");
+        File::create(&path)
+            .unwrap()
+            .write_all(json!([]).to_string().as_bytes())
+            .unwrap();
+
+        let db = Db::new();
+        let err = db
+            .load_from_file(&OsString::from(path.to_string_lossy().into_owned()))
+            .unwrap_err();
+
+        assert!(err.contains("Error to process the file"));
+    }
+
+    #[test]
+    fn load_schemas_from_file_reports_success_status() {
+        use std::{ffi::OsString, fs::File, io::Write};
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("schemas.json");
+        File::create(&path)
+            .unwrap()
+            .write_all(
+                json!({
+                    "people": {
+                        "person_id": "Id",
+                        "name": "String!"
+                    }
+                })
+                .to_string()
+                .as_bytes(),
+            )
+            .unwrap();
+
+        let db = Db::new();
+        let status = db
+            .load_schemas_from_file(&OsString::from(path.to_string_lossy().into_owned()))
+            .unwrap();
+
+        assert!(status.contains("Loaded 1 collection schemas"));
+        assert!(db.get("people").is_some());
     }
 }

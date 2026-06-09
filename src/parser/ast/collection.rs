@@ -164,4 +164,27 @@ mod tests {
             },
         }
     }
+
+    #[test]
+    fn display_and_debug_format_table_variants() {
+        let table = Collection::Table {
+            name: "people".to_string(),
+            alias: None,
+        };
+        let aliased = Collection::Table {
+            name: "people".to_string(),
+            alias: Some("p".to_string()),
+        };
+
+        assert_eq!(table.to_string(), "Table(people)");
+        assert_eq!(format!("{:?}", table), "Collection(Table(people))");
+        assert_eq!(aliased.to_string(), "Table(people as p)");
+        assert_eq!(format!("{:?}", aliased), "Collection(Table(people as p))");
+    }
+
+    #[test]
+    fn display_and_debug_format_query_variant() {
+        assert_eq!(Collection::Query.to_string(), "Query");
+        assert_eq!(format!("{:?}", Collection::Query), "Collection(Query)");
+    }
 }

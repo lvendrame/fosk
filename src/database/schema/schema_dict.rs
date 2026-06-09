@@ -171,7 +171,7 @@ impl SchemaWithRefs {
 
 #[cfg(test)]
 mod tests {
-    use crate::JsonPrimitive;
+    use crate::{Db, DbConfig, JsonPrimitive};
 
     use super::*;
     use serde_json::json;
@@ -231,5 +231,52 @@ mod tests {
         let r2 = json!({"price": 10.5}).as_object().unwrap().clone(); // Float
         s.merge_schema(&r2);
         assert_eq!(s.get("price").unwrap().ty, JsonPrimitive::Float); // promoted
+    }
+
+    #[test]
+    fn infer_schema_from_object_captures_all_fields() {
+        let row = json!({
+            "id": 1,
+            "name": "Ada",
+            "active": true,
+            "score": 4.5,
+            "meta": {"city": "Porto"},
+            "tags": ["a"],
+            "deleted_at": null
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let schema = SchemaDict::infer_schema_from_object(&row);
+
+        assert_eq!(schema.get("id").unwrap().ty, JsonPrimitive::Int);
+        assert_eq!(schema.get("name").unwrap().ty, JsonPrimitive::String);
+        assert_eq!(schema.get("active").unwrap().ty, JsonPrimitive::Bool);
+        assert_eq!(schema.get("score").unwrap().ty, JsonPrimitive::Float);
+        assert_eq!(schema.get("meta").unwrap().ty, JsonPrimitive::Object);
+        assert_eq!(schema.get("tags").unwrap().ty, JsonPrimitive::Array);
+        assert_eq!(schema.get("deleted_at").unwrap().ty, JsonPrimitive::Null);
+        assert!(schema.get("missing").is_none());
+    }
+
+    #[test]
+    fn schema_with_refs_splits_outbound_and_inbound_references() {
+        let db = Db::new_with_config(DbConfig::none("id"));
+        db.create("people").add(json!({ "id": 1, "name": "Ada" }));
+        db.create("orders").add(json!({ "id": 10, "person_id": 1 }));
+        assert!(db.create_reference("orders", "person_id", "people", "id"));
+
+        let orders_schema = db.get("orders").unwrap().schema().unwrap();
+        let orders = SchemaWithRefs::new("orders", &orders_schema, &db);
+        assert_eq!(orders.name, "orders");
+        assert!(orders.fields.contains_key("person_id"));
+        assert!(orders.inbound_refs.contains_key("person_id"));
+        assert!(orders.outbound_refs.is_empty());
+
+        let people_schema = db.get("people").unwrap().schema().unwrap();
+        let people = SchemaWithRefs::new("people", &people_schema, &db);
+        assert!(people.outbound_refs.contains_key("id"));
+        assert!(people.inbound_refs.is_empty());
     }
 }

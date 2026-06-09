@@ -64,3 +64,33 @@ impl Accumulator for CountAcc {
         Value::Number(serde_json::Number::from(self.cnt))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CountImpl;
+    use crate::parser::aggregators_helper::AggregateImpl;
+    use serde_json::json;
+
+    #[test]
+    fn accumulator_counts_star_and_non_null_values_only() {
+        let mut acc = CountImpl.create_accumulator();
+
+        acc.update(&[]).unwrap();
+        acc.update(&[json!("Ada")]).unwrap();
+        acc.update(&[json!(null)]).unwrap();
+
+        assert_eq!(acc.finalize(), json!(2));
+    }
+
+    #[test]
+    fn accumulator_rejects_multiple_arguments() {
+        let mut acc = CountImpl.create_accumulator();
+
+        assert!(acc.update(&[json!(1), json!(2)]).is_err());
+    }
+
+    #[test]
+    fn aggregate_impl_default_does_not_allow_folding() {
+        assert!(!CountImpl.allow_fold());
+    }
+}

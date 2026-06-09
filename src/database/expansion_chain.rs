@@ -83,4 +83,24 @@ mod test {
             _ => panic!("Expected ExpansionChain::None variant for empty input"),
         }
     }
+
+    #[test]
+    fn test_from_ignores_empty_path_segments() {
+        let exp = ExpansionChain::from(".orders..order_items.");
+        if let ExpansionChain::Child(p1, boxed) = exp {
+            assert_eq!(p1, "orders");
+            if let ExpansionChain::Single(s) = *boxed {
+                assert_eq!(s, "order_items");
+            } else {
+                panic!("Expected nested ExpansionChain::Single variant");
+            }
+        } else {
+            panic!("Expected ExpansionChain::Child variant");
+        }
+    }
+
+    #[test]
+    fn default_is_none() {
+        assert!(matches!(ExpansionChain::default(), ExpansionChain::None));
+    }
 }

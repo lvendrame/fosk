@@ -124,3 +124,48 @@ impl DbConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DbConfig;
+    use crate::IdType;
+
+    #[test]
+    fn constructors_set_id_type_and_key() {
+        assert_eq!(
+            DbConfig::new(),
+            DbConfig {
+                id_type: IdType::Uuid,
+                id_key: "id".to_string(),
+            }
+        );
+        assert_eq!(
+            DbConfig::from(IdType::Int, "row_id"),
+            DbConfig {
+                id_type: IdType::Int,
+                id_key: "row_id".to_string(),
+            }
+        );
+        assert_eq!(
+            DbConfig::int("number"),
+            DbConfig {
+                id_type: IdType::Int,
+                id_key: "number".to_string(),
+            }
+        );
+        assert_eq!(
+            DbConfig::uuid("uuid"),
+            DbConfig {
+                id_type: IdType::Uuid,
+                id_key: "uuid".to_string(),
+            }
+        );
+        assert_eq!(
+            DbConfig::none("external_id"),
+            DbConfig {
+                id_type: IdType::None,
+                id_key: "external_id".to_string(),
+            }
+        );
+    }
+}

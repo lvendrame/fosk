@@ -1,6 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{parser::{analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError}, ast::{Column, JoinType, OrderBy, Predicate, ScalarExpr, Truth}}, planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan}};
+use crate::{
+    parser::{
+        analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError},
+        ast::{Column, JoinType, OrderBy, Predicate, ScalarExpr, Truth},
+    },
+    planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan},
+};
 
 pub struct PlanBuilder;
 
@@ -8,11 +14,16 @@ impl PlanBuilder {
     pub fn from_analyzed(aq: &AnalyzedQuery) -> Result<LogicalPlan, AnalyzerError> {
         // Source: single collection only (joins later) ----
         if aq.collections.is_empty() {
-            return Err(AnalyzerError::Other("Planner: no collections to scan".into()));
+            return Err(AnalyzerError::Other(
+                "Planner: no collections to scan".into(),
+            ));
         }
         // base scan = the first visible/backing pair
         let (visible0, backing0) = aq.collections[0].clone();
-        let mut from: LogicalPlan = LogicalPlan::Scan { backing: backing0, visible: visible0 };
+        let mut from: LogicalPlan = LogicalPlan::Scan {
+            backing: backing0,
+            visible: visible0,
+        };
 
         // --- support implicit CROSS JOINs for multiple FROM items (A, B, C, ...) ---
         if aq.collections.len() > 1 {
@@ -21,7 +32,7 @@ impl PlanBuilder {
                 from = LogicalPlan::Join {
                     left: Box::new(from),
                     right: Box::new(right),
-                    join_type: JoinType::Inner,                 // CROSS JOIN semantics
+                    join_type: JoinType::Inner, // CROSS JOIN semantics
                     on: Predicate::Const3(Truth::True),
                 };
             }
@@ -35,7 +46,9 @@ impl PlanBuilder {
                     (vis, name.clone())
                 }
                 crate::parser::ast::Collection::Query => {
-                    return Err(AnalyzerError::Other("Planner: subquery in JOIN not supported".into()));
+                    return Err(AnalyzerError::Other(
+                        "Planner: subquery in JOIN not supported".into(),
+                    ));
                 }
             };
 
@@ -52,13 +65,23 @@ impl PlanBuilder {
 
         // WHERE (criteria) ----
         if let Some(pred) = &aq.criteria {
-            plan = LogicalPlan::Filter { input: Box::new(plan), predicate: pred.clone() };
+            plan = LogicalPlan::Filter {
+                input: Box::new(plan),
+                predicate: pred.clone(),
+            };
         }
 
         // Do we need aggregation? ----
         let needs_agg = !aq.group_by.is_empty()
-            || aq.projection.iter().any(|id| AggregateResolver::contains_aggregate(&id.expression))
-            || aq.having.as_ref().map(AggregateResolver::predicate_contains_aggregate).unwrap_or(false);
+            || aq
+                .projection
+                .iter()
+                .any(|id| AggregateResolver::contains_aggregate(&id.expression))
+            || aq
+                .having
+                .as_ref()
+                .map(AggregateResolver::predicate_contains_aggregate)
+                .unwrap_or(false);
 
         if needs_agg {
             // 1) collect aggregate calls from projection and having
@@ -67,12 +90,21 @@ impl PlanBuilder {
 
             // from SELECT list
             for id in &aq.projection {
-                PlanBuilder::collect_aggregates_in_scalar(&id.expression, &mut index_by_call, &mut calls);
+                PlanBuilder::collect_aggregates_in_scalar(
+                    &id.expression,
+                    &mut index_by_call,
+                    &mut calls,
+                );
             }
 
             // from HAVING
             if let Some(h) = &aq.having {
                 PlanBuilder::collect_aggregates_in_predicate(h, &mut index_by_call, &mut calls);
+            }
+
+            // from ORDER BY
+            for ob in &aq.order_by {
+                PlanBuilder::collect_aggregates_in_scalar(&ob.expr, &mut index_by_call, &mut calls);
             }
 
             // assign output names that the Aggregate executor will produce
@@ -83,7 +115,9 @@ impl PlanBuilder {
             // reserve group-by key names (the aggregate node emits them with these keys)
             for c in &aq.group_by {
                 let key = match c {
-                    Column::WithCollection { collection, name } => format!("{}.{}", collection, name),
+                    Column::WithCollection { collection, name } => {
+                        format!("{}.{}", collection, name)
+                    }
                     Column::Name { name } => name.clone(),
                 };
                 used_names.insert(key);
@@ -103,51 +137,32 @@ impl PlanBuilder {
             }
 
             // ---- rewrite SELECT and HAVING to reference aggregate internal names ----
-            let rewritten_projection: Vec<AnalyzedIdentifier> = aq.projection.iter().map(|id| {
-                let new_expr = AggregateCall::rewrite_scalar_using_call_names(&id.expression, &name_map);
-                AnalyzedIdentifier {
-                    expression: new_expr,
-                    alias: id.alias.clone(),
-                    ty: id.ty,
-                    nullable: id.nullable,
-                    output_name: id.output_name.clone(),
-                }
-            }).collect();
+            let rewritten_projection: Vec<AnalyzedIdentifier> = aq
+                .projection
+                .iter()
+                .map(|id| {
+                    let new_expr =
+                        AggregateCall::rewrite_scalar_using_call_names(&id.expression, &name_map);
+                    AnalyzedIdentifier {
+                        expression: new_expr,
+                        alias: id.alias.clone(),
+                        ty: id.ty,
+                        nullable: id.nullable,
+                        output_name: id.output_name.clone(),
+                    }
+                })
+                .collect();
 
-            let rewritten_having: Option<Predicate> = aq.having.as_ref()
+            let rewritten_having: Option<Predicate> = aq
+                .having
+                .as_ref()
                 .map(|p| AggregateCall::rewrite_predicate_using_call_names(p, &name_map));
 
-            // ---- build a final map for ORDER BY: prefer projection aliases if present ----
-            use std::collections::HashMap;
-            // reverse: internal_name ("sum", "sum_1", ...) -> AggregateCall
-            let mut by_internal: HashMap<String, AggregateCall> = HashMap::new();
-            for (call, nm) in &name_map {
-                by_internal.insert(nm.clone(), call.clone());
-            }
-            // start with internal names
-            let mut final_name_map = name_map.clone();
-            // if a projection item re-exposes an aggregate via Column(Name <internal>)
-            // and it has an alias, use that alias as the visible name for ORDER BY
-            for id in &rewritten_projection {
-                if let ScalarExpr::Column(Column::Name { name: colname }) = &id.expression {
-                    if let Some(call) = by_internal.get(colname) {
-                        if let Some(alias) = &id.alias {
-                            final_name_map.insert(call.clone(), alias.clone());
-                        }
-                    }
-                }
-            }
-
-            // ---- rewrite ORDER BY in two steps ----
-            // (1) rewrite only aggregate calls to internal names (sum, sum_1, ... or alias if exposed)
-            let ob_calls_rewritten: Vec<OrderBy> = aq.order_by.iter().map(|ob| {
-                let new_expr = AggregateCall::rewrite_scalar_using_call_names(&ob.expr, &final_name_map);
-                OrderBy { expr: new_expr, ascending: ob.ascending }
-            }).collect();
-
-            // (2) now map ANY remaining column refs (e.g. "p.city") to the projection output names (e.g. "city")
-            let rewritten_order_by: Vec<OrderBy> =
-                Self::rewrite_order_by_to_projection_names(&ob_calls_rewritten, &rewritten_projection);
+            let rewritten_order_by = Self::rewrite_order_by_for_aggregate_input(
+                &aq.order_by,
+                &rewritten_projection,
+                &name_map,
+            );
 
             // ---- build Aggregate node ----
             plan = LogicalPlan::Aggregate {
@@ -158,25 +173,39 @@ impl PlanBuilder {
 
             // HAVING (after aggregate)
             if let Some(pred) = rewritten_having {
-                plan = LogicalPlan::Filter { input: Box::new(plan), predicate: pred };
+                plan = LogicalPlan::Filter {
+                    input: Box::new(plan),
+                    predicate: pred,
+                };
             }
 
-            // Project (after HAVING)
-            plan = LogicalPlan::Project { input: Box::new(plan), exprs: rewritten_projection };
-
-            // ORDER BY (stable, NULLS LAST in executor)
+            // ORDER BY before Project so hidden aggregate sort keys remain available.
             if !rewritten_order_by.is_empty() {
-                plan = LogicalPlan::Sort { input: Box::new(plan), keys: rewritten_order_by };
+                plan = LogicalPlan::Sort {
+                    input: Box::new(plan),
+                    keys: rewritten_order_by,
+                };
             }
-        } else {
-            // Project (no aggregate)
-            plan = LogicalPlan::Project { input: Box::new(plan), exprs: aq.projection.clone() };
 
-            // ORDER BY (stable, NULLS LAST in executor)
+            // Project (after HAVING and ORDER BY)
+            plan = LogicalPlan::Project {
+                input: Box::new(plan),
+                exprs: rewritten_projection,
+            };
+        } else {
+            // ORDER BY before Project so valid non-projected sort keys are still available.
             if !aq.order_by.is_empty() {
-                let ob_for_exec = Self::rewrite_order_by_to_projection_names(&aq.order_by, &aq.projection);
-                plan = LogicalPlan::Sort { input: Box::new(plan), keys: ob_for_exec };
+                plan = LogicalPlan::Sort {
+                    input: Box::new(plan),
+                    keys: aq.order_by.clone(),
+                };
             }
+
+            // Project (no aggregate)
+            plan = LogicalPlan::Project {
+                input: Box::new(plan),
+                exprs: aq.projection.clone(),
+            };
         }
 
         // LIMIT/OFFSET ----
@@ -219,7 +248,9 @@ impl PlanBuilder {
     ) {
         match p {
             Predicate::And(v) | Predicate::Or(v) => {
-                for x in v { Self::collect_aggregates_in_predicate(x, table, calls); }
+                for x in v {
+                    Self::collect_aggregates_in_predicate(x, table, calls);
+                }
             }
             Predicate::Compare { left, right, .. } => {
                 Self::collect_aggregates_in_scalar(left, table, calls);
@@ -230,7 +261,9 @@ impl PlanBuilder {
             }
             Predicate::InList { expr, list, .. } => {
                 Self::collect_aggregates_in_scalar(expr, table, calls);
-                for e in list { Self::collect_aggregates_in_scalar(e, table, calls); }
+                for e in list {
+                    Self::collect_aggregates_in_scalar(e, table, calls);
+                }
             }
             Predicate::Like { expr, pattern, .. } => {
                 Self::collect_aggregates_in_scalar(expr, table, calls);
@@ -240,121 +273,47 @@ impl PlanBuilder {
         }
     }
 
-    fn normalize_col_key(expr: &ScalarExpr) -> Option<(String, String)> {
-        use crate::parser::ast::Column;
-        match expr {
-            ScalarExpr::Column(Column::WithCollection { collection, name }) => {
-                Some((collection.clone(), name.clone()))
+    fn rewrite_order_by_for_aggregate_input(
+        order_bys: &[OrderBy],
+        projection: &[AnalyzedIdentifier],
+        name_map: &HashMap<AggregateCall, String>,
+    ) -> Vec<OrderBy> {
+        use crate::parser::ast::{Column, Literal, ScalarExpr};
+
+        let mut output_expr_by_name: HashMap<String, ScalarExpr> = HashMap::new();
+        for id in projection {
+            output_expr_by_name.insert(id.output_name.to_ascii_lowercase(), id.expression.clone());
+            if let Some(alias) = &id.alias {
+                output_expr_by_name.insert(alias.to_ascii_lowercase(), id.expression.clone());
             }
-            ScalarExpr::Column(Column::Name { name }) => {
-                // if it's "c.col", split once; otherwise we don't know the collection
-                if let Some(dot) = name.find('.') {
-                    let (c, n) = name.split_at(dot);
-                    // n still has the leading '.', strip it
-                    let n = &n[1..];
-                    Some((c.to_string(), n.to_string()))
-                } else {
-                    None
-                }
-            }
-            _ => None,
         }
-    }
-
-    /// Build (projected_expr, output_name, normalized_col_key) tuples.
-    /// output_name is alias or the executor's default name.
-    fn out_cols_from_projection(proj: &[AnalyzedIdentifier]) -> Vec<(ScalarExpr, String, Option<(String,String)>)> {
-        proj.iter()
-            .map(|id| {
-                let out_name = id.output_name.clone(); // single source of truth
-                let key = Self::normalize_col_key(&id.expression);
-                (id.expression.clone(), out_name, key)
-            })
-            .collect()
-    }
-
-    /// Rewrites ORDER BY expressions to refer to the projected row field names.
-    /// This lets the executor evaluate them against the post-Project rows.
-    fn rewrite_order_by_to_projection_names(order_bys: &[OrderBy], projection: &[AnalyzedIdentifier]) -> Vec<OrderBy> {
-        use crate::parser::ast::{Literal, ScalarExpr, Column};
-
-        let outs = Self::out_cols_from_projection(projection);
-        let out_name_set: std::collections::HashSet<String> = outs.iter().map(|(_, n, _)| n.clone()).collect();
 
         order_bys
             .iter()
             .map(|ob| {
-                // 1) positional ORDER BY N (1-based)
                 if let ScalarExpr::Literal(Literal::Int(pos)) = &ob.expr {
                     let idx = (*pos as isize) - 1;
-                    if idx >= 0 && (idx as usize) < outs.len() {
-                        let name = outs[idx as usize].1.clone();
-                        return OrderBy { expr: ScalarExpr::Column(Column::Name { name }), ascending: ob.ascending };
-                    }
-                    return ob.clone();
-                }
-
-                // 2) already a bare output field name? keep it.
-                if let ScalarExpr::Column(Column::Name { name }) = &ob.expr {
-                    if out_name_set.contains(name) {
-                        return ob.clone();
-                    }
-                }
-
-                // 3) semantic column match via (collection,name)
-                if let Some(ob_key) = Self::normalize_col_key(&ob.expr) {
-                    if let Some((_, out_name, _)) = outs.iter().find(|(_, _, k)| k.as_ref() == Some(&ob_key)) {
+                    if idx >= 0 && (idx as usize) < projection.len() {
                         return OrderBy {
-                            expr: ScalarExpr::Column(Column::Name { name: out_name.clone() }),
+                            expr: projection[idx as usize].expression.clone(),
                             ascending: ob.ascending,
                         };
                     }
                 }
 
-                // 4) exact expression match (non-column expressions)
-                if let Some((_, out_name, _)) = outs.iter().find(|(e, _, _)| *e == ob.expr) {
-                    return OrderBy {
-                        expr: ScalarExpr::Column(Column::Name { name: out_name.clone() }),
-                        ascending: ob.ascending,
-                    };
-                }
-
-                // 5) alias-insensitive match: if OB is a Column::Name("Alias")
-                //    and any projection's output field equals that alias, map to it.
                 if let ScalarExpr::Column(Column::Name { name }) = &ob.expr {
-                    if let Some((_, out_name, _)) = outs.iter().find(|(_, n, _)| n.eq_ignore_ascii_case(name)) {
+                    if let Some(expr) = output_expr_by_name.get(&name.to_ascii_lowercase()) {
                         return OrderBy {
-                            expr: ScalarExpr::Column(Column::Name { name: out_name.clone() }),
+                            expr: expr.clone(),
                             ascending: ob.ascending,
                         };
                     }
                 }
 
-                // 6) **NEW**: qualifier-suffix fallback.
-                //    If OB is "p.city" and there is a projected output field called "city", map to "city".
-                if let ScalarExpr::Column(Column::Name { name }) = &ob.expr {
-                    if let Some(dot) = name.rfind('.') {
-                        let suffix = &name[dot + 1..];
-                        if out_name_set.contains(suffix) {
-                            return OrderBy {
-                                expr: ScalarExpr::Column(Column::Name { name: suffix.to_string() }),
-                                ascending: ob.ascending,
-                            };
-                        }
-                    }
+                OrderBy {
+                    expr: AggregateCall::rewrite_scalar_using_call_names(&ob.expr, name_map),
+                    ascending: ob.ascending,
                 }
-
-                if let ScalarExpr::Column(Column::WithCollection { name, .. }) = &ob.expr {
-                    if out_name_set.contains(name) {
-                        return OrderBy {
-                            expr: ScalarExpr::Column(Column::Name { name: name.clone() }),
-                            ascending: ob.ascending,
-                        };
-                    }
-                }
-
-                // leave it as-is
-                ob.clone()
             })
             .collect()
     }
@@ -364,12 +323,17 @@ impl PlanBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::analyzer::{AnalyzedQuery, AnalyzedIdentifier};
-    use crate::parser::ast::{Column, ComparatorOp, Function, Literal, OrderBy, Predicate, ScalarExpr, Truth};
     use crate::JsonPrimitive;
+    use crate::parser::analyzer::{AnalyzedIdentifier, AnalyzedQuery};
+    use crate::parser::ast::{
+        Column, ComparatorOp, Function, Literal, OrderBy, Predicate, ScalarExpr, Truth,
+    };
 
     fn col_t(name: &str) -> Column {
-        Column::WithCollection { collection: "t".into(), name: name.into() }
+        Column::WithCollection {
+            collection: "t".into(),
+            name: name.into(),
+        }
     }
     fn id_col_t(name: &str) -> AnalyzedIdentifier {
         AnalyzedIdentifier {
@@ -382,9 +346,17 @@ mod tests {
     }
     fn id_fun(name: &str, args: Vec<ScalarExpr>) -> AnalyzedIdentifier {
         AnalyzedIdentifier {
-            expression: ScalarExpr::Function(Function{ name: name.into(), args, distinct: false }),
+            expression: ScalarExpr::Function(Function {
+                name: name.into(),
+                args,
+                distinct: false,
+            }),
             alias: Some(name.into()),
-            ty: if name.eq_ignore_ascii_case("avg") { JsonPrimitive::Float } else { JsonPrimitive::Int },
+            ty: if name.eq_ignore_ascii_case("avg") {
+                JsonPrimitive::Float
+            } else {
+                JsonPrimitive::Int
+            },
             nullable: true,
             output_name: name.into(),
         }
@@ -403,7 +375,10 @@ mod tests {
             }),
             group_by: vec![],
             having: None,
-            order_by: vec![OrderBy { expr: ScalarExpr::Column(col_t("id")), ascending: true }],
+            order_by: vec![OrderBy {
+                expr: ScalarExpr::Column(col_t("id")),
+                ascending: true,
+            }],
             limit: Some(5),
             offset: Some(10),
         };
@@ -411,32 +386,37 @@ mod tests {
         let plan = PlanBuilder::from_analyzed(&aq).expect("plan");
         // Assert shape
         match plan {
-            LogicalPlan::Limit { input, limit, offset } => {
+            LogicalPlan::Limit {
+                input,
+                limit,
+                offset,
+            } => {
                 assert_eq!(limit, Some(5));
                 assert_eq!(offset, Some(10));
                 match *input {
-                    LogicalPlan::Sort { input, keys } => {
-                        assert_eq!(keys.len(), 1);
+                    LogicalPlan::Project { input, exprs } => {
+                        assert_eq!(exprs.len(), 1);
                         match *input {
-                            LogicalPlan::Project { input, exprs } => {
-                                assert_eq!(exprs.len(), 1);
+                            LogicalPlan::Sort { input, keys } => {
+                                assert_eq!(keys.len(), 1);
                                 match *input {
-                                    LogicalPlan::Filter { input, predicate: _ } => {
-                                        match *input {
-                                            LogicalPlan::Scan { backing, visible } => {
-                                                assert_eq!(backing, "t");
-                                                assert_eq!(visible, "t");
-                                            }
-                                            other => panic!("expected Scan, got {other:?}"),
+                                    LogicalPlan::Filter {
+                                        input,
+                                        predicate: _,
+                                    } => match *input {
+                                        LogicalPlan::Scan { backing, visible } => {
+                                            assert_eq!(backing, "t");
+                                            assert_eq!(visible, "t");
                                         }
-                                    }
+                                        other => panic!("expected Scan, got {other:?}"),
+                                    },
                                     other => panic!("expected Filter, got {other:?}"),
                                 }
                             }
-                            other => panic!("expected Project, got {other:?}"),
+                            other => panic!("expected Sort, got {other:?}"),
                         }
                     }
-                    other => panic!("expected Sort, got {other:?}"),
+                    other => panic!("expected Project, got {other:?}"),
                 }
             }
             other => panic!("expected Limit root, got {other:?}"),
@@ -480,22 +460,24 @@ mod tests {
             LogicalPlan::Project { input, exprs } => {
                 assert_eq!(exprs.len(), 2);
                 match *input {
-                    LogicalPlan::Filter { input, .. } => {
-                        match *input {
-                            LogicalPlan::Aggregate { input, group_keys, aggs } => {
-                                assert_eq!(group_keys.len(), 1);
-                                assert_eq!(aggs.len(), 1);
-                                assert_eq!(aggs[0].func, "sum");
-                                match *input {
-                                    LogicalPlan::Scan { backing, .. } => {
-                                        assert_eq!(backing, "t");
-                                    }
-                                    other => panic!("expected Scan below Aggregate, got {other:?}"),
+                    LogicalPlan::Filter { input, .. } => match *input {
+                        LogicalPlan::Aggregate {
+                            input,
+                            group_keys,
+                            aggs,
+                        } => {
+                            assert_eq!(group_keys.len(), 1);
+                            assert_eq!(aggs.len(), 1);
+                            assert_eq!(aggs[0].func, "sum");
+                            match *input {
+                                LogicalPlan::Scan { backing, .. } => {
+                                    assert_eq!(backing, "t");
                                 }
+                                other => panic!("expected Scan below Aggregate, got {other:?}"),
                             }
-                            other => panic!("expected Aggregate, got {other:?}"),
                         }
-                    }
+                        other => panic!("expected Aggregate, got {other:?}"),
+                    },
                     other => panic!("expected Filter (HAVING), got {other:?}"),
                 }
             }
@@ -509,16 +491,16 @@ mod tests {
         let aq = AnalyzedQuery {
             projection: vec![AnalyzedIdentifier {
                 // any proj is fine; planner doesn't validate here
-                expression: ScalarExpr::Column(Column::WithCollection { collection: "a".into(), name: "id".into() }),
+                expression: ScalarExpr::Column(Column::WithCollection {
+                    collection: "a".into(),
+                    name: "id".into(),
+                }),
                 alias: None,
                 ty: JsonPrimitive::Int,
                 nullable: false,
                 output_name: "id".into(),
             }],
-            collections: vec![
-                ("a".into(), "a".into()),
-                ("b".into(), "b".into()),
-            ],
+            collections: vec![("a".into(), "a".into()), ("b".into(), "b".into())],
             joins: vec![],
             criteria: None,
             group_by: vec![],
@@ -534,7 +516,12 @@ mod tests {
         match plan {
             LogicalPlan::Project { input, exprs: _ } => {
                 match *input {
-                    LogicalPlan::Join { left, right, join_type, on } => {
+                    LogicalPlan::Join {
+                        left,
+                        right,
+                        join_type,
+                        on,
+                    } => {
                         // left scan = a
                         match *left {
                             LogicalPlan::Scan { backing, visible } => {
@@ -551,8 +538,14 @@ mod tests {
                             }
                             other => panic!("expected right Scan(b), got {other:?}"),
                         }
-                        assert!(matches!(join_type, JoinType::Inner), "CROSS JOIN should be Inner");
-                        assert!(matches!(on, Predicate::Const3(Truth::True)), "CROSS JOIN ON must be TRUE");
+                        assert!(
+                            matches!(join_type, JoinType::Inner),
+                            "CROSS JOIN should be Inner"
+                        );
+                        assert!(
+                            matches!(on, Predicate::Const3(Truth::True)),
+                            "CROSS JOIN ON must be TRUE"
+                        );
                     }
                     other => panic!("expected Join under Project, got {other:?}"),
                 }
@@ -566,7 +559,10 @@ mod tests {
         // FROM a, b, c should be accepted and chained as CROSS JOINs
         let aq = AnalyzedQuery {
             projection: vec![AnalyzedIdentifier {
-                expression: ScalarExpr::Column(Column::WithCollection { collection: "a".into(), name: "id".into() }),
+                expression: ScalarExpr::Column(Column::WithCollection {
+                    collection: "a".into(),
+                    name: "id".into(),
+                }),
                 alias: None,
                 ty: JsonPrimitive::Int,
                 nullable: false,
@@ -586,13 +582,16 @@ mod tests {
             offset: None,
         };
 
-        let plan = PlanBuilder::from_analyzed(&aq).expect("planner should accept multiple FROM items without explicit joins");
+        let plan = PlanBuilder::from_analyzed(&aq)
+            .expect("planner should accept multiple FROM items without explicit joins");
 
         // Optional: quickly spot-check that the second collection participates in a Join
         // (full structural check would mirror the previous test but one level deeper)
         let mut saw_join = false;
         if let LogicalPlan::Project { input, .. } = plan {
-            if let LogicalPlan::Join { .. } = *input { saw_join = true; }
+            if let LogicalPlan::Join { .. } = *input {
+                saw_join = true;
+            }
         }
         assert!(saw_join, "expected a Join chain for FROM a, b, c");
     }
@@ -628,7 +627,11 @@ mod tests {
         PlanBuilder::collect_aggregates_in_scalar(&s1, &mut table, &mut calls);
         PlanBuilder::collect_aggregates_in_scalar(&s2, &mut table, &mut calls);
 
-        assert_eq!(calls.len(), 1, "same aggregate (case-insensitive) must be deduped");
+        assert_eq!(
+            calls.len(),
+            1,
+            "same aggregate (case-insensitive) must be deduped"
+        );
         let c = &calls[0];
         assert_eq!(c.func, "sum");
         assert_eq!(c.args.len(), 1);
@@ -639,15 +642,19 @@ mod tests {
     fn scalar_distinguishes_distinct_flag_in_keys() {
         // COUNT(DISTINCT t.id) vs COUNT(t.id)
         let c_dist = fn_agg("COUNT", vec![col("t", "id")], true);
-        let c_all  = fn_agg("COUNT", vec![col("t", "id")], false);
+        let c_all = fn_agg("COUNT", vec![col("t", "id")], false);
 
         let mut calls = Vec::<AggregateCall>::new();
         let mut table = HashMap::<AggregateCall, usize>::new();
 
         PlanBuilder::collect_aggregates_in_scalar(&c_dist, &mut table, &mut calls);
-        PlanBuilder::collect_aggregates_in_scalar(&c_all,  &mut table, &mut calls);
+        PlanBuilder::collect_aggregates_in_scalar(&c_all, &mut table, &mut calls);
 
-        assert_eq!(calls.len(), 2, "DISTINCT must create a separate aggregate call");
+        assert_eq!(
+            calls.len(),
+            2,
+            "DISTINCT must create a separate aggregate call"
+        );
         assert!(calls.iter().any(|c| c.func == "count" && c.distinct));
         assert!(calls.iter().any(|c| c.func == "count" && !c.distinct));
     }
@@ -673,14 +680,17 @@ mod tests {
         let expr = ScalarExpr::Function(Function {
             name: "UPPER".into(),
             args: vec![col("t", "name")],
-            distinct: false
+            distinct: false,
         });
 
         let mut calls = Vec::<AggregateCall>::new();
         let mut table = HashMap::<AggregateCall, usize>::new();
         PlanBuilder::collect_aggregates_in_scalar(&expr, &mut table, &mut calls);
 
-        assert!(calls.is_empty(), "no aggregates should be collected for scalar-only expressions");
+        assert!(
+            calls.is_empty(),
+            "no aggregates should be collected for scalar-only expressions"
+        );
     }
 
     // ---------- collect_aggregates_in_predicate ----------
@@ -688,13 +698,21 @@ mod tests {
     #[test]
     fn predicate_collects_from_compare_and_dedupes_across_branches() {
         // SUM(t.amt) > 10 OR SUM(t.amt) < 100
-        let left  = fn_agg("Sum", vec![col("t", "amt")], false);
+        let left = fn_agg("Sum", vec![col("t", "amt")], false);
         let right = lit_i(10);
-        let cmp1 = Predicate::Compare { left: left.clone(), op: ComparatorOp::Gt, right };
+        let cmp1 = Predicate::Compare {
+            left: left.clone(),
+            op: ComparatorOp::Gt,
+            right,
+        };
 
-        let left2  = fn_agg("sum", vec![col("t", "amt")], false);
+        let left2 = fn_agg("sum", vec![col("t", "amt")], false);
         let right2 = lit_i(100);
-        let cmp2 = Predicate::Compare { left: left2, op: ComparatorOp::Lt, right: right2 };
+        let cmp2 = Predicate::Compare {
+            left: left2,
+            op: ComparatorOp::Lt,
+            right: right2,
+        };
 
         let pred = Predicate::Or(vec![cmp1, cmp2]);
 
@@ -702,7 +720,11 @@ mod tests {
         let mut table = HashMap::<AggregateCall, usize>::new();
         PlanBuilder::collect_aggregates_in_predicate(&pred, &mut table, &mut calls);
 
-        assert_eq!(calls.len(), 1, "same SUM(t.amt) across branches should be deduped");
+        assert_eq!(
+            calls.len(),
+            1,
+            "same SUM(t.amt) across branches should be deduped"
+        );
         assert_eq!(calls[0].func, "sum");
         assert_eq!(calls[0].args.len(), 1);
     }
@@ -711,7 +733,7 @@ mod tests {
     fn predicate_collects_from_isnull_inlist_like_variants() {
         let isnull = Predicate::IsNull {
             expr: fn_agg("max", vec![col("t", "x")], false),
-            negated: false
+            negated: false,
         };
         let inlist = Predicate::InList {
             expr: col("t", "y"),
@@ -719,12 +741,12 @@ mod tests {
                 fn_agg("MIN", vec![col("t", "z")], false),
                 ScalarExpr::Literal(Literal::Int(1)),
             ],
-            negated: false
+            negated: false,
         };
         let like = Predicate::Like {
             expr: fn_agg("COUNT", vec![col("t", "k")], true),
             pattern: ScalarExpr::Literal(Literal::String("%A%".into())),
-            negated: false
+            negated: false,
         };
         let pred = Predicate::And(vec![isnull, inlist, like]);
 
@@ -734,9 +756,9 @@ mod tests {
 
         // Expect MAX(t.x), MIN(t.z), COUNT(DISTINCT t.k)
         assert_eq!(calls.len(), 3);
-        assert!(calls.iter().any(|c| c.func == "max"   && !c.distinct));
-        assert!(calls.iter().any(|c| c.func == "min"   && !c.distinct));
-        assert!(calls.iter().any(|c| c.func == "count" &&  c.distinct));
+        assert!(calls.iter().any(|c| c.func == "max" && !c.distinct));
+        assert!(calls.iter().any(|c| c.func == "min" && !c.distinct));
+        assert!(calls.iter().any(|c| c.func == "count" && c.distinct));
     }
 
     #[test]
@@ -775,12 +797,18 @@ mod join_shape_tests {
     use serde_json::json;
 
     use super::*;
-    use crate::parser::ast::{Collection as AstCollection, Column, ComparatorOp, JoinType, Literal, OrderBy, Predicate, ScalarExpr};
-    use crate::parser::analyzer::{AnalyzedIdentifier};
-    use crate::{DbConfig, Db, IdType, JsonPrimitive};
+    use crate::parser::analyzer::AnalyzedIdentifier;
+    use crate::parser::ast::{
+        Collection as AstCollection, Column, ComparatorOp, JoinType, Literal, OrderBy, Predicate,
+        ScalarExpr,
+    };
+    use crate::{Db, DbConfig, IdType, JsonPrimitive};
 
     fn col(collection: &str, name: &str) -> Column {
-        Column::WithCollection { collection: collection.into(), name: name.into() }
+        Column::WithCollection {
+            collection: collection.into(),
+            name: name.into(),
+        }
     }
 
     fn id_col(collection: &str, name: &str, ty: JsonPrimitive) -> AnalyzedIdentifier {
@@ -795,8 +823,8 @@ mod join_shape_tests {
 
     fn simple_on_eq(lc: &str, ln: &str, rc: &str, rn: &str) -> Predicate {
         Predicate::Compare {
-            left:  ScalarExpr::Column(col(lc, ln)),
-            op:    ComparatorOp::Eq,
+            left: ScalarExpr::Column(col(lc, ln)),
+            op: ComparatorOp::Eq,
             right: ScalarExpr::Column(col(rc, rn)),
         }
     }
@@ -810,7 +838,7 @@ mod join_shape_tests {
             ],
             collections: vec![("a".into(), "a".into())],
             criteria: Some(Predicate::Compare {
-                left: ScalarExpr::Column(col("b","age")),
+                left: ScalarExpr::Column(col("b", "age")),
                 op: ComparatorOp::Gt,
                 right: ScalarExpr::Literal(Literal::Int(18)),
             }),
@@ -821,8 +849,11 @@ mod join_shape_tests {
             offset: None,
             joins: vec![crate::parser::ast::Join {
                 join_type: JoinType::Inner,
-                collection: AstCollection::Table { name: "b".into(), alias: None },
-                predicate: simple_on_eq("a","id","b","a_id"),
+                collection: AstCollection::Table {
+                    name: "b".into(),
+                    alias: None,
+                },
+                predicate: simple_on_eq("a", "id", "b", "a_id"),
             }],
         };
 
@@ -831,16 +862,27 @@ mod join_shape_tests {
         match plan {
             LogicalPlan::Project { input, .. } => match *input {
                 LogicalPlan::Filter { input, .. } => match *input {
-                    LogicalPlan::Join { left, right, join_type, on } => {
+                    LogicalPlan::Join {
+                        left,
+                        right,
+                        join_type,
+                        on,
+                    } => {
                         assert!(matches!(join_type, JoinType::Inner));
                         // left = Scan a
                         match *left {
-                            LogicalPlan::Scan { backing, visible } => { assert_eq!(backing, "a"); assert_eq!(visible, "a"); }
+                            LogicalPlan::Scan { backing, visible } => {
+                                assert_eq!(backing, "a");
+                                assert_eq!(visible, "a");
+                            }
                             other => panic!("expected left Scan(a), got {other:?}"),
                         }
                         // right = Scan b
                         match *right {
-                            LogicalPlan::Scan { backing, visible } => { assert_eq!(backing, "b"); assert_eq!(visible, "b"); }
+                            LogicalPlan::Scan { backing, visible } => {
+                                assert_eq!(backing, "b");
+                                assert_eq!(visible, "b");
+                            }
                             other => panic!("expected right Scan(b), got {other:?}"),
                         }
                         // ON predicate kept
@@ -865,47 +907,83 @@ mod join_shape_tests {
             criteria: None,
             group_by: vec![],
             having: None,
-            order_by: vec![OrderBy { expr: ScalarExpr::Column(col("a","id")), ascending: true }],
+            order_by: vec![OrderBy {
+                expr: ScalarExpr::Column(col("a", "id")),
+                ascending: true,
+            }],
             limit: Some(10),
             offset: None,
             joins: vec![
                 crate::parser::ast::Join {
                     join_type: JoinType::Left,
-                    collection: AstCollection::Table { name: "b".into(), alias: None },
-                    predicate: simple_on_eq("a","id","b","a_id"),
+                    collection: AstCollection::Table {
+                        name: "b".into(),
+                        alias: None,
+                    },
+                    predicate: simple_on_eq("a", "id", "b", "a_id"),
                 },
                 crate::parser::ast::Join {
                     join_type: JoinType::Right,
-                    collection: AstCollection::Table { name: "c".into(), alias: Some("c1".into()) },
-                    predicate: simple_on_eq("b","id","c1","b_id"),
+                    collection: AstCollection::Table {
+                        name: "c".into(),
+                        alias: Some("c1".into()),
+                    },
+                    predicate: simple_on_eq("b", "id", "c1", "b_id"),
                 },
             ],
         };
 
         let plan = PlanBuilder::from_analyzed(&aq).expect("plan");
-        // Expect Limit(Sort(Project(Join(Join(Scan a, Scan b), Scan c1))))
+        // Expect Limit(Project(Sort(Join(Join(Scan a, Scan b), Scan c1))))
         match plan {
-            LogicalPlan::Limit { input, limit, .. } => { assert_eq!(limit, Some(10));
+            LogicalPlan::Limit { input, limit, .. } => {
+                assert_eq!(limit, Some(10));
                 match *input {
-                    LogicalPlan::Sort { input, .. } => match *input {
-                        LogicalPlan::Project { input, .. } => match *input {
-                            LogicalPlan::Join { left, right, join_type, .. } => {
+                    LogicalPlan::Project { input, .. } => match *input {
+                        LogicalPlan::Sort { input, .. } => match *input {
+                            LogicalPlan::Join {
+                                left,
+                                right,
+                                join_type,
+                                ..
+                            } => {
                                 assert!(matches!(join_type, JoinType::Right));
                                 match *left {
-                                    LogicalPlan::Join { left: l2, right: r2, join_type: jt2, .. } => {
+                                    LogicalPlan::Join {
+                                        left: l2,
+                                        right: r2,
+                                        join_type: jt2,
+                                        ..
+                                    } => {
                                         assert!(matches!(jt2, JoinType::Left));
-                                        match *l2 { LogicalPlan::Scan { backing, .. } => assert_eq!(backing, "a"), _ => panic!() }
-                                        match *r2 { LogicalPlan::Scan { backing, .. } => assert_eq!(backing, "b"), _ => panic!() }
+                                        match *l2 {
+                                            LogicalPlan::Scan { backing, .. } => {
+                                                assert_eq!(backing, "a")
+                                            }
+                                            _ => panic!(),
+                                        }
+                                        match *r2 {
+                                            LogicalPlan::Scan { backing, .. } => {
+                                                assert_eq!(backing, "b")
+                                            }
+                                            _ => panic!(),
+                                        }
                                     }
                                     _ => panic!("expected inner join as left child"),
                                 }
-                                match *right { LogicalPlan::Scan { backing, visible } => { assert_eq!(backing, "c"); assert_eq!(visible, "c1"); } _ => panic!() }
+                                match *right {
+                                    LogicalPlan::Scan { backing, visible } => {
+                                        assert_eq!(backing, "c");
+                                        assert_eq!(visible, "c1");
+                                    }
+                                    _ => panic!(),
+                                }
                             }
                             other => panic!("expected Join at that level, got {other:?}"),
-                        }
-                        other => panic!("expected Project, got {other:?}"),
-                    }
-                    other => panic!("expected Sort, got {other:?}"),
+                        },
+                        other => panic!("expected Sort, got {other:?}"),
+                    },
+                    other => panic!("expected Project, got {other:?}"),
                 }
             }
             other => panic!("expected Limit root, got {other:?}"),
@@ -915,7 +993,10 @@ mod join_shape_tests {
     #[test]
     fn order_by_sum_desc_works_when_aggregate_in_order_by() {
         // tiny db
-        let db = Db::new_with_config(DbConfig { id_type: IdType::None, id_key: "id".into() });
+        let db = Db::new_with_config(DbConfig {
+            id_type: IdType::None,
+            id_key: "id".into(),
+        });
         let t = db.create("t");
         t.add_batch(json!([
             { "id": 1, "grp": "A", "v": 10.0 },

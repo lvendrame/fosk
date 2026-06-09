@@ -110,3 +110,47 @@ impl WordComparer {
             (self.reach_eof(parser) || Self::is_any_delimiter(parser.peek(self.length)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::WordComparer;
+    use crate::parser::QueryParser;
+
+    #[test]
+    fn compare_is_case_insensitive_without_postfix_rules() {
+        let parser = QueryParser::new("select ");
+
+        assert!(WordComparer::new("SELECT").compare(&parser));
+        assert!(!WordComparer::new("FROM").compare(&parser));
+    }
+
+    #[test]
+    fn compare_honors_eof_and_postfix_rules() {
+        assert!(WordComparer::new("x").with_eof().compare(&QueryParser::new("x")));
+        assert!(!WordComparer::new("x").compare(&QueryParser::new("x")));
+        assert!(WordComparer::new("x").with_whitespace_postfix().compare(&QueryParser::new("x ")));
+        assert!(WordComparer::new("x").with_break_line_postfix().compare(&QueryParser::new("x\n")));
+        assert!(WordComparer::new("x").with_any_delimiter_postfix().compare(&QueryParser::new("x,")));
+        assert!(WordComparer::new("x").with_delimiter('(').compare(&QueryParser::new("x(")));
+        assert!(WordComparer::new("x").with_optional_postfix(',').compare(&QueryParser::new("x,")));
+        assert!(!WordComparer::new("x").with_whitespace_postfix().compare(&QueryParser::new("x,")));
+    }
+
+    #[test]
+    fn delimiter_helpers_classify_current_character() {
+        let space = QueryParser::new(" ");
+        let newline = QueryParser::new("\n");
+
+        assert!(WordComparer::is_block_delimiter(' '));
+        assert!(WordComparer::is_any_delimiter('.'));
+        assert!(WordComparer::is_break_line('\n'));
+        assert!(WordComparer::is_current_block_delimiter(&space));
+        assert!(WordComparer::is_current_break_line(&newline));
+    }
+
+    #[test]
+    fn compare_with_block_delimiter_requires_delimited_match() {
+        assert!(WordComparer::new("id").compare_with_block_delimiter(&QueryParser::new("id,")));
+        assert!(!WordComparer::new("id").compare_with_block_delimiter(&QueryParser::new("idea")));
+    }
+}

@@ -33,3 +33,39 @@ impl fmt::Debug for Literal {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Literal;
+    use ordered_float::NotNan;
+
+    #[test]
+    fn display_formats_every_literal_variant() {
+        let cases = [
+            (Literal::String("Ada".to_string()), "s: \"Ada\""),
+            (Literal::Int(42), "i: 42"),
+            (Literal::Float(NotNan::new(2.5).unwrap()), "f: 2.5"),
+            (Literal::Bool(true), "b: true"),
+            (Literal::Null, "n: NULL"),
+        ];
+
+        for (literal, expected) in cases {
+            assert_eq!(literal.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn debug_formats_every_literal_variant() {
+        let cases = [
+            (Literal::String("Ada".to_string()), "String(s: \"Ada\")"),
+            (Literal::Int(42), "Int(i: 42)"),
+            (Literal::Float(NotNan::new(2.5).unwrap()), "Float(f: 2.5)"),
+            (Literal::Bool(false), "Bool(b: false)"),
+            (Literal::Null, "Null(n: NULL)"),
+        ];
+
+        for (literal, expected) in cases {
+            assert_eq!(format!("{:?}", literal), expected);
+        }
+    }
+}
