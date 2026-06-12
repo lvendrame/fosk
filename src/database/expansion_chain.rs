@@ -1,4 +1,4 @@
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum ExpansionChain {
     #[default]
     None,
@@ -32,71 +32,51 @@ mod test {
 
     #[test]
     fn test_from_single() {
-        let exp = ExpansionChain::from("orders");
-        if let ExpansionChain::Single(s) = exp {
-            assert_eq!(s, "orders");
-        } else {
-            panic!("Expected ExpansionChain::Single variant");
-        }
+        assert_eq!(
+            ExpansionChain::from("orders"),
+            ExpansionChain::Single("orders".to_string())
+        );
     }
 
     #[test]
     fn test_from_two_levels() {
-        let exp = ExpansionChain::from("orders.order_items");
-        if let ExpansionChain::Child(p1, boxed) = exp {
-            assert_eq!(p1, "orders");
-            if let ExpansionChain::Single(s) = *boxed {
-                assert_eq!(s, "order_items");
-            } else {
-                panic!("Expected nested ExpansionChain::Single variant");
-            }
-        } else {
-            panic!("Expected ExpansionChain::Child variant");
-        }
+        assert_eq!(
+            ExpansionChain::from("orders.order_items"),
+            ExpansionChain::Child(
+                "orders".to_string(),
+                Box::new(ExpansionChain::Single("order_items".to_string()))
+            )
+        );
     }
 
     #[test]
     fn test_from_three_levels() {
-        let exp = ExpansionChain::from("orders.order_items.products");
-        if let ExpansionChain::Child(p1, boxed1) = exp {
-            assert_eq!(p1, "orders");
-            if let ExpansionChain::Child(p2, boxed2) = *boxed1 {
-                assert_eq!(p2, "order_items");
-                if let ExpansionChain::Single(s) = *boxed2 {
-                    assert_eq!(s, "products");
-                } else {
-                    panic!("Expected innermost ExpansionChain::Single variant");
-                }
-            } else {
-                panic!("Expected nested ExpansionChain::Child variant");
-            }
-        } else {
-            panic!("Expected root ExpansionChain::Child variant");
-        }
+        assert_eq!(
+            ExpansionChain::from("orders.order_items.products"),
+            ExpansionChain::Child(
+                "orders".to_string(),
+                Box::new(ExpansionChain::Child(
+                    "order_items".to_string(),
+                    Box::new(ExpansionChain::Single("products".to_string()))
+                ))
+            )
+        );
     }
 
     #[test]
     fn test_from_empty() {
-        let exp = ExpansionChain::from("");
-        match exp {
-            ExpansionChain::None => {}
-            _ => panic!("Expected ExpansionChain::None variant for empty input"),
-        }
+        assert_eq!(ExpansionChain::from(""), ExpansionChain::None);
     }
 
     #[test]
     fn test_from_ignores_empty_path_segments() {
-        let exp = ExpansionChain::from(".orders..order_items.");
-        if let ExpansionChain::Child(p1, boxed) = exp {
-            assert_eq!(p1, "orders");
-            if let ExpansionChain::Single(s) = *boxed {
-                assert_eq!(s, "order_items");
-            } else {
-                panic!("Expected nested ExpansionChain::Single variant");
-            }
-        } else {
-            panic!("Expected ExpansionChain::Child variant");
-        }
+        assert_eq!(
+            ExpansionChain::from(".orders..order_items."),
+            ExpansionChain::Child(
+                "orders".to_string(),
+                Box::new(ExpansionChain::Single("order_items".to_string()))
+            )
+        );
     }
 
     #[test]

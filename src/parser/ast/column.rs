@@ -125,327 +125,162 @@ impl fmt::Debug for Column {
 mod tests {
     use crate::parser::{
         QueryParser,
-        ast::{Column, ScalarExpr},
+        ast::{Column, Function, ScalarExpr},
     };
+
+    fn parse_scalar(text: &str, allow_wildcard: bool) -> ScalarExpr {
+        let mut parser = QueryParser::new(text);
+        let result = if allow_wildcard {
+            Column::parse_column_or_function_or_wildcard(&mut parser)
+        } else {
+            Column::parse_column_or_function(&mut parser)
+        };
+        match result {
+            Ok(expr) => expr,
+            Err(err) => panic!("expected scalar from {text:?}, got {err:?}"),
+        }
+    }
+
+    fn parse_error(text: &str, allow_wildcard: bool) -> (usize, usize, String) {
+        let mut parser = QueryParser::new(text);
+        let result = if allow_wildcard {
+            Column::parse_column_or_function_or_wildcard(&mut parser)
+        } else {
+            Column::parse_column_or_function(&mut parser)
+        };
+        match result {
+            Ok(expr) => panic!("expected parse error from {text:?}, got {expr:?}"),
+            Err(err) => (err.start, err.end, err.text),
+        }
+    }
+
+    fn parse_column_name(text: &str) -> String {
+        match parse_scalar(text, false) {
+            ScalarExpr::Column(Column::Name { name }) => name,
+            expr => panic!("expected unqualified column from {text:?}, got {expr:?}"),
+        }
+    }
+
+    fn parse_collection_column(text: &str) -> (String, String) {
+        match parse_scalar(text, false) {
+            ScalarExpr::Column(Column::WithCollection { collection, name }) => (collection, name),
+            expr => panic!("expected qualified column from {text:?}, got {expr:?}"),
+        }
+    }
 
     #[test]
     pub fn test_column_name() {
-        let text = "column";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => assert_eq!(name, text),
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_column_name("column"), "column");
     }
 
     #[test]
     pub fn test_column_name_snake_case() {
-        let text = "column_01";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => assert_eq!(name, text),
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_column_name("column_01"), "column_01");
     }
 
     #[test]
     pub fn test_column_name_with_space() {
-        let text = "column ";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => assert_eq!(name, "column"),
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_column_name("column "), "column");
     }
 
     #[test]
     pub fn test_column_name_with_alias() {
-        let text = "column as nick";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => assert_eq!(name, "column"),
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_column_name("column as nick"), "column");
     }
 
     #[test]
     pub fn test_column_name_with_comma() {
-        let text = "column,";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => assert_eq!(name, "column"),
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_column_name("column,"), "column");
     }
 
     #[test]
     pub fn test_column_name_with_break_line() {
-        let text = "column\r";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => assert_eq!(name, "column"),
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_column_name("column\r"), "column");
     }
 
     #[test]
     pub fn test_column_with_collection() {
-        let text = "collection.column";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name: _ } => panic!(),
-                    Column::WithCollection { collection, name } => {
-                        assert_eq!(name, "column");
-                        assert_eq!(collection, "collection")
-                    }
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_collection_column("collection.column"),
+            ("collection".to_string(), "column".to_string())
+        );
     }
 
     #[test]
     pub fn test_column_with_collection_with_comma() {
-        let text = "collection.column,";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name: _ } => panic!(),
-                    Column::WithCollection { collection, name } => {
-                        assert_eq!(name, "column");
-                        assert_eq!(collection, "collection")
-                    }
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_collection_column("collection.column,"),
+            ("collection".to_string(), "column".to_string())
+        );
     }
 
     #[test]
     pub fn test_column_with_collection_with_space() {
-        let text = "collection.column ";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name: _ } => panic!(),
-                    Column::WithCollection { collection, name } => {
-                        assert_eq!(name, "column");
-                        assert_eq!(collection, "collection")
-                    }
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_collection_column("collection.column "),
+            ("collection".to_string(), "column".to_string())
+        );
     }
 
     #[test]
     pub fn test_column_name_error_digit() {
         let text = "9column";
 
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.end, 0);
-                assert_eq!(err.text, "9");
-            }
-        }
+        let (start, end, text) = parse_error(text, false);
+        assert_eq!((start, end, text), (0, 0, "9".to_string()));
     }
 
     #[test]
     pub fn test_column_name_error_dot() {
         let text = "col.column.err";
 
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.end, 10);
-                assert_eq!(err.text, "column.");
-            }
-        }
+        let (start, end, text) = parse_error(text, false);
+        assert_eq!((start, end, text), (4, 10, "column.".to_string()));
     }
 
     #[test]
     pub fn test_function_name() {
-        let text = "fn_new()";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Function(function) => {
-                    assert_eq!(function.name, "fn_new");
-                    assert_eq!(function.args.len(), 0);
-                }
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("fn_new()", false),
+            ScalarExpr::Function(Function {
+                name: "fn_new".to_string(),
+                args: vec![],
+                distinct: false
+            })
+        );
     }
 
     #[test]
     pub fn test_function_name_schema() {
-        let text = "schema.fn_new()";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Function(function) => {
-                    assert_eq!(function.name, "schema.fn_new");
-                    assert_eq!(function.args.len(), 0);
-                }
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("schema.fn_new()", false),
+            ScalarExpr::Function(Function {
+                name: "schema.fn_new".to_string(),
+                args: vec![],
+                distinct: false
+            })
+        );
     }
 
     #[test]
     pub fn test_function_name_with_args_1() {
-        let text = "fn_new(true)";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Function(function) => {
-                    assert_eq!(function.name, "fn_new");
-                    assert_eq!(function.args.len(), 1);
-                }
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
+        match parse_scalar("fn_new(true)", false) {
+            ScalarExpr::Function(function) => {
+                assert_eq!(function.name, "fn_new");
+                assert_eq!(function.args.len(), 1);
+            }
+            expr => panic!("expected function, got {expr:?}"),
         }
     }
 
     #[test]
     pub fn test_function_name_with_args_3() {
-        let text = r#"fn_new(true, "hello", 123)"#;
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Function(function) => {
-                    assert_eq!(function.name, "fn_new");
-                    assert_eq!(function.args.len(), 3);
-                }
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
+        match parse_scalar(r#"fn_new(true, "hello", 123)"#, false) {
+            ScalarExpr::Function(function) => {
+                assert_eq!(function.name, "fn_new");
+                assert_eq!(function.args.len(), 3);
+            }
+            expr => panic!("expected function, got {expr:?}"),
         }
     }
 
@@ -453,104 +288,67 @@ mod tests {
     pub fn test_function_name_error_end() {
         let text = "fn_new()f";
 
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.end, 8);
-                assert_eq!(err.text, "fn_new()f");
-            }
-        }
+        let (start, end, text) = parse_error(text, false);
+        assert_eq!((start, end, text), (0, 8, "fn_new()f".to_string()));
     }
 
     #[test]
     pub fn test_wildcard() {
-        let text = "*";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function_or_wildcard(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::WildCard => {} //allowed
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_scalar("*", true), ScalarExpr::WildCard);
     }
 
     #[test]
     pub fn test_wildcard_with_collection() {
-        let text = "coll.*";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function_or_wildcard(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::WildCardWithCollection(collection) => assert_eq!(collection, "coll"),
-                _ => todo!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("coll.*", true),
+            ScalarExpr::WildCardWithCollection("coll".to_string())
+        );
     }
 
     #[test]
     pub fn test_wildcard_with_wrong_char() {
         let text = "*4";
 
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.start, 0);
-                assert_eq!(err.end, 1);
-                assert_eq!(err.text, "*4");
-            }
-        }
+        let (start, end, text) = parse_error(text, false);
+        assert_eq!((start, end, text), (0, 1, "*4".to_string()));
     }
 
     #[test]
     pub fn test_wildcard_not_allowed() {
         let text = "*";
 
-        let mut parser = QueryParser::new(text);
-
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.start, 0);
-                assert_eq!(err.end, 1);
-                assert_eq!(err.text, "*");
-            }
-        }
+        let (start, end, text) = parse_error(text, false);
+        assert_eq!((start, end, text), (0, 1, "*".to_string()));
     }
 
     #[test]
     pub fn test_wildcard_with_collection_not_allowed() {
         let text = "coll.*";
 
-        let mut parser = QueryParser::new(text);
+        let (start, end, text) = parse_error(text, false);
+        assert_eq!((start, end, text), (5, 6, "*".to_string()));
+    }
 
-        let result = Column::parse_column_or_function(&mut parser);
-
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.start, 5);
-                assert_eq!(err.end, 6);
-                assert_eq!(err.text, "*");
-            }
-        }
+    #[test]
+    fn debug_formats_column_variants() {
+        assert_eq!(
+            format!(
+                "{:?}",
+                Column::Name {
+                    name: "name".to_string()
+                }
+            ),
+            "Column::Name(col: name)"
+        );
+        assert_eq!(
+            format!(
+                "{:?}",
+                Column::WithCollection {
+                    collection: "people".to_string(),
+                    name: "name".to_string()
+                }
+            ),
+            "Column::WithCollection(col: people.name)"
+        );
     }
 }

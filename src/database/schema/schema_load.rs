@@ -13,14 +13,19 @@ pub(crate) fn apply_schema_to_collection(
     collection: &DbCollection,
     parsed: ParsedCompactSchema,
 ) -> Result<(), String> {
-    let existing_config = collection.get_config();
+    let existing_config = match collection.get_config() {
+        Ok(config) => config,
+        Err(error) => return Err(error.to_string()),
+    };
     if let Some(loaded_config) = &parsed.config {
         validate_loaded_config_matches_existing(loaded_config, &existing_config)?;
     }
 
     validate_schema_config(&parsed.schema, &existing_config)?;
-    collection.set_schema(parsed.schema);
-    Ok(())
+    match collection.set_schema(parsed.schema) {
+        Ok(()) => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 /// Choose the collection config to use when a DB schema load must create a collection.
@@ -68,7 +73,7 @@ mod tests {
         .unwrap();
         apply_schema_to_collection(&collection, parsed).unwrap();
 
-        assert_eq!(collection.count(), 1);
+        assert_eq!(collection.count().unwrap(), 1);
         let inserted = collection.add(json!({ "name": "Next" })).unwrap();
         assert_eq!(inserted["user_id"], 2);
     }
@@ -82,12 +87,35 @@ mod tests {
     }
 
     #[test]
+    fn applies_schema_when_loaded_config_matches_existing_collection_config() {
+        let collection = DbCollection::new_coll("users", DbConfig::int("user_id"));
+        let parsed = parse_schema_for_load(&json!({
+            "user_id": "Id",
+            "email": "String"
+        }))
+        .unwrap();
+
+        apply_schema_to_collection(&collection, parsed).unwrap();
+
+        let schema = collection.schema().unwrap().unwrap();
+        assert_eq!(schema.fields["email"].ty, JsonPrimitive::String);
+    }
+
+    #[test]
     fn chooses_marker_config_for_missing_collection() {
         let parsed = parse_schema_for_load(&json!({ "session_uuid": "Uuid" })).unwrap();
         let config = config_for_missing_collection(&parsed, &DbConfig::int("id"));
 
         assert_eq!(config.id_type, IdType::Uuid);
         assert_eq!(config.id_key, "session_uuid");
+    }
+
+    #[test]
+    fn uses_default_config_when_missing_collection_schema_has_no_id_marker() {
+        let parsed = parse_schema_for_load(&json!({ "name": "String" })).unwrap();
+        let config = config_for_missing_collection(&parsed, &DbConfig::int("fallback_id"));
+
+        assert_eq!(config, DbConfig::int("fallback_id"));
     }
 
     #[test]
@@ -101,7 +129,7 @@ mod tests {
         apply_schema_to_collection(&collection, parsed).unwrap();
 
         collection.add(json!({ "name": "Ada", "age": 37 })).unwrap();
-        let schema = collection.schema().unwrap();
+        let schema = collection.schema().unwrap().unwrap();
 
         assert_eq!(schema.fields["age"].ty, JsonPrimitive::Int);
     }

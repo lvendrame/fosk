@@ -66,13 +66,18 @@ impl DbConfig {
     /// # Example
     ///
     /// ```
-    /// use fosk::{DbCollection, DbConfig};
+    /// use fosk::{AddError, DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
-    /// let inserted = people.add(json!({ "name": "Ada" })).unwrap();
+    /// let inserted = people
+    ///     .add(json!({ "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// assert_eq!(inserted["id"], 1);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn int(id_key: &str) -> Self {
         Self {
@@ -89,10 +94,18 @@ impl DbConfig {
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::uuid("id"));
-    /// let inserted = people.add(json!({ "name": "Ada" })).unwrap();
+    /// let inserted = people
+    ///     .add(json!({ "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// assert!(inserted["id"].as_str().unwrap().contains('-'));
+    /// let id = inserted["id"]
+    ///     .as_str()
+    ///     .ok_or_else(|| "generated id was not a string".to_string())?;
+    /// assert!(id.contains('-'));
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn uuid(id_key: &str) -> Self {
         Self {
@@ -109,13 +122,26 @@ impl DbConfig {
     /// # Example
     ///
     /// ```
-    /// use fosk::{DbCollection, DbConfig};
+    /// use fosk::{AddError, DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
     ///
-    /// assert!(people.add(json!({ "id": "ada", "name": "Ada" })).is_some());
-    /// assert!(people.add(json!({ "name": "Grace" })).is_none());
+    /// let inserted = people
+    ///     .add(json!({ "id": "ada", "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
+    /// assert_eq!(inserted["id"], "ada");
+    ///
+    /// let missing_id = people.add(json!({ "name": "Grace" }));
+    /// assert_eq!(
+    ///     missing_id,
+    ///     Err(AddError::MissingId {
+    ///         id_key: "id".to_string()
+    ///     })
+    /// );
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn none(id_key: &str) -> Self {
         Self {

@@ -93,235 +93,114 @@ mod tests {
         ast::{Column, Function, Literal, ScalarExpr},
     };
 
+    fn parse_scalar(text: &str, allow_wildcard: bool) -> ScalarExpr {
+        let mut parser = QueryParser::new(text);
+        match ScalarExpr::parse(&mut parser, allow_wildcard) {
+            Ok(expr) => expr,
+            Err(err) => panic!("expected scalar from {text:?}, got {err:?}"),
+        }
+    }
+
+    fn parse_error(text: &str, allow_wildcard: bool) -> (usize, usize, String) {
+        let mut parser = QueryParser::new(text);
+        match ScalarExpr::parse(&mut parser, allow_wildcard) {
+            Ok(expr) => panic!("expected scalar parse error from {text:?}, got {expr:?}"),
+            Err(err) => (err.start, err.end, err.text),
+        }
+    }
+
     #[test]
     pub fn test_scalar_column_name() {
-        let text = "column";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => {
-                        assert_eq!(name, "column");
-                    }
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("column", true),
+            ScalarExpr::Column(Column::Name {
+                name: "column".to_string()
+            })
+        );
     }
 
     #[test]
     pub fn test_scalar_column_name_and_collection() {
-        let text = "collection.column";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name: _ } => panic!(),
-                    Column::WithCollection { collection, name } => {
-                        assert_eq!(collection, "collection");
-                        assert_eq!(name, "column");
-                    }
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("collection.column", true),
+            ScalarExpr::Column(Column::WithCollection {
+                collection: "collection".to_string(),
+                name: "column".to_string()
+            })
+        );
     }
 
     #[test]
     pub fn test_scalar_column_name_prefixed_with_whitespace() {
-        let text = "  column";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => {
-                        assert_eq!(name, "column");
-                    }
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("  column", true),
+            ScalarExpr::Column(Column::Name {
+                name: "column".to_string()
+            })
+        );
     }
 
     #[test]
     pub fn test_scalar_null_parser() {
-        let text = "null";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Literal(Literal::Null) => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("null", true),
+            ScalarExpr::Literal(Literal::Null)
+        );
     }
 
     #[test]
     pub fn test_scalar_bool_parser_true() {
-        let text = "true";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Literal(Literal::Bool(value)) => assert!(value),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("true", true),
+            ScalarExpr::Literal(Literal::Bool(true))
+        );
     }
 
     #[test]
     pub fn test_scalar_number_parser_int() {
-        let text = "32";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Literal(Literal::Int(value)) => assert_eq!(value, 32),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("32", true),
+            ScalarExpr::Literal(Literal::Int(32))
+        );
     }
 
     #[test]
     pub fn test_scalar_string_parser() {
-        let text = "\"identifier\"";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Literal(Literal::String(result)) => assert_eq!(result, "identifier"),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("\"identifier\"", true),
+            ScalarExpr::Literal(Literal::String("identifier".to_string()))
+        );
     }
 
     #[test]
     pub fn test_scalar_empty() {
-        let text = " ";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.text, "");
-                assert_eq!(err.start, 1);
-                assert_eq!(err.end, 1);
-            }
-        }
+        let (start, end, text) = parse_error(" ", true);
+        assert_eq!((start, end, text), (1, 1, String::new()));
     }
 
     #[test]
     pub fn test_scalar_wildcard() {
-        let text = "*";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::WildCard => {} //should pass
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_scalar("*", true), ScalarExpr::WildCard);
     }
 
     #[test]
     pub fn test_scalar_wildcard_with_collection() {
-        let text = "collection.*";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, true);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::WildCardWithCollection(collection) => {
-                    assert_eq!(collection, "collection")
-                }
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_scalar("collection.*", true),
+            ScalarExpr::WildCardWithCollection("collection".to_string())
+        );
     }
 
     #[test]
     pub fn test_scalar_wildcard_not_allowed() {
-        let text = "*";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, false);
-
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.text, "*");
-                assert_eq!(err.start, 0);
-                assert_eq!(err.end, 1);
-            }
-        }
+        let (start, end, text) = parse_error("*", false);
+        assert_eq!((start, end, text), (0, 1, "*".to_string()));
     }
 
     #[test]
     pub fn test_scalar_wildcard_with_collection_not_allowed() {
-        let text = "collection.*";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ScalarExpr::parse(&mut parser, false);
-
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.text, "*");
-                assert_eq!(err.start, 11);
-                assert_eq!(err.end, 12);
-            }
-        }
+        let (start, end, text) = parse_error("collection.*", false);
+        assert_eq!((start, end, text), (11, 12, "*".to_string()));
     }
 
     #[test]

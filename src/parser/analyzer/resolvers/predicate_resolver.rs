@@ -882,4 +882,163 @@ mod tests {
             Predicate::Const3(Truth::Unknown)
         ));
     }
+
+    #[test]
+    fn fold_keeps_non_constant_and_or_compare_isnull_inlist_like_shapes() {
+        let compare = Predicate::Compare {
+            left: col_unq("a"),
+            op: ComparatorOp::Eq,
+            right: lit_i(1),
+        };
+        assert_eq!(
+            PredicateResolver::fold_predicate(&compare),
+            Predicate::Compare {
+                left: col_unq("a"),
+                op: ComparatorOp::Eq,
+                right: lit_i(1),
+            }
+        );
+
+        let is_null = Predicate::IsNull {
+            expr: col_unq("a"),
+            negated: true,
+        };
+        assert_eq!(
+            PredicateResolver::fold_predicate(&is_null),
+            Predicate::IsNull {
+                expr: col_unq("a"),
+                negated: true,
+            }
+        );
+
+        let in_list = Predicate::InList {
+            expr: col_unq("a"),
+            list: vec![lit_i(1), col_unq("b")],
+            negated: true,
+        };
+        assert_eq!(
+            PredicateResolver::fold_predicate(&in_list),
+            Predicate::InList {
+                expr: col_unq("a"),
+                list: vec![lit_i(1), col_unq("b")],
+                negated: true,
+            }
+        );
+
+        let like = Predicate::Like {
+            expr: col_unq("name"),
+            pattern: lit_s("A%"),
+            negated: true,
+        };
+        assert_eq!(
+            PredicateResolver::fold_predicate(&like),
+            Predicate::Like {
+                expr: col_unq("name"),
+                pattern: lit_s("A%"),
+                negated: true,
+            }
+        );
+
+        assert_eq!(
+            PredicateResolver::fold_predicate(&Predicate::And(vec![
+                Predicate::Const3(Truth::True),
+                compare.clone(),
+            ])),
+            Predicate::And(vec![compare.clone()])
+        );
+        assert_eq!(
+            PredicateResolver::fold_predicate(&Predicate::Or(vec![
+                Predicate::Const3(Truth::False),
+                compare.clone(),
+            ])),
+            Predicate::Or(vec![compare])
+        );
+    }
+
+    #[test]
+    fn fold_all_constant_and_or_return_accumulated_truth() {
+        assert_eq!(
+            PredicateResolver::fold_predicate(&Predicate::And(vec![
+                Predicate::Const3(Truth::True),
+                Predicate::Const3(Truth::Unknown),
+            ])),
+            Predicate::Const3(Truth::Unknown)
+        );
+        assert_eq!(
+            PredicateResolver::fold_predicate(&Predicate::Or(vec![
+                Predicate::Const3(Truth::False),
+                Predicate::Const3(Truth::Unknown),
+            ])),
+            Predicate::Const3(Truth::Unknown)
+        );
+    }
+
+    #[test]
+    fn fold_in_list_without_match_or_null_is_false_and_not_in_is_true() {
+        let predicate = Predicate::InList {
+            expr: lit_i(9),
+            list: vec![lit_i(1), lit_i(2)],
+            negated: false,
+        };
+        assert_eq!(
+            PredicateResolver::fold_predicate(&predicate),
+            Predicate::Const3(Truth::False)
+        );
+
+        let not_in = Predicate::InList {
+            expr: lit_i(9),
+            list: vec![lit_i(1), lit_i(2)],
+            negated: true,
+        };
+        assert_eq!(
+            PredicateResolver::fold_predicate(&not_in),
+            Predicate::Const3(Truth::True)
+        );
+    }
+
+    #[test]
+    fn qualify_predicate_handles_or_is_null_like_and_const3_variants() {
+        let sp = DummySchemas::new().with(
+            "t",
+            vec![
+                ("a", JsonPrimitive::Int, false),
+                ("name", JsonPrimitive::String, false),
+            ],
+        );
+        let mut ctx = ctx_for(&sp, &[("t", None)]);
+
+        let predicate = Predicate::Or(vec![
+            Predicate::IsNull {
+                expr: col_unq("a"),
+                negated: false,
+            },
+            Predicate::Like {
+                expr: col_unq("name"),
+                pattern: lit_s("A%"),
+                negated: true,
+            },
+            Predicate::Const3(Truth::Unknown),
+        ]);
+
+        let qualified = match PredicateResolver::qualify_predicate(&predicate, &mut ctx) {
+            Ok(predicate) => predicate,
+            Err(err) => panic!("expected predicate to qualify, got {err:?}"),
+        };
+
+        assert_eq!(
+            qualified,
+            Predicate::Or(vec![
+                Predicate::IsNull {
+                    expr: col_q("t", "a"),
+                    negated: false,
+                },
+                Predicate::Like {
+                    expr: col_q("t", "name"),
+                    pattern: lit_s("A%"),
+                    negated: true,
+                },
+                Predicate::Const3(Truth::Unknown),
+            ])
+        );
+    }
 }

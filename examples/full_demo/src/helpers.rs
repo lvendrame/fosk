@@ -1,13 +1,25 @@
 use std::{
     fs,
+    io::{Error as IoError, ErrorKind},
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::Serialize;
 
+pub fn boxed_debug<E: std::fmt::Debug>(error: E) -> Box<dyn std::error::Error> {
+    IoError::other(format!("{error:?}")).into()
+}
+
 pub fn pretty<T: Serialize>(value: &T) -> String {
-    serde_json::to_string_pretty(value).unwrap()
+    match serde_json::to_string_pretty(value) {
+        Ok(text) => text,
+        Err(error) => format!("<<failed to serialize value: {error}>>"),
+    }
+}
+
+pub fn required<T>(value: Option<T>, context: &str) -> Result<T, Box<dyn std::error::Error>> {
+    value.ok_or_else(|| IoError::new(ErrorKind::NotFound, context.to_string()).into())
 }
 
 pub fn schema_summary(schema: &fosk::SchemaDict) -> String {
@@ -33,8 +45,7 @@ pub fn temp_file(prefix: &str, extension: &str) -> PathBuf {
 fn temp_path(prefix: &str, extension: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+        .map_or(0, |duration| duration.as_nanos());
     std::env::temp_dir().join(format!("{prefix}-{nanos}.{extension}"))
 }
 

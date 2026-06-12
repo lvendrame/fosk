@@ -42,7 +42,10 @@ impl PlanExecutor {
                     .get(backing)
                     .ok_or_else(|| AnalyzerError::Other(format!("unknown collection {backing}")))?;
                 let mut out = Vec::new();
-                for v in coll.get_all() {
+                for v in coll
+                    .get_all()
+                    .map_err(|error| AnalyzerError::Other(error.to_string()))?
+                {
                     // prefix keys with visible name to match qualified columns
                     if let Value::Object(map) = v {
                         let mut m = Map::new();
@@ -525,19 +528,34 @@ mod tests {
     use crate::planner::plan_builder::PlanBuilder;
     use serde_json::json;
 
+    fn add_batch_or_panic(
+        collection: &crate::database::DbCollection,
+        rows: serde_json::Value,
+        expected_len: usize,
+    ) {
+        let inserted = collection
+            .add_batch(rows)
+            .unwrap_or_else(|error| panic!("seed batch should insert: {error}"));
+        assert_eq!(inserted.len(), expected_len);
+    }
+
     fn mk_db() -> Db {
         let db = Db::new_with_config(DbConfig {
             id_type: IdType::None,
             id_key: "id".into(),
         });
         let t = db.create("t");
-        t.add_batch(json!([
-            { "id": 1, "cat": "a", "amt": 10.0 },
-            { "id": 2, "cat": "a", "amt": 15.0 },
-            { "id": 3, "cat": "b", "amt":  7.5 },
-            { "id": 4, "cat": "b", "amt": null },
-            { "id": 5, "cat": "a", "amt": 22.5 }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "cat": "a", "amt": 10.0 },
+                { "id": 2, "cat": "a", "amt": 15.0 },
+                { "id": 3, "cat": "b", "amt":  7.5 },
+                { "id": 4, "cat": "b", "amt": null },
+                { "id": 5, "cat": "a", "amt": 22.5 }
+            ]),
+            5,
+        );
         db
     }
 
@@ -638,10 +656,14 @@ mod tests {
     fn mk_db_for_scan() -> Db {
         let db = mk_db_simple();
         let t = db.create("t");
-        t.add_batch(json!([
-            { "id": 1, "name": "Ana", "k": 2, "val": 10.0 },
-            { "id": 2, "name": "Bob", "k": 1, "val": null }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "name": "Ana", "k": 2, "val": 10.0 },
+                { "id": 2, "name": "Bob", "k": 1, "val": null }
+            ]),
+            2,
+        );
         db
     }
 
@@ -872,14 +894,18 @@ mod tests {
     fn mk_db_for_agg() -> Db {
         let db = mk_db_simple();
         let t = db.create("t");
-        t.add_batch(json!([
-            { "id": 1, "cat": "a", "amt": 10.0 },
-            { "id": 2, "cat": "a", "amt": 15.0 },
-            { "id": 3, "cat": "b", "amt":  7.5 },
-            { "id": 4, "cat": "b", "amt": null },
-            { "id": 5, "cat": "a", "amt": 22.5 },
-            { "id": 6, "cat": "c", "amt": null }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "cat": "a", "amt": 10.0 },
+                { "id": 2, "cat": "a", "amt": 15.0 },
+                { "id": 3, "cat": "b", "amt":  7.5 },
+                { "id": 4, "cat": "b", "amt": null },
+                { "id": 5, "cat": "a", "amt": 22.5 },
+                { "id": 6, "cat": "c", "amt": null }
+            ]),
+            6,
+        );
         db
     }
 
@@ -1000,12 +1026,16 @@ mod tests {
     fn aggregate_distinct_count_and_sum_distinct() {
         let db = mk_db_simple();
         let t = db.create("t");
-        t.add_batch(json!([
-            { "id": 1, "x": 1, "y": 10.0 },
-            { "id": 2, "x": 1, "y": 10.0 },
-            { "id": 3, "x": 2, "y": 10.0 },
-            { "id": 4, "x": 2, "y": null }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "x": 1, "y": 10.0 },
+                { "id": 2, "x": 1, "y": 10.0 },
+                { "id": 3, "x": 2, "y": 10.0 },
+                { "id": 4, "x": 2, "y": null }
+            ]),
+            4,
+        );
         drop(t);
 
         // GROUP BY t.x, COUNT(DISTINCT t.y), SUM(DISTINCT t.y)
@@ -1064,11 +1094,15 @@ mod tests {
     fn aggregate_avg_min_max_and_null_only_group() {
         let db = mk_db_simple();
         let t = db.create("t");
-        t.add_batch(json!([
-            { "id": 1, "g": "a", "v": 2.0 },
-            { "id": 2, "g": "a", "v": 4.0 },
-            { "id": 3, "g": "b", "v": null }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "g": "a", "v": 2.0 },
+                { "id": 2, "g": "a", "v": 4.0 },
+                { "id": 3, "g": "b", "v": null }
+            ]),
+            3,
+        );
         drop(t);
 
         // GROUP BY g: AVG(v), MIN(v), MAX(v)
@@ -1150,14 +1184,22 @@ mod tests {
         let t = db.create("t");
         let u = db.create("u");
 
-        t.add_batch(json!([
-            { "id": 1, "x": "A" },
-            { "id": 2, "x": "B" }
-        ]));
-        u.add_batch(json!([
-            { "id": 10, "y": true  },
-            { "id": 20, "y": false }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "x": "A" },
+                { "id": 2, "x": "B" }
+            ]),
+            2,
+        );
+        add_batch_or_panic(
+            &u,
+            json!([
+                { "id": 10, "y": true  },
+                { "id": 20, "y": false }
+            ]),
+            2,
+        );
 
         // Plan: INNER JOIN with ON TRUE (i.e., cross join)
         let plan = LogicalPlan::Join {
@@ -1195,10 +1237,14 @@ mod tests {
         let t = db.create("t");
         let _u = db.create("u"); // keep it empty, only id will be inferred on the schema
 
-        t.add_batch(json!([
-            { "id": 1, "x": "A" },
-            { "id": 2, "x": "B" }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "x": "A" },
+                { "id": 2, "x": "B" }
+            ]),
+            2,
+        );
 
         let plan = LogicalPlan::Join {
             left: Box::new(LogicalPlan::Scan {
@@ -1238,16 +1284,24 @@ mod tests {
         let u = db.create("u");
 
         // Seed left with data
-        t.add_batch(json!([
-            { "id": 1, "x": "A" },
-            { "id": 2, "x": "B" }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "x": "A" },
+                { "id": 2, "x": "B" }
+            ]),
+            2,
+        );
 
         // Seed right ONCE to register schema, then clear rows to make it empty at execution.
-        u.add_batch(json!([
-            { "id": 999, "y": true }
-        ]));
-        u.clear(); // assumes schema persists; if not, remove this and adjust expectations below.
+        add_batch_or_panic(
+            &u,
+            json!([
+                { "id": 999, "y": true }
+            ]),
+            1,
+        );
+        assert_eq!(u.clear().unwrap(), 1); // assumes schema persists; if not, remove this and adjust expectations below.
 
         // LEFT JOIN with ON TRUE (right yields 0 rows)
         let plan = LogicalPlan::Join {
@@ -1288,11 +1342,11 @@ mod tests {
         let r1 = db.create("r1");
         let r2 = db.create("r2");
 
-        l.add_batch(json!([{ "id": 1, "name": "left" }]));
-        r1.add_batch(json!([{ "id": 10, "l_id": 1, "a": "a" }]));
-        r2.add_batch(json!([{ "id": 20, "r1_id": 10, "b": "b" }]));
-        r1.clear();
-        r2.clear();
+        add_batch_or_panic(&l, json!([{ "id": 1, "name": "left" }]), 1);
+        add_batch_or_panic(&r1, json!([{ "id": 10, "l_id": 1, "a": "a" }]), 1);
+        add_batch_or_panic(&r2, json!([{ "id": 20, "r1_id": 10, "b": "b" }]), 1);
+        assert_eq!(r1.clear().unwrap(), 1);
+        assert_eq!(r2.clear().unwrap(), 1);
 
         let nested_empty_right = LogicalPlan::Join {
             left: Box::new(LogicalPlan::Scan {
@@ -1333,10 +1387,14 @@ mod tests {
         let db = mk_db();
         let t = db.create("t");
         // Seed to register schema (id, x)
-        t.add_batch(json!([
-            { "id": 1, "x": "A" },
-            { "id": 2, "x": "B" }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "x": "A" },
+                { "id": 2, "x": "B" }
+            ]),
+            2,
+        );
 
         let plan = LogicalPlan::Scan {
             backing: "t".into(),
@@ -1354,10 +1412,10 @@ mod tests {
         let db = mk_db();
         let u = db.create("u");
         // register schema
-        u.add_batch(json!([{ "id": 99, "y": true }]));
+        add_batch_or_panic(&u, json!([{ "id": 99, "y": true }]), 1);
         // make it empty for execution but schema remains
         // NOTE: if your clear() also clears schema, remove this line and adapt expectations.
-        let _ = u.clear();
+        assert_eq!(u.clear().unwrap(), 1);
 
         let plan = LogicalPlan::Scan {
             backing: "u".into(),
@@ -1374,7 +1432,7 @@ mod tests {
     fn keyset_for_side_non_scan_falls_back_to_observed_row_keys() {
         let db = mk_db();
         let t = db.create("t");
-        t.add_batch(json!([{ "id": 1, "x": "A" }]));
+        add_batch_or_panic(&t, json!([{ "id": 1, "x": "A" }]), 1);
 
         // Produce observed rows by executing a scan, then ask keyset for a NON-Scan plan
         let scan = LogicalPlan::Scan {

@@ -93,159 +93,88 @@ mod tests {
         ast::{Column, OrderBy, ScalarExpr},
     };
 
+    fn parse_single(text: &str) -> OrderBy {
+        let mut parser = QueryParser::new(text);
+        match OrderBy::parse_single(&mut parser) {
+            Ok(order) => order,
+            Err(err) => panic!("expected ORDER BY item from {text:?}, got {err:?}"),
+        }
+    }
+
+    fn parse_order_by(text: &str) -> Vec<OrderBy> {
+        let mut parser = QueryParser::new(text);
+        parser.check_next_phase();
+        match OrderBy::parse(&mut parser) {
+            Ok(orders) => orders,
+            Err(err) => panic!("expected ORDER BY from {text:?}, got {err:?}"),
+        }
+    }
+
+    fn parse_order_by_error(text: &str) -> (usize, usize, String) {
+        let mut parser = QueryParser::new(text);
+        parser.check_next_phase();
+        match OrderBy::parse(&mut parser) {
+            Ok(orders) => panic!("expected ORDER BY error from {text:?}, got {orders:?}"),
+            Err(err) => (err.start, err.end, err.text),
+        }
+    }
+
+    fn column_path(expr: &ScalarExpr) -> (&str, Option<&str>) {
+        match expr {
+            ScalarExpr::Column(Column::Name { name }) => (name.as_str(), None),
+            ScalarExpr::Column(Column::WithCollection { collection, name }) => {
+                (name.as_str(), Some(collection.as_str()))
+            }
+            other => panic!("expected ORDER BY column, got {other:?}"),
+        }
+    }
+
     #[test]
     pub fn test_order_by_single() {
-        let text = "tableA.columnA";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = OrderBy::parse_single(&mut parser).expect("Failed to parse order by");
-
+        let result = parse_single("tableA.columnA");
         assert!(result.ascending);
-
-        match result.expr {
-            ScalarExpr::Column(column) => match column {
-                Column::WithCollection { collection, name } => {
-                    assert_eq!(collection, "tableA");
-                    assert_eq!(name, "columnA");
-                }
-                Column::Name { name: _ } => panic!(),
-            },
-            _ => panic!(),
-        }
+        assert_eq!(column_path(&result.expr), ("columnA", Some("tableA")));
     }
 
     #[test]
     pub fn test_order_by_single_asc() {
-        let text = "tableA.columnA ASC";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = OrderBy::parse_single(&mut parser).expect("Failed to parse order by");
-
+        let result = parse_single("tableA.columnA ASC");
         assert!(result.ascending);
-
-        match result.expr {
-            ScalarExpr::Column(column) => match column {
-                Column::WithCollection { collection, name } => {
-                    assert_eq!(collection, "tableA");
-                    assert_eq!(name, "columnA");
-                }
-                Column::Name { name: _ } => panic!(),
-            },
-            _ => panic!(),
-        }
+        assert_eq!(column_path(&result.expr), ("columnA", Some("tableA")));
     }
 
     #[test]
     pub fn test_order_by_single_desc() {
-        let text = "columnA DESC";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = OrderBy::parse_single(&mut parser).expect("Failed to parse order by");
-
+        let result = parse_single("columnA DESC");
         assert!(!result.ascending);
-
-        match result.expr {
-            ScalarExpr::Column(column) => match column {
-                Column::Name { name } => {
-                    assert_eq!(name, "columnA");
-                }
-                Column::WithCollection {
-                    collection: _,
-                    name: _,
-                } => panic!(),
-            },
-            _ => panic!(),
-        }
+        assert_eq!(column_path(&result.expr), ("columnA", None));
     }
 
     #[test]
     pub fn test_order_by_single_with_comma() {
-        let text = "tableA.columnA ASC,";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = OrderBy::parse_single(&mut parser).expect("Failed to parse order by");
-
+        let result = parse_single("tableA.columnA ASC,");
         assert!(result.ascending);
-
-        match result.expr {
-            ScalarExpr::Column(column) => match column {
-                Column::WithCollection { collection, name } => {
-                    assert_eq!(collection, "tableA");
-                    assert_eq!(name, "columnA");
-                }
-                Column::Name { name: _ } => panic!(),
-            },
-            _ => panic!(),
-        }
+        assert_eq!(column_path(&result.expr), ("columnA", Some("tableA")));
     }
 
     #[test]
     pub fn test_order_by_single_with_next_phase() {
-        let text = "tableA.columnA ASC ORDER BY";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = OrderBy::parse_single(&mut parser).expect("Failed to parse order by");
-
+        let result = parse_single("tableA.columnA ASC ORDER BY");
         assert!(result.ascending);
-
-        match result.expr {
-            ScalarExpr::Column(column) => match column {
-                Column::WithCollection { collection, name } => {
-                    assert_eq!(collection, "tableA");
-                    assert_eq!(name, "columnA");
-                }
-                Column::Name { name: _ } => panic!(),
-            },
-            _ => panic!(),
-        }
+        assert_eq!(column_path(&result.expr), ("columnA", Some("tableA")));
     }
 
     #[test]
     pub fn test_order_by() {
-        let text = "ORDER BY columnA DESC";
-
-        let mut parser = QueryParser::new(text);
-        parser.check_next_phase();
-
-        let result = OrderBy::parse(&mut parser).expect("Failed to parse order by");
-
+        let result = parse_order_by("ORDER BY columnA DESC");
         assert_eq!(result.len(), 1);
-
-        let expected_order = [false];
-        let expected_column = ["columnA"];
-
-        for (i, order_by) in result.iter().enumerate() {
-            assert_eq!(order_by.ascending, expected_order[i]);
-
-            match &order_by.expr {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => {
-                        assert_eq!(name, expected_column[i]);
-                    }
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            }
-        }
+        assert!(!result[0].ascending);
+        assert_eq!(column_path(&result[0].expr), ("columnA", None));
     }
 
     #[test]
     pub fn test_order_by_four() {
-        let text = "ORDER BY columnA DESC, columnB ASC, columnC, columnD";
-
-        let mut parser = QueryParser::new(text);
-        parser.check_next_phase();
-
-        let result = OrderBy::parse(&mut parser).expect("Failed to parse order by");
-
+        let result = parse_order_by("ORDER BY columnA DESC, columnB ASC, columnC, columnD");
         assert_eq!(result.len(), 4);
 
         let expected_order = [false, true, true, true];
@@ -253,31 +182,13 @@ mod tests {
 
         for (i, order_by) in result.iter().enumerate() {
             assert_eq!(order_by.ascending, expected_order[i]);
-
-            match &order_by.expr {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => {
-                        assert_eq!(name, expected_column[i]);
-                    }
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            }
+            assert_eq!(column_path(&order_by.expr), (expected_column[i], None));
         }
     }
 
     #[test]
     pub fn test_order_by_four_with_spaces() {
-        let text = "ORDER BY columnA DESC , columnB ASC , columnC , columnD";
-
-        let mut parser = QueryParser::new(text);
-        parser.check_next_phase();
-
-        let result = OrderBy::parse(&mut parser).expect("Failed to parse order by");
-
+        let result = parse_order_by("ORDER BY columnA DESC , columnB ASC , columnC , columnD");
         assert_eq!(result.len(), 4);
 
         let expected_order = [false, true, true, true];
@@ -285,38 +196,54 @@ mod tests {
 
         for (i, order_by) in result.iter().enumerate() {
             assert_eq!(order_by.ascending, expected_order[i]);
-
-            match &order_by.expr {
-                ScalarExpr::Column(column) => match column {
-                    Column::Name { name } => {
-                        assert_eq!(name, expected_column[i]);
-                    }
-                    Column::WithCollection {
-                        collection: _,
-                        name: _,
-                    } => panic!(),
-                },
-                _ => panic!(),
-            }
+            assert_eq!(column_path(&order_by.expr), (expected_column[i], None));
         }
     }
 
     #[test]
     pub fn test_order_by_with_other_phase() {
         let text = "ORDER BY columnA DESC GROUP BY ";
+        let (start, end, text) = parse_order_by_error(text);
+        assert_eq!((start, end, text), (22, 22, "G".to_string()));
+    }
 
-        let mut parser = QueryParser::new(text);
-        parser.check_next_phase();
+    #[test]
+    fn order_by_keeps_existing_empty_column_behavior() {
+        let leading_comma = parse_order_by("ORDER BY , columnA");
+        assert_eq!(leading_comma.len(), 2);
+        assert_eq!(column_path(&leading_comma[0].expr), ("", None));
+        assert_eq!(column_path(&leading_comma[1].expr), ("columnA", None));
 
+        let double_comma = parse_order_by("ORDER BY columnA, , columnB");
+        assert_eq!(double_comma.len(), 3);
+        assert_eq!(column_path(&double_comma[0].expr), ("columnA", None));
+        assert_eq!(column_path(&double_comma[1].expr), ("", None));
+        assert_eq!(column_path(&double_comma[2].expr), ("columnB", None));
+    }
+
+    #[test]
+    fn order_by_rejects_trailing_comma_before_other_phase() {
+        let (start, end, text) = parse_order_by_error("ORDER BY columnA, GROUP BY");
+        assert_eq!((start, end, text), (24, 24, "B".to_string()));
+    }
+
+    #[test]
+    fn order_by_rejects_missing_keyword() {
+        let mut parser = QueryParser::new("GROUP BY columnA");
         let result = OrderBy::parse(&mut parser);
-
         match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.text, "G");
-                assert_eq!(err.start, 22);
-                assert_eq!(err.end, 22);
-            }
+            Ok(orders) => panic!("expected invalid ORDER BY, got {orders:?}"),
+            Err(err) => assert_eq!((err.start, err.end, err.text), (0, 0, "G".to_string())),
+        }
+    }
+
+    #[test]
+    fn order_by_rejects_invalid_direction() {
+        let mut parser = QueryParser::new("columnA SIDEWAYS");
+        let result = OrderBy::parse_single(&mut parser);
+        match result {
+            Ok(order) => panic!("expected invalid order direction, got {order:?}"),
+            Err(err) => assert_eq!((err.start, err.end, err.text), (8, 8, "S".to_string())),
         }
     }
 

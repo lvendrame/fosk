@@ -209,4 +209,28 @@ LIMIT 20
         assert!(display.contains("offset=None"));
         assert_eq!(format!("{:?}", query), format!("Query({display})"));
     }
+
+    #[test]
+    fn display_includes_present_optional_sections() {
+        let query = Query::try_from(
+            r#"
+            SELECT people.city, COUNT(*) AS total
+            FROM people
+            WHERE people.age > 20
+            GROUP BY people.city
+            HAVING COUNT(*) > 1
+            ORDER BY people.city DESC
+            OFFSET 2
+            LIMIT 3
+            "#,
+        )
+        .expect("query should parse");
+        let display = query.to_string();
+
+        assert!(display.contains("criteria=Predicate"));
+        assert!(display.contains("having=Predicate"));
+        assert!(display.contains("order_by=["));
+        assert!(display.contains("limit=Some(3)"));
+        assert!(display.contains("offset=Some(2)"));
+    }
 }

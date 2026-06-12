@@ -164,8 +164,11 @@ mod tests {
         map.insert(key, out_name.clone());
 
         let rewritten = AggregateCall::rewrite_scalar_using_call_names(&expr, &map);
-        assert!(
-            matches!(rewritten, ScalarExpr::Column(Column::Name { ref name }) if name == &out_name)
+        assert_eq!(
+            rewritten,
+            ScalarExpr::Column(Column::Name {
+                name: out_name.clone()
+            })
         );
     }
 
@@ -179,17 +182,15 @@ mod tests {
         map.insert(key, out_name.clone());
 
         let rewritten = AggregateCall::rewrite_scalar_using_call_names(&expr, &map);
-        match rewritten {
-            ScalarExpr::Function(Function { name, args, .. }) => {
-                assert_eq!(name.to_ascii_lowercase(), "upper");
-                assert_eq!(args.len(), 1);
-                match &args[0] {
-                    ScalarExpr::Column(Column::Name { name }) => assert_eq!(name, "total"),
-                    other => panic!("expected Column(Name {{ total }}), got {other:?}"),
-                }
-            }
-            other => panic!("expected Function(upper, ...), got {other:?}"),
-        }
+        assert_eq!(
+            rewritten,
+            fn_scalar(
+                "UPPER",
+                vec![ScalarExpr::Column(Column::Name {
+                    name: "total".to_string()
+                })]
+            )
+        );
     }
 
     #[test]
@@ -199,21 +200,7 @@ mod tests {
         let map = HashMap::<AggregateCall, String>::new();
 
         let rewritten = AggregateCall::rewrite_scalar_using_call_names(&expr, &map);
-        match rewritten {
-            ScalarExpr::Function(Function {
-                name,
-                args,
-                distinct,
-            }) => {
-                assert_eq!(name, "LENGTH");
-                assert!(!distinct);
-                assert!(matches!(
-                    args[0],
-                    ScalarExpr::Column(Column::WithCollection { .. })
-                ));
-            }
-            other => panic!("expected Function(LENGTH,..), got {other:?}"),
-        }
+        assert_eq!(rewritten, expr);
     }
 
     // ---------- predicate rewrite ----------
@@ -269,72 +256,74 @@ mod tests {
 
         let out = AggregateCall::rewrite_predicate_using_call_names(&p, &map);
 
-        // Walk and ensure all aggs became Column(Name)
-        match out {
-            Predicate::And(v) => {
-                assert_eq!(v.len(), 4);
+        assert_eq!(
+            out,
+            Predicate::And(vec![
+                Predicate::Compare {
+                    left: ScalarExpr::Column(Column::Name {
+                        name: "sum_amt".to_string()
+                    }),
+                    op: ComparatorOp::Gt,
+                    right: lit_i(10),
+                },
+                Predicate::InList {
+                    expr: col("t", "k"),
+                    list: vec![
+                        ScalarExpr::Column(Column::Name {
+                            name: "min_z".to_string()
+                        }),
+                        lit_i(1)
+                    ],
+                    negated: false,
+                },
+                Predicate::IsNull {
+                    expr: ScalarExpr::Column(Column::Name {
+                        name: "max_x".to_string()
+                    }),
+                    negated: false,
+                },
+                Predicate::Like {
+                    expr: ScalarExpr::Column(Column::Name {
+                        name: "cnt_y_dist".to_string()
+                    }),
+                    pattern: lit_s("%A%"),
+                    negated: false,
+                },
+            ])
+        );
+    }
 
-                // Compare: left should be the SUM column name
-                if let Predicate::Compare {
-                    left,
-                    op: _,
-                    right: _,
-                } = &v[0]
-                {
-                    match left {
-                        ScalarExpr::Column(Column::Name { name }) => assert_eq!(name, "sum_amt"),
-                        other => {
-                            panic!("expected Column(Name sum_amt) in Compare.left, got {other:?}")
-                        }
-                    }
-                } else {
-                    panic!("expected Compare in first AND arm");
-                }
+    #[test]
+    fn rewrite_predicate_handles_or_variants() {
+        let predicate = Predicate::Or(vec![
+            Predicate::Compare {
+                left: fn_agg("SUM", vec![col("t", "amt")], false),
+                op: ComparatorOp::Gt,
+                right: lit_i(10),
+            },
+            Predicate::Const3(Truth::False),
+        ]);
+        let mut map = HashMap::<AggregateCall, String>::new();
+        map.insert(
+            map_entry("SUM", vec![col("t", "amt")], false, "sum_amt").0,
+            "sum_amt".into(),
+        );
 
-                // InList: the MIN(...) inside list must be Column(Name)
-                if let Predicate::InList { expr: _, list, .. } = &v[1] {
-                    assert_eq!(list.len(), 2);
-                    match &list[0] {
-                        ScalarExpr::Column(Column::Name { name }) => assert_eq!(name, "min_z"),
-                        other => {
-                            panic!("expected Column(Name min_z) in InList list[0], got {other:?}")
-                        }
-                    }
-                } else {
-                    panic!("expected InList in second AND arm");
-                }
+        let out = AggregateCall::rewrite_predicate_using_call_names(&predicate, &map);
 
-                // IsNull(MAX...) → Column(Name max_x)
-                if let Predicate::IsNull { expr, .. } = &v[2] {
-                    match expr {
-                        ScalarExpr::Column(Column::Name { name }) => assert_eq!(name, "max_x"),
-                        other => {
-                            panic!("expected Column(Name max_x) in IsNull.expr, got {other:?}")
-                        }
-                    }
-                } else {
-                    panic!("expected IsNull in third AND arm");
-                }
-
-                // Like(COUNT DISTINCT ...) → Column(Name cnt_y_dist)
-                if let Predicate::Like {
-                    expr,
-                    pattern: _,
-                    negated: _,
-                } = &v[3]
-                {
-                    match expr {
-                        ScalarExpr::Column(Column::Name { name }) => assert_eq!(name, "cnt_y_dist"),
-                        other => {
-                            panic!("expected Column(Name cnt_y_dist) in Like.expr, got {other:?}")
-                        }
-                    }
-                } else {
-                    panic!("expected Like in fourth AND arm");
-                }
-            }
-            other => panic!("expected Predicate::And, got {other:?}"),
-        }
+        assert_eq!(
+            out,
+            Predicate::Or(vec![
+                Predicate::Compare {
+                    left: ScalarExpr::Column(Column::Name {
+                        name: "sum_amt".to_string()
+                    }),
+                    op: ComparatorOp::Gt,
+                    right: lit_i(10),
+                },
+                Predicate::Const3(Truth::False),
+            ])
+        );
     }
 
     #[test]
@@ -356,41 +345,31 @@ mod tests {
         let r1 = AggregateCall::rewrite_scalar_using_call_names(&e, &map);
         let r2 = AggregateCall::rewrite_scalar_using_call_names(&e2, &map);
 
-        // Assert the inner argument of LOWER is the expected mapped column name for each
-        match r1 {
-            ScalarExpr::Function(Function { name, args, .. }) => {
-                assert_eq!(name.to_ascii_lowercase(), "lower");
-                match &args[0] {
-                    ScalarExpr::Column(Column::Name { name }) => assert_eq!(name, "cnt_dist"),
-                    other => panic!(
-                        "expected Column(Name cnt_dist) inside LOWER for DISTINCT, got {other:?}"
-                    ),
-                }
-            }
-            other => panic!("expected Function(lower,..) for DISTINCT, got {other:?}"),
-        }
-        match r2 {
-            ScalarExpr::Function(Function { name, args, .. }) => {
-                assert_eq!(name.to_ascii_lowercase(), "lower");
-                match &args[0] {
-                    ScalarExpr::Column(Column::Name { name }) => assert_eq!(name, "cnt_all"),
-                    other => panic!(
-                        "expected Column(Name cnt_all) inside LOWER for non-DISTINCT, got {other:?}"
-                    ),
-                }
-            }
-            other => panic!("expected Function(lower,..) for non-DISTINCT, got {other:?}"),
-        }
+        assert_eq!(
+            r1,
+            fn_scalar(
+                "LOWER",
+                vec![ScalarExpr::Column(Column::Name {
+                    name: "cnt_dist".to_string()
+                })]
+            )
+        );
+        assert_eq!(
+            r2,
+            fn_scalar(
+                "LOWER",
+                vec![ScalarExpr::Column(Column::Name {
+                    name: "cnt_all".to_string()
+                })]
+            )
+        );
     }
 
     #[test]
     fn rewrite_keeps_const3_predicates_untouched() {
         let p = Predicate::Const3(Truth::Unknown);
         let out = AggregateCall::rewrite_predicate_using_call_names(&p, &HashMap::new());
-        match out {
-            Predicate::Const3(t) => assert!(matches!(t, Truth::Unknown)),
-            other => panic!("Const3 should remain unchanged, got {other:?}"),
-        }
+        assert_eq!(out, Predicate::Const3(Truth::Unknown));
     }
 
     // Optional: When a mapping is missing, we expect a panic (because of .expect(..)).

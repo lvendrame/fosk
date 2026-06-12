@@ -1017,11 +1017,17 @@ mod join_shape_tests {
             id_key: "id".into(),
         });
         let t = db.create("t");
-        t.add_batch(json!([
+        let inserted = t.add_batch(json!([
             { "id": 1, "grp": "A", "v": 10.0 },
             { "id": 2, "grp": "A", "v":  5.0 },
             { "id": 3, "grp": "B", "v": 20.0 }
         ]));
+        assert_eq!(
+            inserted
+                .unwrap_or_else(|error| panic!("seed rows should insert: {error}"))
+                .len(),
+            3
+        );
 
         let sql = r#"
             SELECT t.grp AS g, SUM(t.v) AS s

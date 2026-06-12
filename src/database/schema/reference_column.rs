@@ -211,8 +211,14 @@ impl CollectionReferences for HashMap<String, ReferenceColumn> {
             None => return false,
         };
 
-        let column = ref_collection.get_reference_column_name();
-        let ref_column = ref_collection.get_config().id_key;
+        let column = match ref_collection.get_reference_column_name() {
+            Ok(column) => column,
+            Err(_) => return false,
+        };
+        let ref_column = match ref_collection.get_config() {
+            Ok(config) => config.id_key,
+            Err(_) => return false,
+        };
 
         self.create_reference(
             db,

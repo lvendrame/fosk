@@ -1,15 +1,17 @@
+use std::error::Error;
+
 use fosk::Db;
 use serde_json::json;
 
-use crate::helpers::pretty;
+use crate::helpers::{boxed_debug, pretty};
 
-pub fn run(db: &Db) {
+pub fn run(db: &Db) -> Result<(), Box<dyn Error>> {
     println!("== SQL queries and reports ==");
 
     // Simple query: filter and order.
     let people = db
         .query("SELECT full_name, age FROM People WHERE age >= 30 ORDER BY age ASC")
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!("People age >= 30: {}", pretty(&people));
 
     // Parameterized query: one ? placeholder receives one JSON value.
@@ -18,7 +20,7 @@ pub fn run(db: &Db) {
             "SELECT full_name, city FROM People WHERE city = ? ORDER BY full_name",
             json!("Lisboa"),
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!("People from Lisboa: {}", pretty(&city_rows));
 
     // IN (?) accepts an array wrapped as the parameter value.
@@ -27,7 +29,7 @@ pub fn run(db: &Db) {
             "SELECT name, price FROM Products WHERE id IN (?) ORDER BY id",
             json!([[1, 3]]),
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!(
         "Products selected with IN (?): {}",
         pretty(&selected_products)
@@ -49,7 +51,7 @@ pub fn run(db: &Db) {
             LIMIT 3
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!("Top city report: {}", pretty(&city_report));
 
     // Join report across four collections.
@@ -69,11 +71,12 @@ pub fn run(db: &Db) {
             ORDER BY city ASC, items DESC, category ASC
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!("Sales by city/category: {}", pretty(&sales_report));
 
     assert!(!people.is_empty());
     assert_eq!(city_rows.len(), 2);
     assert!(!sales_report.is_empty());
     println!();
+    Ok(())
 }

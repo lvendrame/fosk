@@ -8,6 +8,13 @@ pub mod fixtures {
     use crate::database::{Db, DbCollection, DbConfig, IdType};
     use serde_json::{Value, json};
 
+    fn assert_loaded(collection: &DbCollection, rows: Value, clean: bool, expected_len: usize) {
+        let loaded = collection
+            .load_from_json(rows, clean)
+            .unwrap_or_else(|error| panic!("fixture rows should load: {error}"));
+        assert_eq!(loaded.len(), expected_len);
+    }
+
     pub fn create_people(db: &Db) {
         let people = db.create("People");
         let rows = json!([
@@ -27,7 +34,7 @@ pub mod fixtures {
             { "id": 14, "full_name": "Nuno Teixeira",    "age": 32, "city": "Évora",    "vip": true  },
             { "id": 15, "full_name": "Olga Ferreira",    "age": 39, "city": "Lisboa",   "vip": false }
         ]);
-        let _ = people.load_from_json(rows, false).unwrap();
+        assert_loaded(&people, rows, false, 15);
     }
 
     pub fn create_products(db: &Db) {
@@ -49,7 +56,7 @@ pub mod fixtures {
             { "id": 14, "name": "Cookbook 'Mediterranean'", "category": "Books",      "price": 24.00   },
             { "id": 15, "name": "Notebook A5",             "category": "Stationery",  "price": 3.20    }
         ]);
-        let _ = products.load_from_json(rows, false).unwrap();
+        assert_loaded(&products, rows, false, 15);
     }
 
     pub fn create_orders(db: &Db) {
@@ -96,7 +103,7 @@ pub mod fixtures {
             { "id": 39, "person_id": 9,  "product_id": 12, "quantity": 2, "order_date": "2025-03-11", "status": "delivered" },
             { "id": 40, "person_id": 10, "product_id": 4,  "quantity": 1, "order_date": "2025-03-12", "status": "delivered" }
         ]);
-        let _ = orders.load_from_json(rows, false).unwrap();
+        assert_loaded(&orders, rows, false, 40);
     }
 
     pub fn create_order_items(db: &Db) {
@@ -170,7 +177,7 @@ pub mod fixtures {
             { "id": 49, "order_id": 17, "product_id": 3,  "quantity": 1, "unit_price": 89.90   },
             { "id": 50, "order_id": 17, "product_id": 5,  "quantity": 1, "unit_price": 230.00  },
         ]);
-        let _ = items.load_from_json(rows, false).unwrap();
+        assert_loaded(&items, rows, false, 50);
 
         let rows = json!([
             { "id": 51, "order_id": 17, "product_id": 14, "quantity": 1, "unit_price": 24.00   },
@@ -249,7 +256,7 @@ pub mod fixtures {
             { "id": 99, "order_id": 40, "product_id": 4,  "quantity": 1, "unit_price": 699.00  },
             { "id": 100,"order_id": 40, "product_id": 13, "quantity": 1, "unit_price": 18.50   }
         ]);
-        let _ = items.load_from_json(rows, true).unwrap();
+        assert_loaded(&items, rows, true, 50);
     }
 
     pub fn seed_db() -> Db {
@@ -268,6 +275,7 @@ pub mod fixtures {
 
     fn ids_in(coll: Arc<DbCollection>) -> HashSet<i64> {
         coll.get_all()
+            .unwrap()
             .into_iter()
             .filter_map(|v| {
                 v.get("id").and_then(|id| match id {
@@ -281,6 +289,7 @@ pub mod fixtures {
 
     fn product_price_map(coll: Arc<DbCollection>) -> HashMap<i64, f64> {
         coll.get_all()
+            .unwrap()
             .into_iter()
             .filter_map(|v| {
                 let id = v.get("id").and_then(|id| match id {
@@ -307,14 +316,15 @@ pub mod fixtures {
         let orders = db.get("Orders").expect("Orders collection missing");
         let items = db.get("OrderItems").expect("OrderItems collection missing");
 
-        assert_eq!(people.count(), 15, "expected 15 people");
-        assert_eq!(products.count(), 15, "expected 15 products");
-        assert_eq!(orders.count(), 40, "expected 40 orders");
-        assert_eq!(items.count(), 100, "expected 100 order items");
+        assert_eq!(people.count().unwrap(), 15, "expected 15 people");
+        assert_eq!(products.count().unwrap(), 15, "expected 15 products");
+        assert_eq!(orders.count().unwrap(), 40, "expected 40 orders");
+        assert_eq!(items.count().unwrap(), 100, "expected 100 order items");
 
         // Presence checks against your actual seed:
         let people_names: std::collections::HashSet<String> = people
             .get_all()
+            .unwrap()
             .into_iter()
             .filter_map(|v| {
                 v.get("full_name")
@@ -328,6 +338,7 @@ pub mod fixtures {
         // Bonus: sanity check VIP count (ids 1,4,7,11,14 in your seed)
         let vip_count = people
             .get_all()
+            .unwrap()
             .into_iter()
             .filter(|v| v.get("vip").and_then(|b| b.as_bool()).unwrap_or(false))
             .count();
@@ -348,7 +359,7 @@ pub mod fixtures {
         let order_ids = ids_in(orders.clone());
 
         // Orders.person_id must exist in People
-        for o in orders.get_all() {
+        for o in orders.get_all().unwrap() {
             let pid = o
                 .get("person_id")
                 .and_then(|v| v.as_i64())
@@ -362,7 +373,7 @@ pub mod fixtures {
 
         // OrderItems.order_id must exist in Orders
         // OrderItems.product_id must exist in Products
-        for it in items.get_all() {
+        for it in items.get_all().unwrap() {
             let oid = it
                 .get("order_id")
                 .and_then(|v| v.as_i64())
@@ -394,7 +405,7 @@ pub mod fixtures {
 
         let price_by_product = product_price_map(products);
 
-        for it in items.get_all() {
+        for it in items.get_all().unwrap() {
             let pid = it
                 .get("product_id")
                 .and_then(|v| v.as_i64())

@@ -43,55 +43,49 @@ pub mod tests {
         ast::{Literal, StringParser},
     };
 
+    fn parse_string(text: &str) -> String {
+        let mut parser = QueryParser::new(text);
+        match StringParser::parse(&mut parser) {
+            Ok(Literal::String(result)) => result,
+            other => panic!("expected string literal, got {other:?}"),
+        }
+    }
+
     #[test]
     pub fn test_string_parser() {
-        let text = "\"identifier\"";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = StringParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::String(result) => assert_eq!(result, "identifier"),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_string("\"identifier\""), "identifier");
     }
 
     #[test]
     pub fn test_string_parser_single_quote() {
-        let text = "'identifier'";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = StringParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::String(result) => assert_eq!(result, "identifier"),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_string("'identifier'"), "identifier");
     }
 
     #[test]
     pub fn test_string_parser_tab() {
-        let text = "\"start\tend\"";
+        assert_eq!(parse_string("\"start\tend\""), "start\tend");
+    }
 
-        let mut parser = QueryParser::new(text);
+    #[test]
+    pub fn test_string_parser_invalid_start() {
+        let mut parser = QueryParser::new("identifier");
 
-        let result = StringParser::parse(&mut parser);
+        let err = StringParser::parse(&mut parser).unwrap_err();
 
-        match result {
-            Ok(result) => match result {
-                Literal::String(result) => assert_eq!(result, "start\tend"),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(err.text, "i");
+        assert_eq!(err.start, 0);
+        assert_eq!(err.end, 0);
+    }
+
+    #[test]
+    pub fn test_string_parser_unclosed() {
+        let mut parser = QueryParser::new("\"identifier");
+
+        let err = StringParser::parse(&mut parser).unwrap_err();
+
+        assert_eq!(err.text, "identifier");
+        assert_eq!(err.start, 1);
+        assert_eq!(err.end, 11);
     }
 
     #[test]

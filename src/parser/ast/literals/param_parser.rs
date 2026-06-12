@@ -28,89 +28,37 @@ pub mod tests {
         ast::{ParamParser, ScalarExpr},
     };
 
+    fn parse_param(text: &str) {
+        let mut parser = QueryParser::new(text);
+        match ParamParser::parse(&mut parser) {
+            Ok(ScalarExpr::Parameter) => {}
+            other => panic!("expected parameter expression, got {other:?}"),
+        }
+    }
+
     #[test]
     pub fn test_param_parser() {
-        let text = "?";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ParamParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Parameter => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_param("?");
     }
 
     #[test]
     pub fn test_param_parser_upper() {
-        let text = "?";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ParamParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Parameter => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_param("?");
     }
 
     #[test]
     pub fn test_param_parser_param_space_delimiter() {
-        let text = "? ";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ParamParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Parameter => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_param("? ");
     }
 
     #[test]
     pub fn test_param_parser_param_comma_delimiter() {
-        let text = "?,";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ParamParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Parameter => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_param("?,");
     }
 
     #[test]
     pub fn test_param_parser_param_break_line() {
-        let text = "?\r\n";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = ParamParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                ScalarExpr::Parameter => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_param("?\r\n");
     }
 
     #[test]

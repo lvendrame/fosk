@@ -28,140 +28,52 @@ pub mod tests {
         ast::{BoolParser, Literal},
     };
 
+    fn parse_bool(text: &str) -> bool {
+        let mut parser = QueryParser::new(text);
+        match BoolParser::parse(&mut parser) {
+            Ok(Literal::Bool(value)) => value,
+            other => panic!("expected bool literal, got {other:?}"),
+        }
+    }
+
     #[test]
     pub fn test_bool_parser_true() {
-        let text = "true";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = BoolParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Bool(value) => assert!(value),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert!(parse_bool("true"));
     }
 
     #[test]
     pub fn test_bool_parser_false() {
-        let text = "false";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = BoolParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Bool(value) => assert!(!value),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert!(!parse_bool("false"));
     }
 
     #[test]
     pub fn test_bool_parser_true_upper() {
-        let text = "TRUE";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = BoolParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Bool(value) => assert!(value),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert!(parse_bool("TRUE"));
     }
 
     #[test]
     pub fn test_bool_parser_false_upper() {
-        let text = "FALSE";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = BoolParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Bool(value) => assert!(!value),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert!(!parse_bool("FALSE"));
     }
 
     #[test]
     pub fn test_bool_parser_true_space_delimiter() {
-        let text = "true ";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = BoolParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Bool(value) => assert!(value),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert!(parse_bool("true "));
     }
 
     #[test]
     pub fn test_bool_parser_true_comma_delimiter() {
-        let text = "true,";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = BoolParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Bool(value) => assert!(value),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert!(parse_bool("true,"));
     }
 
     #[test]
     pub fn test_bool_parser_true_parentheses_delimiter() {
-        let text = "true)";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = BoolParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Bool(value) => assert!(value),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert!(parse_bool("true)"));
     }
 
     #[test]
     pub fn test_bool_parser_true_break_line() {
-        let text = "true\r\n";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = BoolParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Bool(value) => assert!(value),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert!(parse_bool("true\r\n"));
     }
 
     #[test]

@@ -24,89 +24,37 @@ pub mod tests {
         ast::{Literal, NullParser},
     };
 
+    fn parse_null(text: &str) {
+        let mut parser = QueryParser::new(text);
+        match NullParser::parse(&mut parser) {
+            Ok(Literal::Null) => {}
+            other => panic!("expected null literal, got {other:?}"),
+        }
+    }
+
     #[test]
     pub fn test_null_parser() {
-        let text = "null";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NullParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Null => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_null("null");
     }
 
     #[test]
     pub fn test_null_parser_upper() {
-        let text = "NULL";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NullParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Null => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_null("NULL");
     }
 
     #[test]
     pub fn test_null_parser_null_space_delimiter() {
-        let text = "null ";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NullParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Null => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_null("null ");
     }
 
     #[test]
     pub fn test_null_parser_null_comma_delimiter() {
-        let text = "null,";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NullParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Null => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_null("null,");
     }
 
     #[test]
     pub fn test_null_parser_null_break_line() {
-        let text = "null\r\n";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NullParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Null => {} //should happen
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        parse_null("null\r\n");
     }
 
     #[test]

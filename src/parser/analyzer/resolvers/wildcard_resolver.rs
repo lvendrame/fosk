@@ -263,4 +263,56 @@ mod tests {
             "expansion over empty schema should be empty"
         );
     }
+
+    #[test]
+    fn expand_projection_expands_wildcards_and_preserves_non_wildcards() {
+        let sp = DummySchemas::new().with(
+            "people",
+            vec![
+                ("id", JsonPrimitive::Int, false),
+                ("name", JsonPrimitive::String, false),
+            ],
+        );
+        let ctx = ctx_with(&sp, &[("people", Some("p"))]);
+        let exprs = vec![
+            ScalarExpr::WildCardWithCollection("p".into()),
+            ScalarExpr::Column(Column::Name {
+                name: "literal".into(),
+            }),
+        ];
+
+        let expanded =
+            WildcardResolver::expand_projection(&exprs, &ctx).expect("projection should expand");
+
+        assert_eq!(expanded.len(), 3);
+        assert_eq!(
+            expanded[0],
+            ScalarExpr::Column(Column::WithCollection {
+                collection: "p".into(),
+                name: "id".into()
+            })
+        );
+        assert_eq!(
+            expanded[1],
+            ScalarExpr::Column(Column::WithCollection {
+                collection: "p".into(),
+                name: "name".into()
+            })
+        );
+        assert_eq!(expanded[2], exprs[1]);
+    }
+
+    #[test]
+    fn table_star_errors_when_visible_collection_schema_is_missing() {
+        let sp = DummySchemas::new();
+        let ctx = ctx_with(&sp, &[("people", Some("p"))]);
+
+        let err = WildcardResolver::expand_wildcard(
+            &ScalarExpr::WildCardWithCollection("p".into()),
+            &ctx,
+        )
+        .unwrap_err();
+
+        assert_eq!(err, AnalyzerError::UnknownCollection("people".into()));
+    }
 }

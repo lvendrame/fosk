@@ -2,7 +2,7 @@ use std::error::Error;
 
 use fosk::{Db, DbCollection, DbConfig};
 
-use crate::helpers::{app_file, pretty, remove_temp_file, schema_summary, temp_file};
+use crate::helpers::{app_file, pretty, remove_temp_file, required, schema_summary, temp_file};
 
 pub struct CollectionFixture {
     pub name: &'static str,
@@ -18,21 +18,21 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     // DB-level file loading expects an object whose keys are collection names.
     // The fixture lives in this independent app so users can inspect the shape.
     let db_fixture = app_file("mocks/collections/database.json").into_os_string();
-    let status = db.load_from_file(&db_fixture).unwrap();
+    let status = db.load_from_file(&db_fixture)?;
     println!("{status}");
-    println!("Serialized DB snapshot: {}", pretty(&db.write_to_json()));
+    println!("Serialized DB snapshot: {}", pretty(&db.write_to_json()?));
 
     // File APIs use OsString paths. The example writes to temp files so it can
     // run without any project-local fixtures.
     let db_path = temp_file("fosk-demo-db", "json");
     let db_os_path = db_path.clone().into_os_string();
-    db.write_to_file(&db_os_path).unwrap();
+    db.write_to_file(&db_os_path)?;
     println!("Wrote DB snapshot to {}", db_path.display());
 
     let people = DbCollection::new_coll("people_from_file", DbConfig::none("id"));
     let people_os_path = app_file("mocks/collections/people.json").into_os_string();
-    let status = people.load_from_file(&people_os_path).unwrap();
-    println!("{status}; loaded rows: {}", people.count());
+    let status = people.load_from_file(&people_os_path)?;
+    println!("{status}; loaded rows: {}", people.count()?);
 
     // Standalone collection files cover common REST/mock-server fixture shapes:
     // auto int IDs, UUID IDs, explicit "None" IDs, custom ID field names,
@@ -45,13 +45,17 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     for fixture in &fixtures {
         let collection = DbCollection::new_coll(fixture.name, fixture.config.clone());
         let path = app_file(fixture.file).into_os_string();
-        let status = collection.load_from_file(&path).unwrap();
+        let status = collection.load_from_file(&path)?;
+        let schema = required(
+            collection.schema()?,
+            "fixture load should infer a collection schema",
+        )?;
         println!(
             "  {name}: {rows} rows, config={config:?}, schema={schema}",
             name = fixture.name,
-            rows = collection.count(),
-            config = collection.get_config(),
-            schema = schema_summary(&collection.schema().unwrap())
+            rows = collection.count()?,
+            config = collection.get_config()?,
+            schema = schema_summary(&schema)
         );
         println!("    {status}");
     }
@@ -59,7 +63,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     remove_temp_file(&db_path);
 
     assert_eq!(db.list_collections().len(), 3);
-    assert_eq!(people.count(), 2);
+    assert_eq!(people.count()?, 2);
     assert!(fixtures.len() > 10);
     println!();
 

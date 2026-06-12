@@ -4,7 +4,7 @@ use fosk::Db;
 use serde_json::json;
 
 use crate::{
-    helpers::{app_file, pretty},
+    helpers::{app_file, boxed_debug, pretty},
     load_save::collection_fixtures,
 };
 
@@ -15,7 +15,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     for fixture in collection_fixtures() {
         let collection = db.create_with_config(fixture.name, fixture.config);
         let path = app_file(fixture.file).into_os_string();
-        collection.load_from_file(&path).unwrap();
+        collection.load_from_file(&path)?;
     }
     println!("Loaded query collections: {:?}", db.list_collections());
 
@@ -30,7 +30,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             LIMIT 2
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!(
         "Private companies with 90+ employees: {}",
         pretty(&private_companies)
@@ -48,7 +48,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             LIMIT 3
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!("Product search page: {}", pretty(&product_page));
 
     // Parameterized IN receives an array wrapped as the single argument value.
@@ -62,7 +62,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         "#,
             json!([["USA", "Portugal"]]),
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!(
         "Cities selected with IN parameter: {}",
         pretty(&selected_cities)
@@ -78,7 +78,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             ORDER BY id
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!("Orders with notes: {}", pretty(&orders_with_notes));
 
     // OR and NOT IN combine normal scalar predicates.
@@ -91,7 +91,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             ORDER BY ticket_id
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!(
         "Support tickets needing attention: {}",
         pretty(&support_focus)
@@ -113,7 +113,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             ORDER BY items DESC, status ASC
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!("Order item totals by status: {}", pretty(&order_totals));
 
     // Join custom None:String IDs with an explicit foreign-key-like column.
@@ -131,7 +131,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             ORDER BY net_delta DESC
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!(
         "Inventory movement totals by warehouse: {}",
         pretty(&inventory_by_warehouse)
@@ -148,7 +148,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             ORDER BY u.username
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!("Active token owners: {}", pretty(&token_owners));
 
     // Blog/comments demonstrates string IDs and a second join predicate shape.
@@ -164,7 +164,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             ORDER BY comments DESC
         "#,
         )
-        .unwrap();
+        .map_err(boxed_debug)?;
     println!("Comments per blog post: {}", pretty(&comment_report));
 
     assert!(!private_companies.is_empty());

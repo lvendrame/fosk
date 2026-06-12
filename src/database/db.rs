@@ -99,7 +99,9 @@ impl InternalDb {
         let mut total = 0;
         for (name, items) in object {
             let collection = self.create(&name);
-            collection.load_from_json(items, keep)?;
+            collection
+                .load_from_json(items, keep)
+                .map_err(|error| error.to_string())?;
             total += 1;
         }
 
@@ -129,23 +131,25 @@ impl InternalDb {
         }
     }
 
-    pub fn write_to_json(&self) -> Value {
+    pub fn write_to_json(&self) -> Result<Value, String> {
         let mut collections: Map<String, Value> = Map::new();
 
         for (name, collection) in &self.collections {
-            let values = collection.get_all();
+            let values = collection.get_all().map_err(|error| error.to_string())?;
             collections.insert(name.clone(), Value::Array(values));
         }
 
-        Value::Object(collections)
+        Ok(Value::Object(collections))
     }
 
     pub fn write_to_file(&self, file_path: &OsString) -> Result<(), String> {
-        let file = std::fs::File::create(file_path).expect("Failed to create json file");
+        let file = std::fs::File::create(file_path)
+            .map_err(|error| format!("Failed to create json file: {error}"))?;
         let mut w = BufWriter::new(file);
 
-        let data = self.write_to_json();
-        serde_json::to_writer_pretty(&mut w, &data).expect("Failed to write to a json file");
+        let data = self.write_to_json()?;
+        serde_json::to_writer_pretty(&mut w, &data)
+            .map_err(|error| format!("Failed to write to a json file: {error}"))?;
         Ok(())
     }
 
@@ -270,16 +274,21 @@ impl Db {
     /// # Example
     ///
     /// ```
-    /// use fosk::{Db, DbConfig};
+    /// use fosk::{AddError, Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::int("id"));
     /// let people = db.create("People");
     ///
-    /// let inserted = people.add(json!({ "name": "Ada" })).unwrap();
+    /// let inserted = people
+    ///     .add(json!({ "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// assert_eq!(inserted["id"], 1);
     /// assert!(db.get("people").is_some());
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn create(&self, coll_name: &str) -> Arc<DbCollection> {
         self.internal_db.write().unwrap().create(coll_name)
@@ -293,14 +302,27 @@ impl Db {
     /// # Example
     ///
     /// ```
-    /// use fosk::{Db, DbConfig};
+    /// use fosk::{AddError, Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new();
     /// let logs = db.create_with_config("logs", DbConfig::none("key"));
     ///
-    /// assert!(logs.add(json!({ "key": "startup", "ok": true })).is_some());
-    /// assert!(logs.add(json!({ "ok": false })).is_none());
+    /// let inserted = logs
+    ///     .add(json!({ "key": "startup", "ok": true }))
+    ///     .map_err(|error| error.to_string())?;
+    /// assert_eq!(inserted["key"], "startup");
+    ///
+    /// let missing_key = logs.add(json!({ "ok": false }));
+    /// assert_eq!(
+    ///     missing_key,
+    ///     Err(AddError::MissingId {
+    ///         id_key: "key".to_string()
+    ///     })
+    /// );
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn create_with_config(&self, coll_name: &str, config: DbConfig) -> Arc<DbCollection> {
         self.internal_db
@@ -432,6 +454,7 @@ impl Db {
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
     ///
     /// let loaded = db
@@ -441,10 +464,16 @@ impl Db {
     ///             { "id": 2, "name": "Grace" }
     ///         ]
     ///     }), true)
-    ///     .unwrap();
+    ///     ?;
     ///
     /// assert_eq!(loaded, 1);
-    /// assert_eq!(db.get("people").unwrap().count(), 2);
+    /// let people = db
+    ///     .get("people")
+    ///     .ok_or_else(|| "missing people collection".to_string())?;
+    /// let count = people.count().map_err(|error| error.to_string())?;
+    /// assert_eq!(count, 2);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn load_from_json(&self, json_value: Value, keep: bool) -> Result<usize, String> {
         self.internal_db
@@ -493,15 +522,24 @@ impl Db {
     /// use fosk::{Db, JsonPrimitive};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new();
     /// db.load_collection_schema_from_json(
     ///     "people",
     ///     json!({ "person_id": "Id", "name": "String!" })
     /// )
-    /// .unwrap();
+    /// ?;
     ///
-    /// let schema = db.get("people").unwrap().schema().unwrap();
+    /// let people = db
+    ///     .get("people")
+    ///     .ok_or_else(|| "missing people collection".to_string())?;
+    /// let schema = people
+    ///     .schema()
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing people schema".to_string())?;
     /// assert_eq!(schema.fields["person_id"].ty, JsonPrimitive::Int);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn load_collection_schema_from_json(
         &self,
@@ -557,14 +595,17 @@ impl Db {
     /// use fosk::Db;
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new();
     /// let loaded = db.load_schemas_from_json(json!({
     ///     "users": { "user_id": "Id", "name": "String!" },
     ///     "orders": { "id": "Id", "user_id": "Int!" }
-    /// })).unwrap();
+    /// }))?;
     ///
     /// assert_eq!(loaded, 2);
     /// assert!(db.get_collection_column_ref("orders", "user_id").is_some());
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn load_schemas_from_json(&self, json_value: Value) -> Result<usize, String> {
         let loaded = self
@@ -614,15 +655,24 @@ impl Db {
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
-    /// db.create("people").add(json!({ "id": 1, "name": "Ada" }));
+    /// let people = db.create("people");
+    /// let _inserted = people
+    ///     .add(json!({ "id": 1, "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// let dump = db.write_to_json();
+    /// let dump = db.write_to_json()?;
     ///
     /// assert_eq!(dump["people"][0]["name"], "Ada");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn write_to_json(&self) -> Value {
-        self.internal_db.read().unwrap().write_to_json()
+    pub fn write_to_json(&self) -> Result<Value, String> {
+        self.internal_db
+            .read()
+            .map_err(|_| "database read lock is poisoned".to_string())?
+            .write_to_json()
     }
 
     /// Serialize all collections to a pretty-printed JSON file.
@@ -631,8 +681,8 @@ impl Db {
     ///
     /// # Errors
     ///
-    /// Returns an error only if serialization fails after the file is created.
-    /// File creation currently panics if the path cannot be opened.
+    /// Returns an error if the file cannot be created, any collection cannot be
+    /// read, or serialization fails.
     ///
     /// # Example
     ///
@@ -646,7 +696,10 @@ impl Db {
     /// # Ok::<(), String>(())
     /// ```
     pub fn write_to_file(&self, file_path: &OsString) -> Result<(), String> {
-        self.internal_db.read().unwrap().write_to_file(file_path)
+        self.internal_db
+            .read()
+            .map_err(|_| "database read lock is poisoned".to_string())?
+            .write_to_file(file_path)
     }
 
     /// Execute a SQL query through the parser, analyzer, planner and executor.
@@ -665,17 +718,24 @@ impl Db {
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::int("id"));
     /// let people = db.create("people");
     ///
-    /// people.add(json!({ "name": "Ada", "age": 37 }));
-    /// people.add(json!({ "name": "Grace", "age": 29 }));
+    /// let _ada = people
+    ///     .add(json!({ "name": "Ada", "age": 37 }))
+    ///     .map_err(|error| error.to_string())?;
+    /// let _grace = people
+    ///     .add(json!({ "name": "Grace", "age": 29 }))
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// let rows = db
     ///     .query("SELECT name FROM people WHERE age > 30")
-    ///     .unwrap();
+    ///     .map_err(|error| format!("{error:?}"))?;
     ///
     /// assert_eq!(rows[0]["name"], "Ada");
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn query(&self, sql: &str) -> Result<Vec<serde_json::Value>, AnalyzerError> {
         // 1) Parse
@@ -711,20 +771,24 @@ impl Db {
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
-    /// db.create("people").add_batch(json!([
+    /// let people = db.create("people");
+    /// let _inserted = people.add_batch(json!([
     ///     { "id": 1, "name": "Ada" },
     ///     { "id": 2, "name": "Grace" }
-    /// ]));
+    /// ])).map_err(|error| error.to_string())?;
     ///
     /// let rows = db
     ///     .query_with_args(
     ///         "SELECT name FROM people WHERE id IN (?) ORDER BY id",
     ///         json!([[1, 2]])
     ///     )
-    ///     .unwrap();
+    ///     .map_err(|error| format!("{error:?}"))?;
     ///
     /// assert_eq!(rows.len(), 2);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn query_with_args(&self, sql: &str, args: Value) -> Result<Vec<Value>, AnalyzerError> {
         // 1) Parse
@@ -757,12 +821,19 @@ impl Db {
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
-    /// db.create("people").add(json!({ "id": 1, "name": "Ada" }));
-    /// db.create("orders").add(json!({ "id": 10, "person_id": 1 }));
+    /// let people = db.create("people");
+    /// let orders = db.create("orders");
+    /// let _person = people.add(json!({ "id": 1, "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
+    /// let _order = orders.add(json!({ "id": 10, "person_id": 1 }))
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// assert!(db.create_reference("orders", "person_id", "people", "id"));
     /// assert!(db.get_collection_column_ref("orders", "person_id").is_some());
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn create_reference(
         &self,
@@ -796,11 +867,18 @@ impl Db {
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
-    /// db.create("people").add(json!({ "id": 1, "name": "Ada" }));
-    /// db.create("orders").add(json!({ "id": 10, "people_id": 1 }));
+    /// let people = db.create("people");
+    /// let orders = db.create("orders");
+    /// let _person = people.add(json!({ "id": 1, "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
+    /// let _order = orders.add(json!({ "id": 10, "people_id": 1 }))
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// assert!(db.infer_reference("orders", "people"));
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn infer_reference(&self, collection_name: &str, ref_collection_name: &str) -> bool {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
@@ -818,14 +896,23 @@ impl Db {
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
-    /// db.create("people").add(json!({ "id": 1 }));
-    /// db.create("orders").add(json!({ "id": 10, "person_id": 1 }));
+    /// let people = db.create("people");
+    /// let orders = db.create("orders");
+    /// let _person = people.add(json!({ "id": 1 }))
+    ///     .map_err(|error| error.to_string())?;
+    /// let _order = orders.add(json!({ "id": 10, "person_id": 1 }))
+    ///     .map_err(|error| error.to_string())?;
     /// db.create_reference("orders", "person_id", "people", "id");
     ///
-    /// let refs = db.get_collection_refs("orders").unwrap();
+    /// let refs = db
+    ///     .get_collection_refs("orders")
+    ///     .ok_or_else(|| "missing order references".to_string())?;
     ///
     /// assert!(refs.contains_key("person_id"));
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn get_collection_refs(&self, collection_name: &str) -> Option<ReferenceFieldMap> {
         let rm = self.internal_db.read().unwrap().reference_manager.clone();
@@ -843,16 +930,23 @@ impl Db {
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
-    /// db.create("people").add(json!({ "id": 1 }));
-    /// db.create("orders").add(json!({ "id": 10, "person_id": 1 }));
+    /// let people = db.create("people");
+    /// let orders = db.create("orders");
+    /// let _person = people.add(json!({ "id": 1 }))
+    ///     .map_err(|error| error.to_string())?;
+    /// let _order = orders.add(json!({ "id": 10, "person_id": 1 }))
+    ///     .map_err(|error| error.to_string())?;
     /// db.create_reference("orders", "person_id", "people", "id");
     ///
     /// let reference = db
     ///     .get_collection_column_ref("orders", "person_id")
-    ///     .unwrap();
+    ///     .ok_or_else(|| "missing person_id reference".to_string())?;
     ///
     /// assert_eq!(reference.ref_collection, "people");
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn get_collection_column_ref(
         &self,
@@ -876,18 +970,25 @@ impl Db {
     /// use fosk::{Db, DbConfig, JsonPrimitive};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
-    /// db.create("people").add(json!({ "id": 1, "name": "Ada" }));
+    /// let people = db.create("people");
+    /// let _inserted = people.add(json!({ "id": 1, "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// let schema = db.schema_with_refs_of("people").unwrap();
+    /// let schema = db
+    ///     .schema_with_refs_of("people")
+    ///     .ok_or_else(|| "missing people schema".to_string())?;
     ///
     /// assert_eq!(schema.name, "people");
     /// assert_eq!(schema.fields["name"].ty, JsonPrimitive::String);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn schema_with_refs_of(&self, collection_name: &str) -> Option<SchemaWithRefs> {
         let guard = self.internal_db.read().ok()?;
         let coll = guard.get(collection_name)?;
-        let schema = coll.schema()?;
+        let schema = coll.schema().ok()??;
 
         Some(SchemaWithRefs::new(collection_name, &schema, self))
     }
@@ -913,7 +1014,7 @@ impl SchemaProvider for Db {
     fn schema_of(&self, collection_ref: &str) -> Option<super::SchemaDict> {
         let guard = self.internal_db.read().ok()?;
         let coll = guard.get(collection_ref)?;
-        coll.schema()
+        coll.schema().ok().flatten()
     }
 }
 
@@ -924,19 +1025,34 @@ mod tests {
     use crate::database::{DbConfig, IdType};
     use serde_json::json;
 
+    fn add_batch_or_panic(
+        collection: &crate::database::DbCollection,
+        rows: serde_json::Value,
+        expected_len: usize,
+    ) {
+        let inserted = collection
+            .add_batch(rows)
+            .unwrap_or_else(|error| panic!("seed batch should insert: {error}"));
+        assert_eq!(inserted.len(), expected_len);
+    }
+
     fn mk_db() -> Db {
         let db = Db::new_with_config(DbConfig {
             id_type: IdType::None,
             id_key: "id".into(),
         });
         let t = db.create("t");
-        t.add_batch(json!([
-            { "id": 1, "cat": "a", "amt": 10.0 },
-            { "id": 2, "cat": "a", "amt": 15.0 },
-            { "id": 3, "cat": "b", "amt":  7.5 },
-            { "id": 4, "cat": "b", "amt": null },
-            { "id": 5, "cat": "a", "amt": 22.5 }
-        ]));
+        add_batch_or_panic(
+            &t,
+            json!([
+                { "id": 1, "cat": "a", "amt": 10.0 },
+                { "id": 2, "cat": "a", "amt": 15.0 },
+                { "id": 3, "cat": "b", "amt":  7.5 },
+                { "id": 4, "cat": "b", "amt": null },
+                { "id": 5, "cat": "a", "amt": 22.5 }
+            ]),
+            5,
+        );
         db
     }
 
@@ -946,18 +1062,26 @@ mod tests {
             id_key: "id".into(),
         });
         let people = db.create("people");
-        people.add_batch(json!([
-            { "id": 3, "name": "Carla", "age": 30 },
-            { "id": 1, "name": "Ada", "age": 37 },
-            { "id": 4, "name": "Grace", "age": 30 },
-            { "id": 2, "name": "Bob", "age": 25 }
-        ]));
+        add_batch_or_panic(
+            &people,
+            json!([
+                { "id": 3, "name": "Carla", "age": 30 },
+                { "id": 1, "name": "Ada", "age": 37 },
+                { "id": 4, "name": "Grace", "age": 30 },
+                { "id": 2, "name": "Bob", "age": 25 }
+            ]),
+            4,
+        );
         let orders = db.create("orders");
-        orders.add_batch(json!([
-            { "id": 10, "person_id": 1, "total": 100.0 },
-            { "id": 11, "person_id": 1, "total": 50.0 },
-            { "id": 12, "person_id": 3, "total": 75.0 }
-        ]));
+        add_batch_or_panic(
+            &orders,
+            json!([
+                { "id": 10, "person_id": 1, "total": 100.0 },
+                { "id": 11, "person_id": 1, "total": 50.0 },
+                { "id": 12, "person_id": 3, "total": 75.0 }
+            ]),
+            3,
+        );
         db
     }
 
@@ -967,10 +1091,14 @@ mod tests {
             id_key: "id".into(),
         });
         let empty = db.create("empty_table");
-        empty.add_batch(json!([
-            { "id": 1, "grp": "x", "v": 10.0, "w": 20.0, "sum": "reserved" }
-        ]));
-        empty.clear();
+        add_batch_or_panic(
+            &empty,
+            json!([
+                { "id": 1, "grp": "x", "v": 10.0, "w": 20.0, "sum": "reserved" }
+            ]),
+            1,
+        );
+        assert_eq!(empty.clear().unwrap(), 1);
         db
     }
 
@@ -980,11 +1108,15 @@ mod tests {
             id_key: "id".into(),
         });
         let metrics = db.create("metrics");
-        metrics.add_batch(json!([
-            { "id": 1, "grp": "a", "v": 10.0, "w": 1.0, "sum": "z" },
-            { "id": 2, "grp": "a", "v": 3.0, "w": 2.0, "sum": "z" },
-            { "id": 3, "grp": "b", "v": 5.0, "w": 7.0, "sum": "y" }
-        ]));
+        add_batch_or_panic(
+            &metrics,
+            json!([
+                { "id": 1, "grp": "a", "v": 10.0, "w": 1.0, "sum": "z" },
+                { "id": 2, "grp": "a", "v": 3.0, "w": 2.0, "sum": "z" },
+                { "id": 3, "grp": "b", "v": 5.0, "w": 7.0, "sum": "y" }
+            ]),
+            3,
+        );
         db
     }
 
@@ -994,15 +1126,23 @@ mod tests {
             id_key: "id".into(),
         });
         let people = db.create("people");
-        people.add_batch(json!([
-            { "id": 1, "name": "Ada" },
-            { "id": 2, "name": "Bob" }
-        ]));
+        add_batch_or_panic(
+            &people,
+            json!([
+                { "id": 1, "name": "Ada" },
+                { "id": 2, "name": "Bob" }
+            ]),
+            2,
+        );
         let pets = db.create("pets");
-        pets.add_batch(json!([
-            { "id": 10, "owner_id": 1, "name": "Milo" },
-            { "id": 11, "owner_id": 3, "name": "Ghost" }
-        ]));
+        add_batch_or_panic(
+            &pets,
+            json!([
+                { "id": 10, "owner_id": 1, "name": "Milo" },
+                { "id": 11, "owner_id": 3, "name": "Ghost" }
+            ]),
+            2,
+        );
         db
     }
 
@@ -1562,7 +1702,7 @@ mod tests {
         let count = db.load_from_json(input.clone(), false).unwrap();
         assert_eq!(count, 1);
         // Verify write_to_json reflects same data
-        let out = db.write_to_json();
+        let out = db.write_to_json().unwrap();
         let arr = out.get("a").unwrap().as_array().unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0].get("x").unwrap(), "foo");
@@ -1586,7 +1726,7 @@ mod tests {
         let msg = db.load_from_file(&os_path).unwrap();
         assert!(msg.contains("Loaded 1 initial collections"));
         // Confirm via write_to_json
-        let out = db.write_to_json();
+        let out = db.write_to_json().unwrap();
         let arr = out.get("b").unwrap().as_array().unwrap();
         assert_eq!(arr[0].get("y").unwrap(), 42);
     }
@@ -1605,9 +1745,9 @@ mod tests {
         .unwrap();
 
         let users = db.get("users").unwrap();
-        assert_eq!(users.get_config(), DbConfig::int("user_id"));
+        assert_eq!(users.get_config().unwrap(), DbConfig::int("user_id"));
 
-        let schema = users.schema().unwrap();
+        let schema = users.schema().unwrap().unwrap();
         assert_eq!(schema.fields["user_id"].ty, crate::JsonPrimitive::Int);
         assert!(!schema.fields["user_id"].nullable);
     }
@@ -1640,19 +1780,19 @@ mod tests {
 
         assert_eq!(loaded, 4);
         assert_eq!(
-            db.get("users").unwrap().get_config(),
+            db.get("users").unwrap().get_config().unwrap(),
             DbConfig::int("user_id")
         );
         assert_eq!(
-            db.get("sessions").unwrap().get_config(),
+            db.get("sessions").unwrap().get_config().unwrap(),
             DbConfig::uuid("session_uuid")
         );
         assert_eq!(
-            db.get("legacy").unwrap().get_config(),
+            db.get("legacy").unwrap().get_config().unwrap(),
             DbConfig::none("external_key")
         );
         assert_eq!(
-            db.get("numeric_legacy").unwrap().get_config(),
+            db.get("numeric_legacy").unwrap().get_config().unwrap(),
             DbConfig::none("legacy_id")
         );
     }
@@ -1713,7 +1853,7 @@ mod tests {
 
         assert!(status.contains("people"));
         assert_eq!(
-            db.get("people").unwrap().get_config(),
+            db.get("people").unwrap().get_config().unwrap(),
             DbConfig::int("person_id")
         );
     }
@@ -1724,9 +1864,12 @@ mod tests {
 
         let db = Db::new_with_config(DbConfig::int("id"));
         let coll = db.create("z");
-        coll.add(json!({ "key": "value" }));
+        let inserted = coll
+            .add(json!({ "key": "value" }))
+            .unwrap_or_else(|error| panic!("seed row should insert: {error}"));
+        assert_eq!(inserted["key"], "value");
 
-        let out = db.write_to_json();
+        let out = db.write_to_json().unwrap();
         let arr = out.get("z").unwrap().as_array().unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0].get("key").unwrap(), "value");
@@ -1745,13 +1888,127 @@ mod tests {
 
         let db = Db::new_with_config(DbConfig::int("id"));
         let coll = db.create("c");
-        coll.add(json!({ "n": 3 }));
-        assert!(db.write_to_file(&os_path).is_ok());
+        let inserted = coll
+            .add(json!({ "n": 3 }))
+            .unwrap_or_else(|error| panic!("seed row should insert: {error}"));
+        assert_eq!(inserted["n"], 3);
+        db.write_to_file(&os_path)
+            .unwrap_or_else(|error| panic!("write_to_file should succeed: {error}"));
 
         let content = fs::read_to_string(path).unwrap();
         let v: serde_json::Value = serde_json::from_str(&content).unwrap();
         let arr = v.get("c").unwrap().as_array().unwrap();
         assert_eq!(arr[0].get("n").unwrap(), 3);
+    }
+
+    #[test]
+    fn default_constructor_uses_default_config() {
+        let db = Db::default();
+
+        assert_eq!(db.get_config(), DbConfig::default());
+    }
+
+    #[test]
+    fn query_parse_errors_are_wrapped() {
+        let db = Db::new();
+
+        let error = db.query("SELECT").unwrap_err();
+
+        match error {
+            AnalyzerError::Other(message) => assert!(message.contains("parse error")),
+            other => panic!("expected parse error wrapper, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_with_args_parse_errors_are_wrapped() {
+        let db = Db::new();
+
+        let error = db.query_with_args("SELECT", Value::Null).unwrap_err();
+
+        match error {
+            AnalyzerError::Other(message) => assert!(message.contains("parse error")),
+            other => panic!("expected parse error wrapper, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_from_file_reports_file_read_and_invalid_json_errors() {
+        use std::{ffi::OsString, fs};
+        use tempfile::TempDir;
+
+        let mut internal = InternalDb::new_db();
+        let missing_path = OsString::from("/path/that/does/not/exist.json");
+        let missing_error = internal.load_from_file(&missing_path).unwrap_err();
+        assert!(missing_error.contains("Could not read file"));
+
+        let temp_dir = TempDir::new().unwrap();
+        let invalid_path = temp_dir.path().join("invalid.json");
+        fs::write(&invalid_path, "{ invalid json }").unwrap();
+        let invalid_error = internal
+            .load_from_file(&invalid_path.as_os_str().to_os_string())
+            .unwrap_err();
+        assert!(invalid_error.contains("does not contain valid JSON"));
+    }
+
+    #[test]
+    fn load_from_json_wraps_collection_load_errors() {
+        let mut internal = InternalDb::new_db_with_config(DbConfig::none("id"));
+
+        let error = internal
+            .load_from_json(json!({ "people": [{ "name": "Missing id" }] }), true)
+            .unwrap_err();
+
+        assert!(error.contains("missing required id field"));
+    }
+
+    #[test]
+    fn write_to_file_reports_file_create_errors() {
+        use std::ffi::OsString;
+        use tempfile::TempDir;
+
+        let internal = InternalDb::new_db();
+        let temp_dir = TempDir::new().unwrap();
+        let path = OsString::from(temp_dir.path().to_string_lossy().to_string());
+
+        let error = internal.write_to_file(&path).unwrap_err();
+
+        assert!(error.contains("Failed to create json file"));
+    }
+
+    #[test]
+    fn write_to_json_reports_collection_read_errors() {
+        let mut internal = InternalDb::new_db();
+        let collection = internal.create("people");
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = collection.collection.write().unwrap();
+            panic!("poison collection lock");
+        }));
+
+        let error = internal.write_to_json().unwrap_err();
+
+        assert_eq!(error, "collection read lock is poisoned");
+    }
+
+    #[test]
+    fn public_write_methods_report_database_lock_poisoning() {
+        use std::ffi::OsString;
+
+        let db = Db::new();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = db.internal_db.write().unwrap();
+            panic!("poison database lock");
+        }));
+
+        assert_eq!(
+            db.write_to_json().unwrap_err(),
+            "database read lock is poisoned"
+        );
+        assert_eq!(
+            db.write_to_file(&OsString::from("unused.json"))
+                .unwrap_err(),
+            "database read lock is poisoned"
+        );
     }
 
     #[test]

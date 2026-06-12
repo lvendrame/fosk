@@ -1,5 +1,13 @@
 use serde_json::{Map, Number, Value};
-use std::{collections::HashMap, ffi::OsString, fs, io::BufWriter, sync::RwLock};
+use std::{
+    collections::HashMap,
+    error::Error,
+    ffi::OsString,
+    fmt::{self, Display},
+    fs,
+    io::{BufWriter, Write},
+    sync::RwLock,
+};
 
 use crate::{
     Db, FieldInfo, JsonPrimitive,
@@ -11,6 +19,228 @@ use crate::{
 
 /// Thread-safe handle to an in-memory collection protected by a RwLock.
 pub(crate) type MemoryCollection = RwLock<InternalMemoryCollection>;
+
+/// Error returned when a collection read lock cannot be acquired.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CollectionReadError {
+    /// The collection lock was poisoned by a panic while held for writing.
+    LockPoisoned,
+}
+
+impl Display for CollectionReadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LockPoisoned => f.write_str("collection read lock is poisoned"),
+        }
+    }
+}
+
+impl Error for CollectionReadError {}
+
+/// Error returned when a collection write lock cannot be acquired.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CollectionWriteError {
+    /// The collection lock was poisoned by a panic while held.
+    LockPoisoned,
+}
+
+impl Display for CollectionWriteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LockPoisoned => f.write_str("collection write lock is poisoned"),
+        }
+    }
+}
+
+impl Error for CollectionWriteError {}
+
+/// Error returned when inserting one item into a collection fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddError {
+    /// The collection write lock could not be acquired.
+    LockPoisoned,
+    /// The item is not a JSON object.
+    NonObjectItem,
+    /// The collection requires callers to provide an id, but none was present.
+    MissingId {
+        /// Configured id field that was required but absent.
+        id_key: String,
+    },
+    /// A provided id already exists in a collection with caller-managed ids.
+    DuplicateId {
+        /// Duplicate id value.
+        id: String,
+    },
+}
+
+impl Display for AddError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LockPoisoned => f.write_str("collection write lock is poisoned"),
+            Self::NonObjectItem => f.write_str("collection items must be JSON objects"),
+            Self::MissingId { id_key } => write!(f, "missing required id field '{id_key}'"),
+            Self::DuplicateId { id } => write!(f, "duplicate collection id '{id}'"),
+        }
+    }
+}
+
+impl Error for AddError {}
+
+/// Error returned when inserting a JSON batch fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddBatchError {
+    /// The collection write lock could not be acquired.
+    LockPoisoned,
+    /// The batch root value is not a JSON array.
+    NonArrayInput,
+    /// One item in the batch is not a JSON object.
+    NonObjectItem {
+        /// Zero-based index of the invalid batch item.
+        index: usize,
+    },
+    /// One item in a caller-managed-id collection has no usable id.
+    MissingId {
+        /// Zero-based index of the invalid batch item.
+        index: usize,
+        /// Configured id field that was required but absent.
+        id_key: String,
+    },
+    /// One item in a caller-managed-id collection duplicates an existing id.
+    DuplicateId {
+        /// Zero-based index of the invalid batch item.
+        index: usize,
+        /// Duplicate id value.
+        id: String,
+    },
+    /// One item has an integer id that is not representable as `u64`.
+    InvalidIntId {
+        /// Zero-based index of the invalid batch item.
+        index: usize,
+    },
+}
+
+impl Display for AddBatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LockPoisoned => f.write_str("collection write lock is poisoned"),
+            Self::NonArrayInput => f.write_str("batch input must be a JSON array"),
+            Self::NonObjectItem { index } => {
+                write!(f, "batch item at index {index} must be a JSON object")
+            }
+            Self::MissingId { index, id_key } => {
+                write!(
+                    f,
+                    "batch item at index {index} is missing required id field '{id_key}'"
+                )
+            }
+            Self::DuplicateId { index, id } => {
+                write!(
+                    f,
+                    "batch item at index {index} duplicates collection id '{id}'"
+                )
+            }
+            Self::InvalidIntId { index } => {
+                write!(f, "batch item at index {index} has an invalid integer id")
+            }
+        }
+    }
+}
+
+impl Error for AddBatchError {}
+
+/// Error returned when loading collection data from JSON or a file fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoadCollectionError {
+    /// The collection write lock could not be acquired.
+    LockPoisoned,
+    /// The JSON root was not an array.
+    NonArrayInput,
+    /// A file could not be read.
+    FileRead {
+        /// File path that could not be read.
+        path: String,
+    },
+    /// A file did not contain valid JSON.
+    InvalidJson {
+        /// File path that did not parse as JSON.
+        path: String,
+    },
+    /// A row in the loaded batch was invalid.
+    Batch(AddBatchError),
+}
+
+impl Display for LoadCollectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LockPoisoned => f.write_str("collection write lock is poisoned"),
+            Self::NonArrayInput => f.write_str("loaded JSON must contain an array at the root"),
+            Self::FileRead { path } => write!(f, "could not read file {path}"),
+            Self::InvalidJson { path } => write!(f, "file {path} does not contain valid JSON"),
+            Self::Batch(error) => Display::fmt(error, f),
+        }
+    }
+}
+
+impl Error for LoadCollectionError {}
+
+impl From<AddBatchError> for LoadCollectionError {
+    fn from(value: AddBatchError) -> Self {
+        match value {
+            AddBatchError::LockPoisoned => Self::LockPoisoned,
+            AddBatchError::NonArrayInput => Self::NonArrayInput,
+            other => Self::Batch(other),
+        }
+    }
+}
+
+/// Error returned when writing collection data to a file fails.
+#[derive(Debug)]
+pub enum WriteCollectionError {
+    /// The collection read lock could not be acquired.
+    LockPoisoned,
+    /// The output file could not be created.
+    FileCreate {
+        /// Destination path.
+        path: String,
+        /// Underlying I/O error.
+        source: std::io::Error,
+    },
+    /// The collection could not be serialized as JSON.
+    Serialize {
+        /// Underlying serialization error.
+        source: serde_json::Error,
+    },
+}
+
+impl Display for WriteCollectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::LockPoisoned => f.write_str("collection read lock is poisoned"),
+            Self::FileCreate { path, source } => {
+                write!(f, "failed to create json file {path}: {source}")
+            }
+            Self::Serialize { source } => write!(f, "failed to write json file: {source}"),
+        }
+    }
+}
+
+impl Error for WriteCollectionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::FileCreate { source, .. } => Some(source),
+            Self::Serialize { source } => Some(source),
+            Self::LockPoisoned => None,
+        }
+    }
+}
+
+fn write_collection_data_to_writer<W: Write>(
+    writer: &mut W,
+    data: &[Value],
+) -> Result<(), WriteCollectionError> {
+    serde_json::to_writer_pretty(writer, data)
+        .map_err(|source| WriteCollectionError::Serialize { source })
+}
 
 /// Internal in-memory collection representation.
 ///
@@ -144,28 +374,27 @@ impl InternalMemoryCollection {
         columns_values: Vec<ColumnValue>,
         expansion_type: ExpansionChain,
         db: &Db,
-    ) -> Vec<Value> {
-        self.collection
-            .values()
-            .filter_map(|row| match row {
-                Value::Object(map) => {
-                    for column_value in &columns_values {
-                        match map.get(&column_value.column) {
-                            Some(value) => {
-                                if *value != column_value.value {
-                                    return None;
-                                }
-                            }
-                            None => return None,
-                        }
-                    }
+    ) -> Result<Vec<Value>, CollectionReadError> {
+        let mut rows = Vec::new();
+        for row in self.collection.values() {
+            let Value::Object(map) = row else {
+                continue;
+            };
 
-                    let expanded = self.expand_row(row, expansion_type.clone(), db);
-                    Some(expanded)
-                }
-                _ => None,
-            })
-            .collect::<Vec<Value>>()
+            let matches =
+                columns_values
+                    .iter()
+                    .all(|column_value| match map.get(&column_value.column) {
+                        Some(value) => *value == column_value.value,
+                        None => false,
+                    });
+
+            if matches {
+                rows.push(self.expand_row(row, expansion_type.clone(), db)?);
+            }
+        }
+
+        Ok(rows)
     }
 
     fn expand_object(
@@ -174,7 +403,7 @@ impl InternalMemoryCollection {
         collection_name: String,
         next_expansion_type: ExpansionChain,
         db: &Db,
-    ) -> Value {
+    ) -> Result<Value, CollectionReadError> {
         let refs = db.get_collection_refs(&self.name);
         let mut object = object.clone();
 
@@ -191,8 +420,8 @@ impl InternalMemoryCollection {
                             cvs,
                             next_expansion_type.clone(),
                             db,
-                        );
-                        let key = collection.get_name();
+                        )?;
+                        let key = collection.get_name()?;
                         object.insert(key, Value::Array(expanded));
                     }
 
@@ -206,18 +435,23 @@ impl InternalMemoryCollection {
                             cvs,
                             next_expansion_type.clone(),
                             db,
-                        );
-                        let key = collection.get_name();
+                        )?;
+                        let key = collection.get_name()?;
                         object.insert(key, Value::Array(expanded));
                     }
                 }
-                Value::Object(object)
+                Ok(Value::Object(object))
             }
-            None => Value::Object(object),
+            None => Ok(Value::Object(object)),
         }
     }
 
-    pub fn expand_row(&self, row: &Value, expansion_type: ExpansionChain, db: &Db) -> Value {
+    pub fn expand_row(
+        &self,
+        row: &Value,
+        expansion_type: ExpansionChain,
+        db: &Db,
+    ) -> Result<Value, CollectionReadError> {
         match (row.clone(), expansion_type) {
             (Value::Object(map), ExpansionChain::Single(collection_name)) => {
                 self.expand_object(map, collection_name, ExpansionChain::None, db)
@@ -225,7 +459,7 @@ impl InternalMemoryCollection {
             (Value::Object(map), ExpansionChain::Child(collection_name, expansion_type)) => {
                 self.expand_object(map, collection_name, expansion_type.as_ref().clone(), db)
             }
-            _ => row.clone(),
+            _ => Ok(row.clone()),
         }
     }
 
@@ -234,7 +468,7 @@ impl InternalMemoryCollection {
         list: Vec<Value>,
         expansion_type: ExpansionChain,
         db: &Db,
-    ) -> Vec<Value> {
+    ) -> Result<Vec<Value>, CollectionReadError> {
         list.iter()
             .map(|row| self.expand_row(row, expansion_type.clone(), db))
             .collect()
@@ -248,7 +482,11 @@ impl InternalMemoryCollection {
         self.collection.len()
     }
 
-    pub fn add(&mut self, item: Value) -> Option<Value> {
+    pub fn add(&mut self, item: Value) -> Result<Value, AddError> {
+        if !item.is_object() {
+            return Err(AddError::NonObjectItem);
+        }
+
         let next_id = { self.id_manager.next() };
 
         let mut item = item;
@@ -267,114 +505,106 @@ impl InternalMemoryCollection {
                     }
                 }
             }
-            Some(id_string)
+            id_string
         } else if let Some(Value::String(id_string)) = item.get(self.config.id_key.clone()) {
-            Some(id_string.clone())
+            id_string.clone()
         } else if let Some(Value::Number(id_number)) = item.get(self.config.id_key.clone()) {
-            Some(id_number.to_string())
+            id_number.to_string()
         } else {
-            None
+            return Err(AddError::MissingId {
+                id_key: self.config.id_key.clone(),
+            });
         };
 
-        if let Some(id_string) = id_string {
-            if self.config.id_type == IdType::None && self.collection.contains_key(&id_string) {
-                return None;
-            }
-
-            self.ensure_update_schema_for_item(&item);
-
-            self.collection.insert(id_string, item.clone());
-
-            return Some(item);
+        if self.config.id_type == IdType::None && self.collection.contains_key(&id_string) {
+            return Err(AddError::DuplicateId { id: id_string });
         }
 
-        None
+        self.ensure_update_schema_for_item(&item);
+
+        self.collection.insert(id_string, item.clone());
+
+        Ok(item)
     }
 
-    pub fn add_batch(&mut self, items: Value) -> Vec<Value> {
+    pub fn add_batch(&mut self, items: Value) -> Result<Vec<Value>, AddBatchError> {
+        let Value::Array(items_array) = items else {
+            return Err(AddBatchError::NonArrayInput);
+        };
+
         let mut added_items = Vec::new();
-
-        if let Value::Array(items_array) = items {
-            let mut max_id = None;
-            for item in items_array {
-                if let Value::Object(ref item_map) = item {
-                    self.ensure_update_schema_for_item(&item);
-                    let id_key = self.config.id_key.clone();
-
-                    let id = item_map.get(&id_key);
-                    let id = match self.id_manager.id_type {
-                        IdType::Uuid => match id {
-                            Some(Value::String(id)) => Some(id.clone()),
-                            _ => None,
-                        },
-                        IdType::Int => match id {
-                            Some(Value::Number(id)) => {
-                                if let Some(current) = max_id {
-                                    let id = id.as_u64().unwrap();
-                                    if current < id {
-                                        max_id = Some(id);
-                                        let _ = self.id_manager.set_current(IdValue::Int(id));
-                                    }
-                                } else {
-                                    max_id = id.as_u64();
-                                    let _ =
-                                        self.id_manager.set_current(IdValue::Int(max_id.unwrap()));
-                                }
-                                Some(id.to_string())
-                            }
-                            _ => None,
-                        },
-                        IdType::None => match item.get(&id_key) {
-                            Some(Value::String(id_string)) => Some(id_string.clone()),
-                            Some(Value::Number(id_number)) => Some(id_number.to_string()),
-                            _ => None,
-                        },
-                    };
-
-                    // Extract the ID from the item using the configured id_key
-                    if let Some(id) = id {
-                        let duplicate_none_id = self.config.id_type == IdType::None
-                            && self.collection.contains_key(&id);
-                        if duplicate_none_id {
-                            continue;
-                        }
-
-                        // Insert the item with its existing ID
-                        self.collection.insert(id.clone(), item.clone());
-                        added_items.push(item);
-                    } else if let Some(id) = self.id_manager.next() {
-                        // Take ownership of the map so we can mutate it
-                        if let Value::Object(mut owned_map) = item {
-                            let id_value = match id {
-                                IdValue::Uuid(ref s) => Value::String(s.clone()),
-                                IdValue::Int(i) => {
-                                    max_id = Some(i);
-                                    Value::Number(i.into())
-                                }
-                            };
-                            owned_map.insert(id_key, id_value);
-                            let new_item = Value::Object(owned_map);
-                            self.collection.insert(id.to_string(), new_item.clone());
-                            added_items.push(new_item);
-                        }
-                    }
-                }
-                // Skip non-object items
+        let mut max_id = None;
+        for (index, item) in items_array.into_iter().enumerate() {
+            if !item.is_object() {
+                return Err(AddBatchError::NonObjectItem { index });
             }
 
-            // // update the id_manager with the max id for an integer id
-            // if let Some(value) = max_id {
-            //     if self.id_manager.set_current(IdValue::Int(value)).is_err() {
-            //         println!(
-            //             "Error to set the value {} to {} collection Id",
-            //             value,
-            //             self.name.clone()
-            //         );
-            //     }
-            // }
+            if let Value::Object(ref item_map) = item {
+                self.ensure_update_schema_for_item(&item);
+                let id_key = self.config.id_key.clone();
+
+                let id = item_map.get(&id_key);
+                let id = match self.id_manager.id_type {
+                    IdType::Uuid => match id {
+                        Some(Value::String(id)) => Some(id.clone()),
+                        _ => None,
+                    },
+                    IdType::Int => match id {
+                        Some(Value::Number(id)) => {
+                            let id = id.as_u64().ok_or(AddBatchError::InvalidIntId { index })?;
+                            if let Some(current) = max_id {
+                                if current < id {
+                                    max_id = Some(id);
+                                    let _ = self.id_manager.set_current(IdValue::Int(id));
+                                }
+                            } else {
+                                max_id = Some(id);
+                                let _ = self.id_manager.set_current(IdValue::Int(id));
+                            }
+                            Some(id.to_string())
+                        }
+                        _ => None,
+                    },
+                    IdType::None => match item.get(&id_key) {
+                        Some(Value::String(id_string)) => Some(id_string.clone()),
+                        Some(Value::Number(id_number)) => Some(id_number.to_string()),
+                        _ => None,
+                    },
+                };
+
+                // Extract the ID from the item using the configured id_key
+                if let Some(id) = id {
+                    let duplicate_none_id =
+                        self.config.id_type == IdType::None && self.collection.contains_key(&id);
+                    if duplicate_none_id {
+                        return Err(AddBatchError::DuplicateId { index, id });
+                    }
+
+                    // Insert the item with its existing ID
+                    self.collection.insert(id.clone(), item.clone());
+                    added_items.push(item);
+                } else if let Some(id) = self.id_manager.next() {
+                    // Take ownership of the map so we can mutate it
+                    if let Value::Object(mut owned_map) = item {
+                        let id_value = match id {
+                            IdValue::Uuid(ref s) => Value::String(s.clone()),
+                            IdValue::Int(i) => {
+                                max_id = Some(i);
+                                Value::Number(i.into())
+                            }
+                        };
+                        owned_map.insert(id_key, id_value);
+                        let new_item = Value::Object(owned_map);
+                        self.collection.insert(id.to_string(), new_item.clone());
+                        added_items.push(new_item);
+                    }
+                } else {
+                    return Err(AddBatchError::MissingId { index, id_key });
+                }
+            }
         }
 
-        added_items
+        Ok(added_items)
     }
 
     pub fn update(&mut self, id: &str, item: Value) -> Option<Value> {
@@ -444,10 +674,14 @@ impl InternalMemoryCollection {
         count
     }
 
-    pub fn load_from_json(&mut self, json_value: Value, keep: bool) -> Result<Vec<Value>, String> {
+    pub fn load_from_json(
+        &mut self,
+        json_value: Value,
+        keep: bool,
+    ) -> Result<Vec<Value>, LoadCollectionError> {
         // Guard: Check if it's a JSON Array
         let Value::Array(_) = json_value else {
-            return Err("⚠️ Informed JSON does not contain a JSON array in the root, skipping initial data load".to_string());
+            return Err(LoadCollectionError::NonArrayInput);
         };
 
         if !keep {
@@ -455,27 +689,24 @@ impl InternalMemoryCollection {
         }
 
         // Load the array into the collection using add_batch
-        let added_items = self.add_batch(json_value);
+        let added_items = self.add_batch(json_value)?;
         Ok(added_items)
     }
 
-    pub fn load_from_file(&mut self, file_path: &OsString) -> Result<String, String> {
+    pub fn load_from_file(&mut self, file_path: &OsString) -> Result<String, LoadCollectionError> {
         let file_path_lossy = file_path.to_string_lossy();
 
         // Guard: Try to read the file content
-        let file_content = fs::read_to_string(file_path).map_err(|_| {
-            format!(
-                "⚠️ Could not read file {}, skipping initial data load",
-                file_path_lossy
-            )
-        })?;
+        let file_content =
+            fs::read_to_string(file_path).map_err(|_| LoadCollectionError::FileRead {
+                path: file_path_lossy.to_string(),
+            })?;
 
         // Guard: Try to parse the content as JSON
         let json_value = serde_json::from_str::<Value>(&file_content).map_err(|_| {
-            format!(
-                "⚠️ File {} does not contain valid JSON, skipping initial data load",
-                file_path_lossy
-            )
+            LoadCollectionError::InvalidJson {
+                path: file_path_lossy.to_string(),
+            }
         })?;
 
         match self.load_from_json(json_value, false) {
@@ -484,10 +715,7 @@ impl InternalMemoryCollection {
                 added_items.len(),
                 file_path_lossy
             )),
-            Err(error) => Err(format!(
-                "Error to process the file {}. Details: {}",
-                file_path_lossy, error
-            )),
+            Err(error) => Err(error),
         }
     }
 }
@@ -507,7 +735,7 @@ impl InternalMemoryCollection {
 /// should be done with care.
 pub struct DbCollection {
     /// The internal protected memory collection. Callers may acquire a lock
-    /// directly (e.g. `dbcoll.collection.read().unwrap()`) but prefer the
+    /// directly (for example with `dbcoll.collection.read()`) but prefer the
     /// high-level methods on `DbCollection` when possible.
     pub(crate) collection: MemoryCollection,
 }
@@ -526,9 +754,13 @@ impl DbCollection {
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
     ///
-    /// assert_eq!(people.get_name(), "people");
+    /// let name = people.get_name().map_err(|error| error.to_string())?;
+    /// assert_eq!(name, "people");
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn new_coll(name: &str, config: DbConfig) -> Self {
         Self {
@@ -543,17 +775,32 @@ impl DbCollection {
     /// This value is used by [`Db::infer_reference`](crate::Db::infer_reference)
     /// when it searches for conventional foreign-key-like fields.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     ///
+    /// # fn main() -> Result<(), String> {
     /// let users = DbCollection::new_coll("users", DbConfig::int("id"));
     ///
-    /// assert_eq!(users.get_reference_column_name(), "user_id");
+    /// let reference_column = users
+    ///     .get_reference_column_name()
+    ///     .map_err(|error| error.to_string())?;
+    /// assert_eq!(reference_column, "user_id");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn get_reference_column_name(&self) -> String {
-        self.collection.read().unwrap().get_reference_column_name()
+    pub fn get_reference_column_name(&self) -> Result<String, CollectionReadError> {
+        Ok(self
+            .collection
+            .read()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
+            .get_reference_column_name())
     }
 
     /// Return all documents in the collection as a `Vec<Value>`.
@@ -561,21 +808,35 @@ impl DbCollection {
     /// This clones stored JSON values and is intended for small collections or
     /// tests; prefer paginated access for large datasets.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
-    /// people.add(json!({ "id": 1, "name": "Ada" }));
+    /// let _inserted = people
+    ///     .add(json!({ "id": 1, "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// let all = people.get_all();
+    /// let all = people.get_all().map_err(|error| error.to_string())?;
     ///
     /// assert_eq!(all[0]["name"], "Ada");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn get_all(&self) -> Vec<Value> {
-        self.collection.read().unwrap().get_all()
+    pub fn get_all(&self) -> Result<Vec<Value>, CollectionReadError> {
+        Ok(self
+            .collection
+            .read()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
+            .get_all())
     }
 
     /// Return a page of documents starting at `offset` with at most `limit`
@@ -584,21 +845,41 @@ impl DbCollection {
     /// `offset` is zero-based. If `offset` is past the end of the collection,
     /// an empty vector is returned.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
-    /// people.add_batch(json!([{ "name": "Ada" }, { "name": "Grace" }]));
+    /// let _inserted = people
+    ///     .add_batch(json!([{ "name": "Ada" }, { "name": "Grace" }]))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// let page = people.get_paginated(1, 1);
+    /// let page = people
+    ///     .get_paginated(1, 1)
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// assert_eq!(page.len(), 1);
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn get_paginated(&self, offset: usize, limit: usize) -> Vec<Value> {
-        self.collection.read().unwrap().get_paginated(offset, limit)
+    pub fn get_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<Value>, CollectionReadError> {
+        Ok(self
+            .collection
+            .read()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
+            .get_paginated(offset, limit))
     }
 
     pub(crate) fn get_filtered_by_columns_values(
@@ -606,10 +887,10 @@ impl DbCollection {
         columns_values: Vec<ColumnValue>,
         expansion_type: ExpansionChain,
         db: &Db,
-    ) -> Vec<Value> {
+    ) -> Result<Vec<Value>, CollectionReadError> {
         self.collection
             .read()
-            .unwrap()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
             .get_filtered_by_columns_values(columns_values, expansion_type, db)
     }
 
@@ -618,91 +899,157 @@ impl DbCollection {
     /// Ids are addressed as strings even when the stored id value is numeric.
     /// The returned value is a clone of the stored JSON document.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
-    /// people.add(json!({ "name": "Ada" }));
+    /// let _inserted = people
+    ///     .add(json!({ "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// let ada = people.get("1").unwrap();
+    /// let ada = people
+    ///     .get("1")
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing person with id 1".to_string())?;
     ///
     /// assert_eq!(ada["name"], "Ada");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn get(&self, id: &str) -> Option<Value> {
-        self.collection.read().unwrap().get(id)
+    pub fn get(&self, id: &str) -> Result<Option<Value>, CollectionReadError> {
+        Ok(self
+            .collection
+            .read()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
+            .get(id))
     }
 
     /// Check whether a document with `id` exists in the collection.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
-    /// people.add(json!({ "id": "ada", "name": "Ada" }));
+    /// let _inserted = people
+    ///     .add(json!({ "id": "ada", "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// assert!(people.exists("ada"));
-    /// assert!(!people.exists("grace"));
+    /// let ada_exists = people.exists("ada").map_err(|error| error.to_string())?;
+    /// let grace_exists = people.exists("grace").map_err(|error| error.to_string())?;
+    /// assert!(ada_exists);
+    /// assert!(!grace_exists);
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn exists(&self, id: &str) -> bool {
-        self.collection.read().unwrap().exists(id)
+    pub fn exists(&self, id: &str) -> Result<bool, CollectionReadError> {
+        Ok(self
+            .collection
+            .read()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
+            .exists(id))
     }
 
     /// Return the number of documents currently stored in the collection.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
-    /// people.add_batch(json!([{ "name": "Ada" }, { "name": "Grace" }]));
+    /// let _inserted = people
+    ///     .add_batch(json!([{ "name": "Ada" }, { "name": "Grace" }]))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// assert_eq!(people.count(), 2);
+    /// let count = people.count().map_err(|error| error.to_string())?;
+    /// assert_eq!(count, 2);
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn count(&self) -> usize {
-        self.collection.read().unwrap().count()
+    pub fn count(&self) -> Result<usize, CollectionReadError> {
+        Ok(self
+            .collection
+            .read()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
+            .count())
     }
 
     /// Add a document to the collection.
     ///
     /// Depending on the configured `id_type`, the collection may generate an
     /// id and insert it into the document. Returns the stored document on
-    /// success (with id populated) or `None` if the item could not be added
-    /// (for example when ids are required but missing).
+    /// success with the id populated.
     ///
     /// The input must be a JSON object. For `IdType::Int` and `IdType::Uuid`,
     /// an id is generated when the configured id key is absent. For
     /// `IdType::None`, the document must contain the configured id key.
     ///
+    /// # Errors
+    ///
+    /// Returns [`AddError::LockPoisoned`] when the collection lock cannot be
+    /// acquired, [`AddError::NonObjectItem`] for non-object JSON values,
+    /// [`AddError::MissingId`] when caller-managed ids are required but absent,
+    /// or [`AddError::DuplicateId`] for duplicate caller-managed ids.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
     ///
-    /// let inserted = people.add(json!({ "name": "Ada" })).unwrap();
+    /// let inserted = people
+    ///     .add(json!({ "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// assert_eq!(inserted["id"], 1);
     /// assert_eq!(inserted["name"], "Ada");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn add(&self, item: Value) -> Option<Value> {
-        self.collection.write().unwrap().add(item)
+    pub fn add(&self, item: Value) -> Result<Value, AddError> {
+        self.collection
+            .write()
+            .map_err(|_| AddError::LockPoisoned)?
+            .add(item)
     }
 
-    /// Add multiple items from a JSON array value; returns the subset of
-    /// items that were actually added.
+    /// Add multiple items from a JSON array value and return the items that
+    /// were added.
     ///
-    /// Non-array input returns an empty vector. Items that cannot be added
-    /// are skipped, while valid later items may still be inserted.
+    /// # Errors
+    ///
+    /// Returns an error when the input is not an array, an array item is not an
+    /// object, the configured id is missing, or an id conflicts with another
+    /// inserted item. It also returns an error when the collection lock cannot
+    /// be acquired.
     ///
     /// # Example
     ///
@@ -710,18 +1057,25 @@ impl DbCollection {
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
     ///
     /// let inserted = people.add_batch(json!([
     ///     { "id": "ada", "name": "Ada" },
     ///     { "id": "grace", "name": "Grace" }
-    /// ]));
+    /// ])).map_err(|error| error.to_string())?;
     ///
     /// assert_eq!(inserted.len(), 2);
-    /// assert_eq!(people.count(), 2);
+    /// let count = people.count().map_err(|error| error.to_string())?;
+    /// assert_eq!(count, 2);
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn add_batch(&self, items: Value) -> Vec<Value> {
-        self.collection.write().unwrap().add_batch(items)
+    pub fn add_batch(&self, items: Value) -> Result<Vec<Value>, AddBatchError> {
+        self.collection
+            .write()
+            .map_err(|_| AddBatchError::LockPoisoned)?
+            .add_batch(items)
     }
 
     /// Replace the document with id `id` with `item`. Returns the stored
@@ -731,24 +1085,39 @@ impl DbCollection {
     /// from the stored document, except for id handling performed by the
     /// collection.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionWriteError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
-    /// people.add(json!({ "id": "ada", "name": "Ada", "age": 37 }));
+    /// let _inserted = people
+    ///     .add(json!({ "id": "ada", "name": "Ada", "age": 37 }))
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// let updated = people
     ///     .update("ada", json!({ "id": "ada", "name": "Ada Lovelace" }))
-    ///     .unwrap();
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing person with id ada".to_string())?;
     ///
     /// assert_eq!(updated["name"], "Ada Lovelace");
     /// assert!(updated.get("age").is_none());
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn update(&self, id: &str, item: Value) -> Option<Value> {
-        self.collection.write().unwrap().update(id, item)
+    pub fn update(&self, id: &str, item: Value) -> Result<Option<Value>, CollectionWriteError> {
+        Ok(self
+            .collection
+            .write()
+            .map_err(|_| CollectionWriteError::LockPoisoned)?
+            .update(id, item))
     }
 
     /// Apply a partial update to the document with `id` by merging JSON
@@ -757,104 +1126,179 @@ impl DbCollection {
     /// Object fields are merged recursively. Non-object values replace the
     /// existing value at that field.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionWriteError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
-    /// people.add(json!({
+    /// let _inserted = people
+    ///     .add(json!({
     ///     "id": "ada",
     ///     "name": "Ada",
     ///     "profile": { "city": "London" }
-    /// }));
+    /// }))
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// let updated = people
     ///     .update_partial("ada", json!({ "profile": { "role": "engineer" } }))
-    ///     .unwrap();
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing person with id ada".to_string())?;
     ///
     /// assert_eq!(updated["profile"]["city"], "London");
     /// assert_eq!(updated["profile"]["role"], "engineer");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn update_partial(&self, id: &str, partial_item: Value) -> Option<Value> {
-        self.collection
+    pub fn update_partial(
+        &self,
+        id: &str,
+        partial_item: Value,
+    ) -> Result<Option<Value>, CollectionWriteError> {
+        Ok(self
+            .collection
             .write()
-            .unwrap()
-            .update_partial(id, partial_item)
+            .map_err(|_| CollectionWriteError::LockPoisoned)?
+            .update_partial(id, partial_item))
     }
 
     /// Remove and return the document with `id` if it exists.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionWriteError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
-    /// people.add(json!({ "id": "ada", "name": "Ada" }));
+    /// let _inserted = people
+    ///     .add(json!({ "id": "ada", "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// let removed = people.delete("ada").unwrap();
+    /// let removed = people
+    ///     .delete("ada")
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing person with id ada".to_string())?;
     ///
     /// assert_eq!(removed["name"], "Ada");
-    /// assert!(!people.exists("ada"));
+    /// let exists = people.exists("ada").map_err(|error| error.to_string())?;
+    /// assert!(!exists);
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn delete(&self, id: &str) -> Option<Value> {
-        self.collection.write().unwrap().delete(id)
+    pub fn delete(&self, id: &str) -> Result<Option<Value>, CollectionWriteError> {
+        Ok(self
+            .collection
+            .write()
+            .map_err(|_| CollectionWriteError::LockPoisoned)?
+            .delete(id))
     }
 
     /// Remove all documents and return the number of removed items.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionWriteError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
-    /// people.add_batch(json!([{ "name": "Ada" }, { "name": "Grace" }]));
+    /// let _inserted = people
+    ///     .add_batch(json!([{ "name": "Ada" }, { "name": "Grace" }]))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// assert_eq!(people.clear(), 2);
-    /// assert_eq!(people.count(), 0);
+    /// let removed = people.clear().map_err(|error| error.to_string())?;
+    /// let count = people.count().map_err(|error| error.to_string())?;
+    /// assert_eq!(removed, 2);
+    /// assert_eq!(count, 0);
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn clear(&self) -> usize {
-        self.collection.write().unwrap().clear()
+    pub fn clear(&self) -> Result<usize, CollectionWriteError> {
+        Ok(self
+            .collection
+            .write()
+            .map_err(|_| CollectionWriteError::LockPoisoned)?
+            .clear())
     }
 
     /// Load documents from a serde_json `Value` (must be an array) and return
-    /// the list of items actually added. Errors if the value is not an array.
+    /// the list of items actually added.
     ///
     /// If `keep` is `true`, existing ids in the input are preserved where
     /// possible. If `keep` is `false`, ids may be regenerated according to
     /// the collection configuration.
     ///
+    /// # Errors
+    ///
+    /// Returns [`LoadCollectionError::LockPoisoned`] when the collection lock
+    /// cannot be acquired, [`LoadCollectionError::NonArrayInput`] when the
+    /// root value is not an array, or [`LoadCollectionError::Batch`] when an
+    /// item cannot be inserted.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
     ///
     /// let inserted = people
     ///     .load_from_json(json!([{ "id": 1, "name": "Ada" }]), true)
-    ///     .unwrap();
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// assert_eq!(inserted.len(), 1);
-    /// assert_eq!(people.get("1").unwrap()["name"], "Ada");
+    /// let stored = people
+    ///     .get("1")
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing person with id 1".to_string())?;
+    /// assert_eq!(stored["name"], "Ada");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn load_from_json(&self, json_value: Value, keep: bool) -> Result<Vec<Value>, String> {
+    pub fn load_from_json(
+        &self,
+        json_value: Value,
+        keep: bool,
+    ) -> Result<Vec<Value>, LoadCollectionError> {
         self.collection
             .write()
-            .unwrap()
+            .map_err(|_| LoadCollectionError::LockPoisoned)?
             .load_from_json(json_value, keep)
     }
 
     /// Load documents from a file path. Returns a human-readable status on
-    /// success or an error string on failure.
+    /// success.
     ///
     /// The file must contain a JSON array of documents.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LoadCollectionError::LockPoisoned`] when the collection lock
+    /// cannot be acquired, [`LoadCollectionError::FileRead`] when the file
+    /// cannot be read, [`LoadCollectionError::InvalidJson`] when parsing fails,
+    /// or a load/batch validation error when file contents are invalid.
     ///
     /// # Example
     ///
@@ -862,14 +1306,19 @@ impl DbCollection {
     /// use fosk::{DbCollection, DbConfig};
     /// use std::ffi::OsString;
     ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
     /// let status = people.load_from_file(&OsString::from("people.json"))?;
     ///
     /// println!("{status}");
-    /// # Ok::<(), String>(())
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn load_from_file(&self, file_path: &OsString) -> Result<String, String> {
-        self.collection.write().unwrap().load_from_file(file_path)
+    pub fn load_from_file(&self, file_path: &OsString) -> Result<String, LoadCollectionError> {
+        self.collection
+            .write()
+            .map_err(|_| LoadCollectionError::LockPoisoned)?
+            .load_from_file(file_path)
     }
 
     /// Load this collection's schema from a compact JSON object.
@@ -885,6 +1334,7 @@ impl DbCollection {
     /// use fosk::{DbCollection, DbConfig, JsonPrimitive};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("person_id"));
     ///
     /// people
@@ -892,10 +1342,15 @@ impl DbCollection {
     ///         "person_id": "Id",
     ///         "name": "String!"
     ///     }))
-    ///     .unwrap();
+    ///     ?;
     ///
-    /// let schema = people.schema().unwrap();
+    /// let schema = people
+    ///     .schema()
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing people schema".to_string())?;
     /// assert_eq!(schema.fields["person_id"].ty, JsonPrimitive::Int);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn load_schema_from_json(&self, json_value: Value) -> Result<(), String> {
         let parsed = parse_schema_for_load(&json_value)?;
@@ -913,18 +1368,20 @@ impl DbCollection {
     /// use fosk::{DbCollection, DbConfig};
     /// use std::ffi::OsString;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
     /// let status = people.load_schema_from_file(&OsString::from("people.schema.json"))?;
     ///
     /// println!("{status}");
-    /// # Ok::<(), String>(())
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn load_schema_from_file(&self, file_path: &OsString) -> Result<String, String> {
         let json_value = read_schema_json_file(file_path)?;
         self.load_schema_from_json(json_value)?;
         Ok(format!(
             "Loaded schema for collection {} from {}",
-            self.get_name(),
+            self.get_name().map_err(|error| error.to_string())?,
             file_path.to_string_lossy()
         ))
     }
@@ -935,8 +1392,8 @@ impl DbCollection {
     ///
     /// # Errors
     ///
-    /// Returns an error only if serialization fails after the file is created.
-    /// File creation currently panics if the path cannot be opened.
+    /// Returns an error if the file cannot be created, the collection cannot be
+    /// read, or serialization fails.
     ///
     /// # Example
     ///
@@ -944,17 +1401,26 @@ impl DbCollection {
     /// use fosk::{DbCollection, DbConfig};
     /// use std::ffi::OsString;
     ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
     ///
     /// people.write_to_file(&OsString::from("people.json"))?;
-    /// # Ok::<(), String>(())
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn write_to_file(&self, file_path: &OsString) -> Result<(), String> {
-        let file = std::fs::File::create(file_path).expect("Failed to create json file");
+    pub fn write_to_file(&self, file_path: &OsString) -> Result<(), WriteCollectionError> {
+        let file = std::fs::File::create(file_path).map_err(|source| {
+            WriteCollectionError::FileCreate {
+                path: file_path.to_string_lossy().to_string(),
+                source,
+            }
+        })?;
         let mut w = BufWriter::new(file);
 
-        let data = self.get_all();
-        serde_json::to_writer_pretty(&mut w, &data).expect("Failed to write to a json file");
+        let data = self
+            .get_all()
+            .map_err(|_| WriteCollectionError::LockPoisoned)?;
+        write_collection_data_to_writer(&mut w, &data)?;
         Ok(())
     }
 
@@ -967,28 +1433,51 @@ impl DbCollection {
     /// [`Db::create_reference`](crate::Db::create_reference) or
     /// [`Db::infer_reference`](crate::Db::infer_reference).
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when this collection or a
+    /// related collection cannot be read.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
     /// let people = db.create("people");
     /// let orders = db.create("orders");
     ///
-    /// people.add(json!({ "id": 1, "name": "Ada" }));
-    /// orders.add(json!({ "id": 10, "person_id": 1 }));
+    /// let _person = people
+    ///     .add(json!({ "id": 1, "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
+    /// let _order = orders
+    ///     .add(json!({ "id": 10, "person_id": 1 }))
+    ///     .map_err(|error| error.to_string())?;
     /// db.create_reference("orders", "person_id", "people", "id");
     ///
-    /// let expanded = orders.expand_row(&orders.get("10").unwrap(), "people", &db);
+    /// let order = orders
+    ///     .get("10")
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing order with id 10".to_string())?;
+    /// let expanded = orders
+    ///     .expand_row(&order, "people", &db)
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// assert_eq!(expanded["people"][0]["name"], "Ada");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn expand_row(&self, row: &Value, expansion: &str, db: &Db) -> Value {
+    pub fn expand_row(
+        &self,
+        row: &Value,
+        expansion: &str,
+        db: &Db,
+    ) -> Result<Value, CollectionReadError> {
         self.collection
             .read()
-            .unwrap()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
             .expand_row(row, ExpansionChain::from(expansion), db)
     }
 
@@ -996,33 +1485,58 @@ impl DbCollection {
     ///
     /// Returns a new `Vec<Value>` where each element has been passed through `expand_row`.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when this collection or a
+    /// related collection cannot be read.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{Db, DbConfig};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
     /// let people = db.create("people");
     /// let orders = db.create("orders");
     ///
-    /// people.add(json!({ "id": 1, "name": "Ada" }));
-    /// orders.add(json!({ "id": 10, "person_id": 1 }));
+    /// let _person = people
+    ///     .add(json!({ "id": 1, "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
+    /// let _order = orders
+    ///     .add(json!({ "id": 10, "person_id": 1 }))
+    ///     .map_err(|error| error.to_string())?;
     /// db.create_reference("orders", "person_id", "people", "id");
     ///
-    /// let expanded = orders.expand_list(orders.get_all(), "people", &db);
+    /// let orders_list = orders.get_all().map_err(|error| error.to_string())?;
+    /// let expanded = orders
+    ///     .expand_list(orders_list, "people", &db)
+    ///     .map_err(|error| error.to_string())?;
     ///
     /// assert_eq!(expanded[0]["people"][0]["name"], "Ada");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn expand_list(&self, list: Vec<Value>, expansion: &str, db: &Db) -> Vec<Value> {
+    pub fn expand_list(
+        &self,
+        list: Vec<Value>,
+        expansion: &str,
+        db: &Db,
+    ) -> Result<Vec<Value>, CollectionReadError> {
         self.collection
             .read()
-            .unwrap()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
             .expand_list(list, ExpansionChain::from(expansion), db)
     }
 
     /// Return the optionally-inferred `SchemaDict` for this collection (if
     /// any documents have been added that allowed schema inference).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
     ///
     /// # Example
     ///
@@ -1030,34 +1544,64 @@ impl DbCollection {
     /// use fosk::{DbCollection, DbConfig, JsonPrimitive};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
-    /// people.add(json!({ "id": 1, "name": "Ada" }));
+    /// let _inserted = people
+    ///     .add(json!({ "id": 1, "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// let schema = people.schema().unwrap();
+    /// let schema = people
+    ///     .schema()
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing people schema".to_string())?;
     ///
     /// assert_eq!(schema.fields["name"].ty, JsonPrimitive::String);
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn schema(&self) -> Option<SchemaDict> {
-        self.collection.read().ok().and_then(|g| g.schema())
+    pub fn schema(&self) -> Result<Option<SchemaDict>, CollectionReadError> {
+        Ok(self
+            .collection
+            .read()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
+            .schema())
     }
 
-    pub(crate) fn set_schema(&self, schema: SchemaDict) {
-        self.collection.write().unwrap().set_schema(schema)
+    pub(crate) fn set_schema(&self, schema: SchemaDict) -> Result<(), CollectionWriteError> {
+        self.collection
+            .write()
+            .map_err(|_| CollectionWriteError::LockPoisoned)?
+            .set_schema(schema);
+        Ok(())
     }
 
     /// Return the collection name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
     ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::int("id"));
     ///
-    /// assert_eq!(people.get_name(), "people");
+    /// let name = people.get_name().map_err(|error| error.to_string())?;
+    /// assert_eq!(name, "people");
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn get_name(&self) -> String {
-        self.collection.read().unwrap().name.clone()
+    pub fn get_name(&self) -> Result<String, CollectionReadError> {
+        Ok(self
+            .collection
+            .read()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
+            .name
+            .clone())
     }
 
     /// Return this collection's configuration.
@@ -1065,24 +1609,38 @@ impl DbCollection {
     /// The returned value is a clone. Mutating it does not affect the
     /// collection.
     ///
+    /// # Errors
+    ///
+    /// Returns [`CollectionReadError::LockPoisoned`] when the collection lock
+    /// cannot be acquired.
+    ///
     /// # Example
     ///
     /// ```
     /// use fosk::{DbCollection, DbConfig};
     ///
+    /// # fn main() -> Result<(), String> {
     /// let people = DbCollection::new_coll("people", DbConfig::none("id"));
     ///
-    /// assert_eq!(people.get_config(), DbConfig::none("id"));
+    /// let config = people.get_config().map_err(|error| error.to_string())?;
+    /// assert_eq!(config, DbConfig::none("id"));
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn get_config(&self) -> DbConfig {
-        self.collection.read().unwrap().config.clone()
+    pub fn get_config(&self) -> Result<DbConfig, CollectionReadError> {
+        Ok(self
+            .collection
+            .read()
+            .map_err(|_| CollectionReadError::LockPoisoned)?
+            .config
+            .clone())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     fn create_test_collection() -> InternalMemoryCollection {
         InternalMemoryCollection::new("test_collection", DbConfig::int("id"))
@@ -1094,6 +1652,21 @@ mod tests {
 
     fn create_none_collection() -> InternalMemoryCollection {
         InternalMemoryCollection::new("none_collection", DbConfig::none("id"))
+    }
+
+    fn add_item(collection: &mut InternalMemoryCollection, item: Value) -> Value {
+        collection
+            .add(item)
+            .unwrap_or_else(|error| panic!("test row should insert: {error}"))
+    }
+
+    fn load_from_file_status(
+        collection: &mut InternalMemoryCollection,
+        file_path: &std::ffi::OsStr,
+    ) -> String {
+        collection
+            .load_from_file(&file_path.to_os_string())
+            .unwrap_or_else(|error| panic!("test file should load: {error}"))
     }
 
     #[test]
@@ -1125,10 +1698,12 @@ mod tests {
     fn test_get_all_with_items() {
         let mut collection = create_test_collection();
 
-        // Add some items
-        collection.add(json!({"name": "Item 1"}));
-        collection.add(json!({"name": "Item 2"}));
-        collection.add(json!({"name": "Item 3"}));
+        let first = add_item(&mut collection, json!({"name": "Item 1"}));
+        let second = add_item(&mut collection, json!({"name": "Item 2"}));
+        let third = add_item(&mut collection, json!({"name": "Item 3"}));
+        assert_eq!(first["id"], 1);
+        assert_eq!(second["id"], 2);
+        assert_eq!(third["id"], 3);
 
         let all_items = collection.get_all();
         assert_eq!(all_items.len(), 3);
@@ -1169,9 +1744,9 @@ mod tests {
     fn test_get_paginated_with_items() {
         let mut collection = create_test_collection();
 
-        // Add 10 items
         for i in 1..=10 {
-            collection.add(json!({"name": format!("Item {}", i)}));
+            let inserted = add_item(&mut collection, json!({"name": format!("Item {}", i)}));
+            assert_eq!(inserted["id"], i);
         }
 
         // Test first page
@@ -1206,16 +1781,17 @@ mod tests {
         let mut collection = create_test_collection();
         assert_eq!(collection.count(), 0);
 
-        collection.add(json!({"name": "Item 1"}));
+        let first = add_item(&mut collection, json!({"name": "Item 1"}));
+        assert_eq!(first["id"], 1);
         assert_eq!(collection.count(), 1);
 
-        collection.add(json!({"name": "Item 2"}));
+        let second = add_item(&mut collection, json!({"name": "Item 2"}));
+        assert_eq!(second["id"], 2);
         assert_eq!(collection.count(), 2);
 
         // Delete one
-        let all_items = collection.get_all();
-        let id = all_items[0].get("id").unwrap().as_u64().unwrap();
-        collection.delete(&id.to_string());
+        let deleted = collection.delete("1").unwrap();
+        assert_eq!(deleted["name"], "Item 1");
         assert_eq!(collection.count(), 1);
     }
 
@@ -1223,15 +1799,12 @@ mod tests {
     fn test_add_with_int_id() {
         let mut collection = create_test_collection();
 
-        let item = collection.add(json!({"name": "Test Item"}));
-        assert!(item.is_some());
-
-        let item = item.unwrap();
+        let item = add_item(&mut collection, json!({"name": "Test Item"}));
         assert_eq!(item.get("name").unwrap(), "Test Item");
         assert_eq!(item.get("id").unwrap(), 1);
 
         // Add another item
-        let item2 = collection.add(json!({"name": "Test Item 2"})).unwrap();
+        let item2 = add_item(&mut collection, json!({"name": "Test Item 2"}));
         assert_eq!(item2.get("id").unwrap(), 2);
     }
 
@@ -1239,10 +1812,7 @@ mod tests {
     fn test_add_with_uuid_id() {
         let mut collection = create_uuid_collection();
 
-        let item = collection.add(json!({"name": "Test Item"}));
-        assert!(item.is_some());
-
-        let item = item.unwrap();
+        let item = add_item(&mut collection, json!({"name": "Test Item"}));
         assert_eq!(item.get("name").unwrap(), "Test Item");
         let id = item.get("id").unwrap().as_str().unwrap();
         assert!(!id.is_empty());
@@ -1253,10 +1823,10 @@ mod tests {
     fn test_add_with_none_id_existing() {
         let mut collection = create_none_collection();
 
-        let item = collection.add(json!({"id": "custom-id", "name": "Test Item"}));
-        assert!(item.is_some());
-
-        let item = item.unwrap();
+        let item = add_item(
+            &mut collection,
+            json!({"id": "custom-id", "name": "Test Item"}),
+        );
         assert_eq!(item.get("name").unwrap(), "Test Item");
         assert_eq!(item.get("id").unwrap(), "custom-id");
     }
@@ -1265,10 +1835,7 @@ mod tests {
     fn test_add_with_none_id_number_existing() {
         let mut collection = create_none_collection();
 
-        let item = collection.add(json!({"id": 1, "name": "Test Item"}));
-        assert!(item.is_some());
-
-        let item = item.unwrap();
+        let item = add_item(&mut collection, json!({"id": 1, "name": "Test Item"}));
         assert_eq!(item.get("name").unwrap(), "Test Item");
         assert_eq!(item.get("id").unwrap(), 1);
     }
@@ -1277,8 +1844,13 @@ mod tests {
     fn test_add_with_none_id_missing() {
         let mut collection = create_none_collection();
 
-        let item = collection.add(json!({"name": "Test Item"}));
-        assert!(item.is_none());
+        let error = collection.add(json!({"name": "Test Item"})).unwrap_err();
+        assert_eq!(
+            error,
+            AddError::MissingId {
+                id_key: "id".to_string()
+            }
+        );
         assert_eq!(collection.count(), 0);
     }
 
@@ -1286,11 +1858,21 @@ mod tests {
     fn test_add_with_none_id_duplicate_is_rejected() {
         let mut collection = create_none_collection();
 
-        let first = collection.add(json!({"id": "custom-id", "name": "Original"}));
-        assert!(first.is_some());
+        let first = add_item(
+            &mut collection,
+            json!({"id": "custom-id", "name": "Original"}),
+        );
+        assert_eq!(first["id"], "custom-id");
 
-        let duplicate = collection.add(json!({"id": "custom-id", "name": "Replacement"}));
-        assert!(duplicate.is_none());
+        let duplicate = collection
+            .add(json!({"id": "custom-id", "name": "Replacement"}))
+            .unwrap_err();
+        assert_eq!(
+            duplicate,
+            AddError::DuplicateId {
+                id: "custom-id".to_string()
+            }
+        );
         assert_eq!(collection.count(), 1);
 
         let stored = collection.get("custom-id").unwrap();
@@ -1301,11 +1883,18 @@ mod tests {
     fn test_add_with_none_numeric_id_duplicate_is_rejected() {
         let mut collection = create_none_collection();
 
-        let first = collection.add(json!({"id": 7, "name": "Original"}));
-        assert!(first.is_some());
+        let first = add_item(&mut collection, json!({"id": 7, "name": "Original"}));
+        assert_eq!(first["id"], 7);
 
-        let duplicate = collection.add(json!({"id": 7, "name": "Replacement"}));
-        assert!(duplicate.is_none());
+        let duplicate = collection
+            .add(json!({"id": 7, "name": "Replacement"}))
+            .unwrap_err();
+        assert_eq!(
+            duplicate,
+            AddError::DuplicateId {
+                id: "7".to_string()
+            }
+        );
         assert_eq!(collection.count(), 1);
 
         let stored = collection.get("7").unwrap();
@@ -1323,7 +1912,7 @@ mod tests {
             {"id": 10, "name": "Item 4"}
         ]);
 
-        let added_items = collection.add_batch(batch);
+        let added_items = collection.add_batch(batch).unwrap();
         assert_eq!(added_items.len(), 4); // Only items with IDs should be added
         assert_eq!(collection.count(), 4);
 
@@ -1339,10 +1928,10 @@ mod tests {
         let batch = json!([
             {"id": "uuid-1", "name": "Item 1"},
             {"id": "uuid-2", "name": "Item 2"},
-            {"name": "Item 3"} // This should be skipped
+            {"name": "Item 3"}
         ]);
 
-        let added_items = collection.add_batch(batch);
+        let added_items = collection.add_batch(batch).unwrap();
         assert_eq!(added_items.len(), 3);
         assert_eq!(collection.count(), 3);
     }
@@ -1354,13 +1943,19 @@ mod tests {
         let batch = json!([
             {"id": "custom-1", "name": "Item 1"},
             {"id": "custom-2", "name": "Item 2"},
-            {"name": "Item 3"}, // This should be skipped
+            {"name": "Item 3"},
             {"id": 3, "name": "Item 4"},
         ]);
 
-        let added_items = collection.add_batch(batch);
-        assert_eq!(added_items.len(), 3);
-        assert_eq!(collection.count(), 3);
+        let error = collection.add_batch(batch).unwrap_err();
+        assert_eq!(
+            error,
+            AddBatchError::MissingId {
+                index: 2,
+                id_key: "id".to_string()
+            }
+        );
+        assert_eq!(collection.count(), 2);
     }
 
     #[test]
@@ -1372,8 +1967,14 @@ mod tests {
             {"id": "custom-1", "name": "Replacement"},
         ]);
 
-        let added_items = collection.add_batch(batch);
-        assert_eq!(added_items.len(), 1);
+        let error = collection.add_batch(batch).unwrap_err();
+        assert_eq!(
+            error,
+            AddBatchError::DuplicateId {
+                index: 1,
+                id: "custom-1".to_string()
+            }
+        );
         assert_eq!(collection.count(), 1);
 
         let stored = collection.get("custom-1").unwrap();
@@ -1383,22 +1984,31 @@ mod tests {
     #[test]
     fn test_add_batch_duplicate_id_against_existing_record_is_rejected() {
         let mut collection = create_none_collection();
-        collection.add(json!({"id": "custom-1", "name": "Existing"}));
+        let existing = add_item(
+            &mut collection,
+            json!({"id": "custom-1", "name": "Existing"}),
+        );
+        assert_eq!(existing["id"], "custom-1");
 
         let batch = json!([
             {"id": "custom-1", "name": "Replacement"},
             {"id": "custom-2", "name": "New"},
         ]);
 
-        let added_items = collection.add_batch(batch);
-        assert_eq!(added_items.len(), 1);
-        assert_eq!(collection.count(), 2);
+        let error = collection.add_batch(batch).unwrap_err();
+        assert_eq!(
+            error,
+            AddBatchError::DuplicateId {
+                index: 0,
+                id: "custom-1".to_string()
+            }
+        );
+        assert_eq!(collection.count(), 1);
 
         let existing = collection.get("custom-1").unwrap();
         assert_eq!(existing.get("name").unwrap(), "Existing");
 
-        let new_item = collection.get("custom-2").unwrap();
-        assert_eq!(new_item.get("name").unwrap(), "New");
+        assert!(collection.get("custom-2").is_none());
     }
 
     #[test]
@@ -1411,15 +2021,20 @@ mod tests {
             {"id": 43, "name": "Other"},
         ]);
 
-        let added_items = collection.add_batch(batch);
-        assert_eq!(added_items.len(), 2);
-        assert_eq!(collection.count(), 2);
+        let error = collection.add_batch(batch).unwrap_err();
+        assert_eq!(
+            error,
+            AddBatchError::DuplicateId {
+                index: 1,
+                id: "42".to_string()
+            }
+        );
+        assert_eq!(collection.count(), 1);
 
         let original = collection.get("42").unwrap();
         assert_eq!(original.get("name").unwrap(), "Original");
 
-        let other = collection.get("43").unwrap();
-        assert_eq!(other.get("name").unwrap(), "Other");
+        assert!(collection.get("43").is_none());
     }
 
     #[test]
@@ -1434,15 +2049,21 @@ mod tests {
             {"id": "custom-3", "name": "Third"},
         ]);
 
-        let added_items = collection.add_batch(batch);
-        assert_eq!(added_items.len(), 3);
-        assert_eq!(collection.count(), 3);
+        let error = collection.add_batch(batch).unwrap_err();
+        assert_eq!(
+            error,
+            AddBatchError::DuplicateId {
+                index: 2,
+                id: "custom-1".to_string()
+            }
+        );
+        assert_eq!(collection.count(), 2);
 
         let original = collection.get("custom-1").unwrap();
         assert_eq!(original.get("name").unwrap(), "Original");
 
         assert!(collection.get("custom-2").is_some());
-        assert!(collection.get("custom-3").is_some());
+        assert!(collection.get("custom-3").is_none());
     }
 
     #[test]
@@ -1454,7 +2075,7 @@ mod tests {
             {"id": 5, "name": "Replacement"},
         ]);
 
-        let added_items = collection.add_batch(batch);
+        let added_items = collection.add_batch(batch).unwrap();
         assert_eq!(added_items.len(), 2);
         assert_eq!(collection.count(), 1);
 
@@ -1471,7 +2092,7 @@ mod tests {
             {"id": "uuid-1", "name": "Replacement"},
         ]);
 
-        let added_items = collection.add_batch(batch);
+        let added_items = collection.add_batch(batch).unwrap();
         assert_eq!(added_items.len(), 2);
         assert_eq!(collection.count(), 1);
 
@@ -1484,8 +2105,10 @@ mod tests {
         let mut collection = create_test_collection();
 
         let non_array = json!({"name": "Single Item"});
-        let added_items = collection.add_batch(non_array);
-        assert!(added_items.is_empty());
+        assert_eq!(
+            collection.add_batch(non_array).unwrap_err(),
+            AddBatchError::NonArrayInput
+        );
         assert_eq!(collection.count(), 0);
     }
 
@@ -1630,10 +2253,12 @@ mod tests {
     fn test_clear_with_items() {
         let mut collection = create_test_collection();
 
-        // Add some items
-        collection.add(json!({"name": "Item 1"}));
-        collection.add(json!({"name": "Item 2"}));
-        collection.add(json!({"name": "Item 3"}));
+        let first = add_item(&mut collection, json!({"name": "Item 1"}));
+        let second = add_item(&mut collection, json!({"name": "Item 2"}));
+        let third = add_item(&mut collection, json!({"name": "Item 3"}));
+        assert_eq!(first["id"], 1);
+        assert_eq!(second["id"], 2);
+        assert_eq!(third["id"], 3);
 
         assert_eq!(collection.count(), 3);
 
@@ -1741,10 +2366,8 @@ mod tests {
         file.write_all(test_data.to_string().as_bytes()).unwrap();
 
         // Load data from file
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-
-        assert!(result.is_ok());
-        assert!(result.unwrap().contains("Loaded 3 initial items"));
+        let status = load_from_file_status(&mut collection, file_path.as_os_str());
+        assert!(status.contains("Loaded 3 initial items"));
         assert_eq!(collection.count(), 3);
 
         // Verify the data was loaded correctly
@@ -1770,10 +2393,8 @@ mod tests {
         file.write_all(test_data.to_string().as_bytes()).unwrap();
 
         // Load data from file
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-
-        assert!(result.is_ok());
-        assert!(result.unwrap().contains("Loaded 0 initial items"));
+        let status = load_from_file_status(&mut collection, file_path.as_os_str());
+        assert!(status.contains("Loaded 0 initial items"));
         assert_eq!(collection.count(), 0);
     }
 
@@ -1793,10 +2414,8 @@ mod tests {
         file.write_all(test_data.to_string().as_bytes()).unwrap();
 
         // Load data from file
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-
-        assert!(result.is_ok());
-        assert!(result.unwrap().contains("Loaded 2 initial items"));
+        let status = load_from_file_status(&mut collection, file_path.as_os_str());
+        assert!(status.contains("Loaded 2 initial items"));
         assert_eq!(collection.count(), 2);
 
         assert!(collection.exists("uuid-1"));
@@ -1813,7 +2432,7 @@ mod tests {
         let test_data = json!([
             {"id": "string-id", "name": "Item 1"},
             {"id": 42, "name": "Item 2"},
-            {"name": "Item 3"} // This should be skipped (no ID)
+            {"name": "Item 3"} // This should now fail with a typed missing-id error.
         ]);
 
         let mut file = File::create(&file_path).unwrap();
@@ -1822,8 +2441,13 @@ mod tests {
         // Load data from file
         let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
 
-        assert!(result.is_ok());
-        assert!(result.unwrap().contains("Loaded 2 initial items"));
+        assert_eq!(
+            result.unwrap_err(),
+            LoadCollectionError::Batch(AddBatchError::MissingId {
+                index: 2,
+                id_key: "id".to_string()
+            })
+        );
         assert_eq!(collection.count(), 2);
 
         assert!(collection.exists("string-id"));
@@ -1835,12 +2459,13 @@ mod tests {
         let mut collection = create_test_collection();
         let nonexistent_path = std::ffi::OsString::from("/path/that/does/not/exist.json");
 
-        let result = collection.load_from_file(&nonexistent_path);
-
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err();
-        assert!(error_msg.contains("Could not read file"));
-        assert!(error_msg.contains("skipping initial data load"));
+        let error = collection.load_from_file(&nonexistent_path).unwrap_err();
+        assert_eq!(
+            error,
+            LoadCollectionError::FileRead {
+                path: nonexistent_path.to_string_lossy().to_string()
+            }
+        );
         assert_eq!(collection.count(), 0);
     }
 
@@ -1854,12 +2479,15 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         file.write_all(b"{ invalid json content }").unwrap();
 
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err();
-        assert!(error_msg.contains("does not contain valid JSON"));
-        assert!(error_msg.contains("skipping initial data load"));
+        let error = collection
+            .load_from_file(&file_path.as_os_str().to_os_string())
+            .unwrap_err();
+        assert_eq!(
+            error,
+            LoadCollectionError::InvalidJson {
+                path: file_path.to_string_lossy().to_string()
+            }
+        );
         assert_eq!(collection.count(), 0);
     }
 
@@ -1875,12 +2503,10 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         file.write_all(test_data.to_string().as_bytes()).unwrap();
 
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err();
-        assert!(error_msg.contains("does not contain a JSON array"));
-        assert!(error_msg.contains("skipping initial data load"));
+        let error = collection
+            .load_from_file(&file_path.as_os_str().to_os_string())
+            .unwrap_err();
+        assert_eq!(error, LoadCollectionError::NonArrayInput);
         assert_eq!(collection.count(), 0);
     }
 
@@ -1894,14 +2520,10 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         file.write_all(b"\"just a string\"").unwrap();
 
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .contains("does not contain a JSON array")
-        );
+        let error = collection
+            .load_from_file(&file_path.as_os_str().to_os_string())
+            .unwrap_err();
+        assert_eq!(error, LoadCollectionError::NonArrayInput);
         assert_eq!(collection.count(), 0);
     }
 
@@ -1922,8 +2544,8 @@ mod tests {
         file.write_all(test_data.to_string().as_bytes()).unwrap();
 
         // Load data from file
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-        assert!(result.is_ok());
+        let status = load_from_file_status(&mut collection, file_path.as_os_str());
+        assert!(status.contains("Loaded 3 initial items"));
 
         // Add a new item - should get ID 16 (max + 1)
         let new_item = collection.add(json!({"name": "New Item"})).unwrap();
@@ -1951,10 +2573,8 @@ mod tests {
         file.write_all(test_data.to_string().as_bytes()).unwrap();
 
         // Load data from file
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-
-        assert!(result.is_ok());
-        assert!(result.unwrap().contains("Loaded 1000 initial items"));
+        let status = load_from_file_status(&mut collection, file_path.as_os_str());
+        assert!(status.contains("Loaded 1000 initial items"));
         assert_eq!(collection.count(), 1000);
 
         // Verify some random items
@@ -1971,9 +2591,10 @@ mod tests {
     fn test_load_from_file_with_existing_data() {
         let mut collection = create_test_collection();
 
-        // Add some existing data
-        collection.add(json!({"name": "Existing Item 1"}));
-        collection.add(json!({"name": "Existing Item 2"}));
+        let existing1 = add_item(&mut collection, json!({"name": "Existing Item 1"}));
+        let existing2 = add_item(&mut collection, json!({"name": "Existing Item 2"}));
+        assert_eq!(existing1["id"], 1);
+        assert_eq!(existing2["id"], 2);
         assert_eq!(collection.count(), 2);
 
         let temp_dir = TempDir::new().unwrap();
@@ -1989,10 +2610,8 @@ mod tests {
         file.write_all(test_data.to_string().as_bytes()).unwrap();
 
         // Load additional data from file
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-
-        assert!(result.is_ok());
-        assert!(result.unwrap().contains("Loaded 2 initial items"));
+        let status = load_from_file_status(&mut collection, file_path.as_os_str());
+        assert!(status.contains("Loaded 2 initial items"));
         assert_eq!(collection.count(), 2); // 2 loaded
 
         // Verify all data exists
@@ -2020,10 +2639,8 @@ mod tests {
         file.write_all(test_data.to_string().as_bytes()).unwrap();
 
         // Load data from file
-        let result = collection.load_from_file(&file_path.as_os_str().to_os_string());
-
-        assert!(result.is_ok());
-        assert!(result.unwrap().contains("Loaded 2 initial items"));
+        let status = load_from_file_status(&mut collection, file_path.as_os_str());
+        assert!(status.contains("Loaded 2 initial items"));
         assert_eq!(collection.count(), 2);
 
         assert!(collection.exists("1"));
@@ -2055,8 +2672,9 @@ mod tests {
         let stored1 = db_collection.add(item1).unwrap();
         let stored2 = db_collection.add(item2).unwrap();
 
-        // Write to file and assert success
-        assert!(db_collection.write_to_file(&os_file_path).is_ok());
+        db_collection
+            .write_to_file(&os_file_path)
+            .unwrap_or_else(|error| panic!("write_to_file should succeed: {error}"));
 
         // Read and parse file content
         let content = fs::read_to_string(file_path).unwrap();
@@ -2078,10 +2696,10 @@ mod tests {
         // Add an item
         let item = coll.add(json!({"id": 1, "value": "test"})).unwrap();
         // Expand with empty expansion
-        let expanded = coll.expand_row(&item, "", &db);
+        let expanded = coll.expand_row(&item, "", &db).unwrap();
         assert_eq!(expanded, item);
         // Expand with non-existent relation
-        let expanded2 = coll.expand_row(&item, "unknown", &db);
+        let expanded2 = coll.expand_row(&item, "unknown", &db).unwrap();
         assert_eq!(expanded2, item);
     }
 
@@ -2096,10 +2714,10 @@ mod tests {
         let b = coll.add(json!({"id": 2, "value": 20})).unwrap();
         let list = vec![a.clone(), b.clone()];
         // Expand list with empty expansion
-        let expanded = coll.expand_list(list.clone(), "", &db);
+        let expanded = coll.expand_list(list.clone(), "", &db).unwrap();
         assert_eq!(expanded, list);
         // Expand list with missing relation
-        let expanded2 = coll.expand_list(list.clone(), "none", &db);
+        let expanded2 = coll.expand_list(list.clone(), "none", &db).unwrap();
         assert_eq!(expanded2, list);
     }
 
@@ -2127,7 +2745,7 @@ mod tests {
         assert!(db.create_reference("books", "author_id", "authors", "id"));
 
         // Expand book1 row to include its referenced author
-        let expanded1 = books.expand_row(&b1, "authors", &db);
+        let expanded1 = books.expand_row(&b1, "authors", &db).unwrap();
         if let Value::Object(map) = expanded1 {
             let arr = map.get("authors").unwrap().as_array().unwrap();
             assert_eq!(arr.len(), 1);
@@ -2158,7 +2776,7 @@ mod tests {
 
         // Expand list of books
         let list = vec![b1.clone(), b2.clone()];
-        let expanded_list = books.expand_list(list.clone(), "authors", &db);
+        let expanded_list = books.expand_list(list.clone(), "authors", &db).unwrap();
         // Each expanded item should contain its correct author
         for (orig, exp) in list.iter().zip(expanded_list.iter()) {
             if let Value::Object(map) = exp {
@@ -2189,7 +2807,7 @@ mod tests {
         // Register reference order_items.order_id -> orders.id
         assert!(db.create_reference("order_items", "order_id", "orders", "id"));
         // Expand parent order row to include its items
-        let expanded = orders.expand_row(&o1, "order_items", &db);
+        let expanded = orders.expand_row(&o1, "order_items", &db).unwrap();
         if let Value::Object(map) = expanded {
             let arr = map.get("order_items").unwrap().as_array().unwrap();
             // Only one item should appear
@@ -2234,7 +2852,7 @@ mod tests {
         assert!(db.create_reference("order_items", "order_id", "orders", "id"));
         assert!(db.create_reference("order_items", "product_id", "products", "id"));
         // Perform multi-level expansion: order -> order_items -> product
-        let expanded = orders.expand_row(&o1, "order_items.products", &db);
+        let expanded = orders.expand_row(&o1, "order_items.products", &db).unwrap();
 
         println!("{}", serde_json::to_string_pretty(&expanded).unwrap());
 
@@ -2290,22 +2908,34 @@ mod tests {
     fn internal_filtered_lookup_skips_non_objects_missing_columns_and_mismatches() {
         let db = Db::new_with_config(DbConfig::none("id"));
         let mut collection = InternalMemoryCollection::new("items", DbConfig::none("id"));
-        collection.add(json!({ "id": "a", "kind": "book", "title": "SQL" }));
-        collection.add(json!({ "id": "b", "kind": "game", "title": "Rust" }));
+        let book = add_item(
+            &mut collection,
+            json!({ "id": "a", "kind": "book", "title": "SQL" }),
+        );
+        let game = add_item(
+            &mut collection,
+            json!({ "id": "b", "kind": "game", "title": "Rust" }),
+        );
+        assert_eq!(book["id"], "a");
+        assert_eq!(game["id"], "b");
         collection
             .collection
             .insert("raw".to_string(), json!("not an object"));
 
-        let matches = collection.get_filtered_by_columns_values(
-            vec![ColumnValue::new("kind".to_string(), json!("book"))],
-            ExpansionChain::None,
-            &db,
-        );
-        let missing = collection.get_filtered_by_columns_values(
-            vec![ColumnValue::new("missing".to_string(), json!("book"))],
-            ExpansionChain::None,
-            &db,
-        );
+        let matches = collection
+            .get_filtered_by_columns_values(
+                vec![ColumnValue::new("kind".to_string(), json!("book"))],
+                ExpansionChain::None,
+                &db,
+            )
+            .unwrap();
+        let missing = collection
+            .get_filtered_by_columns_values(
+                vec![ColumnValue::new("missing".to_string(), json!("book"))],
+                ExpansionChain::None,
+                &db,
+            )
+            .unwrap();
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0]["title"], "SQL");
@@ -2315,29 +2945,289 @@ mod tests {
     #[test]
     fn public_collection_wrappers_cover_basic_read_write_paths() {
         let collection = DbCollection::new_coll("people", DbConfig::int("id"));
-        let inserted = collection.add(json!({ "name": "Ada" })).unwrap();
+        let inserted = collection
+            .add(json!({ "name": "Ada" }))
+            .unwrap_or_else(|error| panic!("initial public row should insert: {error}"));
         assert_eq!(inserted["id"], 1);
 
-        assert_eq!(collection.get("1").unwrap()["name"], "Ada");
-        assert!(collection.exists("1"));
-        assert_eq!(collection.count(), 1);
-        assert_eq!(collection.get_all().len(), 1);
-        assert_eq!(collection.get_paginated(0, 1).len(), 1);
+        assert_eq!(collection.get("1").unwrap().unwrap()["name"], "Ada");
+        assert!(collection.exists("1").unwrap());
+        assert_eq!(collection.count().unwrap(), 1);
+        assert_eq!(collection.get_all().unwrap().len(), 1);
+        assert_eq!(collection.get_paginated(0, 1).unwrap().len(), 1);
 
         let updated = collection
             .update("1", json!({ "name": "Ada Lovelace" }))
+            .unwrap()
             .unwrap();
         assert_eq!(updated["id"], 1);
         assert_eq!(updated["name"], "Ada Lovelace");
 
         let partial = collection
             .update_partial("1", json!({ "profile": { "city": "London" } }))
+            .unwrap()
             .unwrap();
         assert_eq!(partial["id"], 1);
         assert_eq!(partial["profile"]["city"], "London");
 
-        assert_eq!(collection.delete("1").unwrap()["name"], "Ada Lovelace");
-        assert_eq!(collection.clear(), 0);
+        assert_eq!(
+            collection.delete("1").unwrap().unwrap()["name"],
+            "Ada Lovelace"
+        );
+        assert_eq!(collection.clear().unwrap(), 0);
+    }
+
+    #[test]
+    fn public_read_methods_return_error_when_lock_is_poisoned() {
+        let collection = DbCollection::new_coll("people", DbConfig::int("id"));
+        let db = Db::new_with_config(DbConfig::int("id"));
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = collection.collection.write().unwrap();
+            panic!("poison collection lock");
+        }));
+
+        assert_eq!(
+            collection.get_reference_column_name().unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection.get_all().unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection.get_paginated(0, 1).unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection.get("1").unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection.exists("1").unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection.count().unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection
+                .expand_row(&json!({ "id": 1 }), "", &db)
+                .unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection
+                .expand_list(vec![json!({ "id": 1 })], "", &db)
+                .unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection.schema().unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection.get_name().unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+        assert_eq!(
+            collection.get_config().unwrap_err(),
+            CollectionReadError::LockPoisoned
+        );
+    }
+
+    #[test]
+    fn public_write_methods_return_error_when_lock_is_poisoned() {
+        let collection = DbCollection::new_coll("people", DbConfig::int("id"));
+        let temp_dir = TempDir::new().unwrap();
+        let output = temp_dir
+            .path()
+            .join("output.json")
+            .as_os_str()
+            .to_os_string();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = collection.collection.write().unwrap();
+            panic!("poison collection lock");
+        }));
+
+        assert_eq!(
+            collection.add(json!({ "name": "Ada" })).unwrap_err(),
+            AddError::LockPoisoned
+        );
+        assert_eq!(
+            collection.add_batch(json!([])).unwrap_err(),
+            AddBatchError::LockPoisoned
+        );
+        assert_eq!(
+            collection.load_from_json(json!([]), true).unwrap_err(),
+            LoadCollectionError::LockPoisoned
+        );
+        assert_eq!(
+            collection
+                .load_from_file(&OsString::from("missing.json"))
+                .unwrap_err(),
+            LoadCollectionError::LockPoisoned
+        );
+        assert_eq!(
+            collection.update("1", json!({ "id": 1 })).unwrap_err(),
+            CollectionWriteError::LockPoisoned
+        );
+        assert_eq!(
+            collection
+                .update_partial("1", json!({ "name": "Ada" }))
+                .unwrap_err(),
+            CollectionWriteError::LockPoisoned
+        );
+        assert_eq!(
+            collection.delete("1").unwrap_err(),
+            CollectionWriteError::LockPoisoned
+        );
+        assert_eq!(
+            collection.clear().unwrap_err(),
+            CollectionWriteError::LockPoisoned
+        );
+        assert_eq!(
+            collection.set_schema(SchemaDict::default()).unwrap_err(),
+            CollectionWriteError::LockPoisoned
+        );
+        match collection.write_to_file(&output).unwrap_err() {
+            WriteCollectionError::LockPoisoned => {}
+            other => panic!("expected lock poisoned write error, got {other}"),
+        }
+    }
+
+    #[test]
+    fn add_rejects_non_object_items() {
+        let collection = DbCollection::new_coll("people", DbConfig::int("id"));
+
+        assert_eq!(
+            collection.add(json!("bad")).unwrap_err(),
+            AddError::NonObjectItem
+        );
+    }
+
+    #[test]
+    fn add_reports_missing_and_duplicate_caller_managed_ids() {
+        let collection = DbCollection::new_coll("people", DbConfig::none("id"));
+
+        assert_eq!(
+            collection.add(json!({ "name": "Ada" })).unwrap_err(),
+            AddError::MissingId {
+                id_key: "id".to_string()
+            }
+        );
+
+        collection
+            .add(json!({ "id": "ada", "name": "Ada" }))
+            .unwrap_or_else(|error| panic!("initial caller-managed row should insert: {error}"));
+        assert_eq!(
+            collection
+                .add(json!({ "id": "ada", "name": "Replacement" }))
+                .unwrap_err(),
+            AddError::DuplicateId {
+                id: "ada".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn add_batch_reports_non_object_and_invalid_integer_ids() {
+        let mut collection = create_test_collection();
+
+        assert_eq!(
+            collection
+                .add_batch(json!([{ "name": "Ada" }, "bad"]))
+                .unwrap_err(),
+            AddBatchError::NonObjectItem { index: 1 }
+        );
+        assert_eq!(collection.count(), 1);
+
+        let mut collection = create_test_collection();
+        assert_eq!(
+            collection
+                .add_batch(json!([{ "id": -1, "name": "Ada" }]))
+                .unwrap_err(),
+            AddBatchError::InvalidIntId { index: 0 }
+        );
+        assert_eq!(collection.count(), 0);
+    }
+
+    #[test]
+    fn load_from_json_reports_batch_errors() {
+        let collection = DbCollection::new_coll("people", DbConfig::none("id"));
+
+        assert_eq!(
+            collection
+                .load_from_json(json!([{ "name": "Ada" }]), true)
+                .unwrap_err(),
+            LoadCollectionError::Batch(AddBatchError::MissingId {
+                index: 0,
+                id_key: "id".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn load_from_json_reports_non_object_batch_errors() {
+        let collection = DbCollection::new_coll("people", DbConfig::int("id"));
+
+        assert_eq!(
+            collection
+                .load_from_json(json!([{ "name": "Ada" }, "bad"]), true)
+                .unwrap_err(),
+            LoadCollectionError::Batch(AddBatchError::NonObjectItem { index: 1 })
+        );
+    }
+
+    #[test]
+    fn load_from_json_reports_invalid_integer_batch_errors() {
+        let collection = DbCollection::new_coll("people", DbConfig::int("id"));
+
+        assert_eq!(
+            collection
+                .load_from_json(json!([{ "id": -1, "name": "Ada" }]), true)
+                .unwrap_err(),
+            LoadCollectionError::Batch(AddBatchError::InvalidIntId { index: 0 })
+        );
+    }
+
+    #[test]
+    fn write_to_file_reports_file_creation_errors() {
+        let collection = DbCollection::new_coll("people", DbConfig::int("id"));
+        let temp_dir = TempDir::new().unwrap();
+        let error = collection
+            .write_to_file(&temp_dir.path().as_os_str().to_os_string())
+            .unwrap_err();
+
+        match error {
+            WriteCollectionError::FileCreate { path, source } => {
+                assert_eq!(path, temp_dir.path().to_string_lossy());
+                assert_eq!(source.kind(), std::io::ErrorKind::IsADirectory);
+            }
+            other => panic!("expected file creation error, got {other}"),
+        }
+    }
+
+    #[test]
+    fn write_collection_data_to_writer_reports_serialization_errors() {
+        struct FailingWriter;
+
+        impl Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("write failed"))
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut writer = FailingWriter;
+        let error =
+            write_collection_data_to_writer(&mut writer, &[json!({ "id": 1 })]).unwrap_err();
+
+        assert!(matches!(error, WriteCollectionError::Serialize { .. }));
+        assert!(error.source().is_some());
     }
 
     #[test]
@@ -2365,6 +3255,13 @@ mod tests {
             .unwrap();
 
         assert!(status.contains("Loaded schema for collection people"));
-        assert!(collection.schema().unwrap().fields.contains_key("name"));
+        assert!(
+            collection
+                .schema()
+                .unwrap()
+                .unwrap()
+                .fields
+                .contains_key("name")
+        );
     }
 }

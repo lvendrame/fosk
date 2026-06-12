@@ -55,174 +55,72 @@ pub mod tests {
         ast::{Literal, NumberParser},
     };
 
+    fn parse_number(text: &str) -> Literal {
+        let mut parser = QueryParser::new(text);
+        NumberParser::parse(&mut parser)
+            .unwrap_or_else(|error| panic!("expected number literal, got {error}"))
+    }
+
     #[test]
     pub fn test_number_parser_int() {
-        let text = "32";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Int(value) => assert_eq!(value, 32),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_number("32"), Literal::Int(32));
     }
 
     #[test]
     pub fn test_number_parser_int_positive() {
-        let text = "+32";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Int(value) => assert_eq!(value, 32),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_number("+32"), Literal::Int(32));
     }
 
     #[test]
     pub fn test_number_parser_int_negative() {
-        let text = "-32";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Int(value) => assert_eq!(value, -32),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_number("-32"), Literal::Int(-32));
     }
 
     #[test]
     pub fn test_number_parser_float() {
-        let text = "32.";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Float(value) => assert_eq!(value.into_inner(), 32.0),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_number("32."),
+            Literal::Float(ordered_float::NotNan::new(32.0).unwrap())
+        );
     }
 
     #[test]
     pub fn test_number_parser_float_digit() {
-        let text = "32.5";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Float(value) => assert_eq!(value.into_inner(), 32.5),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_number("32.5"),
+            Literal::Float(ordered_float::NotNan::new(32.5).unwrap())
+        );
     }
 
     #[test]
     pub fn test_number_parser_float_positive() {
-        let text = "+32.5";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Float(value) => assert_eq!(value.into_inner(), 32.5),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_number("+32.5"),
+            Literal::Float(ordered_float::NotNan::new(32.5).unwrap())
+        );
     }
 
     #[test]
     pub fn test_number_parser_float_negative() {
-        let text = "-32.5";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Float(value) => assert_eq!(value.into_inner(), -32.5),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(
+            parse_number("-32.5"),
+            Literal::Float(ordered_float::NotNan::new(-32.5).unwrap())
+        );
     }
 
     #[test]
     pub fn test_number_parser_comma_delimiter() {
-        let text = "32,";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Int(value) => assert_eq!(value, 32),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_number("32,"), Literal::Int(32));
     }
 
     #[test]
     pub fn test_number_parser_space_delimiter() {
-        let text = "32 ";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Int(value) => assert_eq!(value, 32),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_number("32 "), Literal::Int(32));
     }
 
     #[test]
     pub fn test_number_parser_break_line() {
-        let text = "32\r";
-
-        let mut parser = QueryParser::new(text);
-
-        let result = NumberParser::parse(&mut parser);
-
-        match result {
-            Ok(result) => match result {
-                Literal::Int(value) => assert_eq!(value, 32),
-                _ => panic!(),
-            },
-            Err(_) => panic!(),
-        }
+        assert_eq!(parse_number("32\r"), Literal::Int(32));
     }
 
     #[test]
@@ -233,13 +131,45 @@ pub mod tests {
 
         let result = NumberParser::parse(&mut parser);
 
-        match result {
-            Ok(_) => panic!(),
-            Err(err) => {
-                assert_eq!(err.text, "32a");
-                assert_eq!(err.start, 0);
-                assert_eq!(err.end, 2);
-            }
-        }
+        let err = result.unwrap_err();
+        assert_eq!(err.text, "32a");
+        assert_eq!(err.start, 0);
+        assert_eq!(err.end, 2);
+    }
+
+    #[test]
+    pub fn test_number_parser_invalid_start() {
+        let text = "abc";
+        let mut parser = QueryParser::new(text);
+
+        let err = NumberParser::parse(&mut parser).unwrap_err();
+
+        assert_eq!(err.text, "a");
+        assert_eq!(err.start, 0);
+        assert_eq!(err.end, 0);
+    }
+
+    #[test]
+    pub fn test_number_parser_rejects_sign_without_digits() {
+        let text = "+";
+        let mut parser = QueryParser::new(text);
+
+        let err = NumberParser::parse(&mut parser).unwrap_err();
+
+        assert_eq!(err.text, "+");
+        assert_eq!(err.start, 0);
+        assert_eq!(err.end, 1);
+    }
+
+    #[test]
+    pub fn test_number_parser_rejects_invalid_float() {
+        let text = "-.";
+        let mut parser = QueryParser::new(text);
+
+        let err = NumberParser::parse(&mut parser).unwrap_err();
+
+        assert_eq!(err.text, "-.");
+        assert_eq!(err.start, 0);
+        assert_eq!(err.end, 2);
     }
 }

@@ -28,11 +28,20 @@ impl SchemaDict {
     /// use fosk::{JsonPrimitive, SchemaDict};
     /// use serde_json::json;
     ///
-    /// let object = json!({ "name": "Ada" }).as_object().unwrap().clone();
-    /// let schema = SchemaDict::infer_schema_from_object(&object);
+    /// # fn main() -> Result<(), String> {
+    /// let value = json!({ "name": "Ada" });
+    /// let object = value
+    ///     .as_object()
+    ///     .ok_or_else(|| "expected a JSON object".to_string())?;
+    /// let schema = SchemaDict::infer_schema_from_object(object);
     ///
-    /// assert_eq!(schema.get("name").unwrap().ty, JsonPrimitive::String);
+    /// let name = schema
+    ///     .get("name")
+    ///     .ok_or_else(|| "missing name field".to_string())?;
+    /// assert_eq!(name.ty, JsonPrimitive::String);
     /// assert!(schema.get("missing").is_none());
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn get(&self, name: &str) -> Option<&FieldInfo> {
         self.fields.get(name)
@@ -47,15 +56,18 @@ impl SchemaDict {
     /// use fosk::{JsonPrimitive, SchemaDict};
     /// use serde_json::json;
     ///
-    /// let object = json!({ "id": 1, "name": "Ada" })
+    /// # fn main() -> Result<(), String> {
+    /// let value = json!({ "id": 1, "name": "Ada" });
+    /// let object = value
     ///     .as_object()
-    ///     .unwrap()
-    ///     .clone();
+    ///     .ok_or_else(|| "expected a JSON object".to_string())?;
     ///
-    /// let schema = SchemaDict::infer_schema_from_object(&object);
+    /// let schema = SchemaDict::infer_schema_from_object(object);
     ///
     /// assert_eq!(schema.fields["id"].ty, JsonPrimitive::Int);
     /// assert_eq!(schema.fields["name"].ty, JsonPrimitive::String);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn infer_schema_from_object(obj: &Map<String, Value>) -> SchemaDict {
         let mut fields = IndexMap::new();
@@ -76,16 +88,25 @@ impl SchemaDict {
     /// use fosk::{JsonPrimitive, SchemaDict};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let mut schema = SchemaDict::default();
     ///
-    /// let first = json!({ "id": 1, "age": 37 }).as_object().unwrap().clone();
-    /// schema.merge_schema(&first);
+    /// let first_value = json!({ "id": 1, "age": 37 });
+    /// let first = first_value
+    ///     .as_object()
+    ///     .ok_or_else(|| "expected first row object".to_string())?;
+    /// schema.merge_schema(first);
     ///
-    /// let second = json!({ "id": 2 }).as_object().unwrap().clone();
-    /// schema.merge_schema(&second);
+    /// let second_value = json!({ "id": 2 });
+    /// let second = second_value
+    ///     .as_object()
+    ///     .ok_or_else(|| "expected second row object".to_string())?;
+    /// schema.merge_schema(second);
     ///
     /// assert_eq!(schema.fields["age"].ty, JsonPrimitive::Int);
     /// assert!(schema.fields["age"].nullable);
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn merge_schema(&mut self, obj: &Map<String, Value>) {
         // First, mark missing keys as nullable (they weren't present on this row)
@@ -136,14 +157,22 @@ impl SchemaWithRefs {
     /// use fosk::{Db, DbConfig, SchemaWithRefs};
     /// use serde_json::json;
     ///
+    /// # fn main() -> Result<(), String> {
     /// let db = Db::new_with_config(DbConfig::none("id"));
     /// let people = db.create("people");
-    /// people.add(json!({ "id": 1, "name": "Ada" }));
+    /// let _inserted = people
+    ///     .add(json!({ "id": 1, "name": "Ada" }))
+    ///     .map_err(|error| error.to_string())?;
     ///
-    /// let schema = people.schema().unwrap();
+    /// let schema = people
+    ///     .schema()
+    ///     .map_err(|error| error.to_string())?
+    ///     .ok_or_else(|| "missing people schema".to_string())?;
     /// let with_refs = SchemaWithRefs::new("people", &schema, &db);
     ///
     /// assert_eq!(with_refs.name, "people");
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn new(collection_name: &str, schema_dict: &SchemaDict, db: &Db) -> Self {
         let fields = schema_dict.fields.clone();
@@ -263,18 +292,26 @@ mod tests {
     #[test]
     fn schema_with_refs_splits_outbound_and_inbound_references() {
         let db = Db::new_with_config(DbConfig::none("id"));
-        db.create("people").add(json!({ "id": 1, "name": "Ada" }));
-        db.create("orders").add(json!({ "id": 10, "person_id": 1 }));
+        let person = match db.create("people").add(json!({ "id": 1, "name": "Ada" })) {
+            Ok(person) => person,
+            Err(error) => panic!("people seed row should insert: {error}"),
+        };
+        assert_eq!(person["id"], 1);
+        let order = match db.create("orders").add(json!({ "id": 10, "person_id": 1 })) {
+            Ok(order) => order,
+            Err(error) => panic!("orders seed row should insert: {error}"),
+        };
+        assert_eq!(order["id"], 10);
         assert!(db.create_reference("orders", "person_id", "people", "id"));
 
-        let orders_schema = db.get("orders").unwrap().schema().unwrap();
+        let orders_schema = db.get("orders").unwrap().schema().unwrap().unwrap();
         let orders = SchemaWithRefs::new("orders", &orders_schema, &db);
         assert_eq!(orders.name, "orders");
         assert!(orders.fields.contains_key("person_id"));
         assert!(orders.inbound_refs.contains_key("person_id"));
         assert!(orders.outbound_refs.is_empty());
 
-        let people_schema = db.get("people").unwrap().schema().unwrap();
+        let people_schema = db.get("people").unwrap().schema().unwrap().unwrap();
         let people = SchemaWithRefs::new("people", &people_schema, &db);
         assert!(people.outbound_refs.contains_key("id"));
         assert!(people.inbound_refs.is_empty());
