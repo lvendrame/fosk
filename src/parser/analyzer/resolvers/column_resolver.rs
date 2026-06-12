@@ -28,18 +28,18 @@ impl ColumnResolver {
                 // search each visible collection’s schema for this column
                 let mut matches: Vec<(String, ResolvedField)> = Vec::new();
                 for (visible_coll, backing) in &ctx.collections {
-                    if let Some(schema) = ctx.schema_of_collection_ref(backing) {
-                        if let Some(field_info) = schema.get(name) {
-                            matches.push((
-                                visible_coll.clone(),
-                                ResolvedField {
-                                    collection: visible_coll.clone(),
-                                    name: name.clone(),
-                                    ty: field_info.ty,
-                                    nullable: field_info.nullable
-                                }
-                            ));
-                        }
+                    if let Some(schema) = ctx.schema_of_collection_ref(backing)
+                        && let Some(field_info) = schema.get(name)
+                    {
+                        matches.push((
+                            visible_coll.clone(),
+                            ResolvedField {
+                                collection: visible_coll.clone(),
+                                name: name.clone(),
+                                ty: field_info.ty,
+                                nullable: field_info.nullable
+                            }
+                        ));
                     }
                 }
                 match matches.len() {

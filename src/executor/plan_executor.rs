@@ -62,10 +62,10 @@ impl PlanExecutor {
                 let rows = Self::run_plan(input, db)?;
                 let mut out = Vec::new();
                 for v in rows {
-                    if let Value::Object(m) = &v {
-                        if matches!(Eval::eval_predicate3(predicate, m), Truth::True) {
-                            out.push(v);
-                        }
+                    if let Value::Object(m) = &v
+                        && matches!(Eval::eval_predicate3(predicate, m), Truth::True)
+                    {
+                        out.push(v);
                     }
                 }
                 Ok(out)

@@ -300,13 +300,13 @@ impl PlanBuilder {
                     }
                 }
 
-                if let ScalarExpr::Column(Column::Name { name }) = &ob.expr {
-                    if let Some(expr) = output_expr_by_name.get(&name.to_ascii_lowercase()) {
-                        return OrderBy {
-                            expr: expr.clone(),
-                            ascending: ob.ascending,
-                        };
-                    }
+                if let ScalarExpr::Column(Column::Name { name }) = &ob.expr
+                    && let Some(expr) = output_expr_by_name.get(&name.to_ascii_lowercase())
+                {
+                    return OrderBy {
+                        expr: expr.clone(),
+                        ascending: ob.ascending,
+                    };
                 }
 
                 OrderBy {
@@ -589,10 +589,10 @@ mod tests {
         // Optional: quickly spot-check that the second collection participates in a Join
         // (full structural check would mirror the previous test but one level deeper)
         let mut saw_join = false;
-        if let LogicalPlan::Project { input, .. } = plan {
-            if let LogicalPlan::Join { .. } = *input {
-                saw_join = true;
-            }
+        if let LogicalPlan::Project { input, .. } = plan
+            && let LogicalPlan::Join { .. } = *input
+        {
+            saw_join = true;
         }
         assert!(saw_join, "expected a Join chain for FROM a, b, c");
     }

@@ -71,10 +71,10 @@ impl WordComparer {
 
         let next = parser.text_v[parser.position + position];
 
-        if let Some(delimiter) = self.delimiter {
-            if next == delimiter {
-                return true;
-            }
+        if let Some(delimiter) = self.delimiter
+            && next == delimiter
+        {
+            return true;
         }
 
         if self.full_block_delimiter_postfix && Self::is_any_delimiter(next) {

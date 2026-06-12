@@ -241,10 +241,10 @@ impl<'a> AnalysisContext<'a> {
         }
 
         // WHERE must not contain aggregates (check on qualified, pre-fold form)
-        if let Some(pq) = &criteria_qualified {
-            if AggregateResolver::predicate_contains_aggregate(pq) {
-                return Err(AnalyzerError::Other("Aggregates are not allowed in WHERE".into()));
-            }
+        if let Some(pq) = &criteria_qualified
+            && AggregateResolver::predicate_contains_aggregate(pq)
+        {
+            return Err(AnalyzerError::Other("Aggregates are not allowed in WHERE".into()));
         }
 
         // Validate SELECT and HAVING in aggregate queries
@@ -256,10 +256,10 @@ impl<'a> AnalysisContext<'a> {
                 }
             }
             // HAVING (if present)
-            if let Some(hv_q) = &having_qualified {
-                if !AggregateResolver::predicate_uses_only_group_by_or_agg(hv_q, &group_set) {
-                    return Err(AnalyzerError::Other("HAVING references columns not in GROUP BY and outside aggregates".into()));
-                }
+            if let Some(hv_q) = &having_qualified
+                && !AggregateResolver::predicate_uses_only_group_by_or_agg(hv_q, &group_set)
+            {
+                return Err(AnalyzerError::Other("HAVING references columns not in GROUP BY and outside aggregates".into()));
             }
         }
 

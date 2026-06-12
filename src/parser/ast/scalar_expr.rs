@@ -163,10 +163,7 @@ mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::Literal(literal) => match literal {
-                    Literal::Null => {}, //should happen
-                    _ => panic!(),
-                },
+                ScalarExpr::Literal(Literal::Null) => {}, //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -183,10 +180,7 @@ mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::Literal(literal) => match literal {
-                    Literal::Bool(value) => assert!(value),
-                    _ => panic!(),
-                },
+                ScalarExpr::Literal(Literal::Bool(value)) => assert!(value),
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -203,10 +197,7 @@ mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::Literal(literal) => match literal {
-                    Literal::Int(value) => assert_eq!(value, 32),
-                    _ => panic!(),
-                },
+                ScalarExpr::Literal(Literal::Int(value)) => assert_eq!(value, 32),
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -223,10 +214,7 @@ mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::Literal(literal) => match literal {
-                    Literal::String(result) => assert_eq!(result, "identifier"),
-                    _ => panic!(),
-                }
+                ScalarExpr::Literal(Literal::String(result)) => assert_eq!(result, "identifier"),
                 _ => panic!(),
             },
             Err(_) => panic!(),

@@ -93,7 +93,7 @@ mod tests {
         let mut max = MaxImpl.create_accumulator();
 
         for value in [json!(null), json!(3), json!(1), json!(2)] {
-            min.update(&[value.clone()]).unwrap();
+            min.update(std::slice::from_ref(&value)).unwrap();
             max.update(&[value]).unwrap();
         }
 

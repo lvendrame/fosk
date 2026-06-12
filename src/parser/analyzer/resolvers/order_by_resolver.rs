@@ -44,14 +44,14 @@ impl OrderByResolver {
             }
 
             // (2) Alias name → use underlying qualified expression
-            if let ScalarExpr::Column(Column::Name { name }) = &ob.expr {
-                if let Some(src_expr) = alias_map.get(&name.to_ascii_lowercase()) {
-                    out.push(OrderBy {
-                        expr: (*src_expr).clone(),
-                        ascending: ob.ascending,
-                    });
-                    continue;
-                }
+            if let ScalarExpr::Column(Column::Name { name }) = &ob.expr
+                && let Some(src_expr) = alias_map.get(&name.to_ascii_lowercase())
+            {
+                out.push(OrderBy {
+                    expr: (*src_expr).clone(),
+                    ascending: ob.ascending,
+                });
+                continue;
             }
 
             // (3) Normal path: qualify & fold, then validate against GROUP BY

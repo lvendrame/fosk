@@ -17,6 +17,7 @@ It allows you to define in-memory collections, seed them with JSON objects, and 
 - SQL parser with support for:
   - SELECT, WHERE, GROUP BY, HAVING
   - JOIN (inner, left, right, full)
+  - Non-correlated FROM/JOIN subqueries with required aliases
   - ORDER BY, LIMIT, OFFSET
   - Parameterized queries (? placeholders, including arrays)
 - Test-friendly: create databases on the fly and seed them
@@ -303,7 +304,7 @@ let selected = db
 assert_eq!(selected.len(), 2);
 ```
 
-Supported SQL includes `SELECT`, `WHERE`, `GROUP BY`, `HAVING`, joins, `ORDER BY`, `LIMIT`, `OFFSET`, aggregate functions, aliases, and positional parameters.
+Supported SQL includes `SELECT`, `WHERE`, `GROUP BY`, `HAVING`, joins, non-correlated `FROM`/`JOIN` subqueries with aliases, `ORDER BY`, `LIMIT`, `OFFSET`, aggregate functions, aliases, and positional parameters.
 
 Runnable examples:
 

@@ -182,37 +182,35 @@ impl InternalMemoryCollection {
             Some(refs) => {
                 for entry in refs.values() {
                     // n-1
-                    if entry.ref_collection.eq_ignore_ascii_case(&collection_name) {
-                        if let Some(collection) = db.get(&entry.ref_collection) {
-                            if let Some(cell) = object.get(&entry.column) {
-                                let cvs =
-                                    vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
-                                let expanded = collection.get_filtered_by_columns_values(
-                                    cvs,
-                                    next_expansion_type.clone(),
-                                    db,
-                                );
-                                let key = collection.get_name();
-                                object.insert(key, Value::Array(expanded));
-                            }
-                        }
+                    if entry.ref_collection.eq_ignore_ascii_case(&collection_name)
+                        && let Some(collection) = db.get(&entry.ref_collection)
+                        && let Some(cell) = object.get(&entry.column)
+                    {
+                        let cvs =
+                            vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
+                        let expanded = collection.get_filtered_by_columns_values(
+                            cvs,
+                            next_expansion_type.clone(),
+                            db,
+                        );
+                        let key = collection.get_name();
+                        object.insert(key, Value::Array(expanded));
                     }
 
                     // 1-n
-                    if entry.collection.eq_ignore_ascii_case(&collection_name) {
-                        if let Some(collection) = db.get(&entry.collection) {
-                            if let Some(cell) = object.get(&entry.ref_column) {
-                                let cvs =
-                                    vec![ColumnValue::new(entry.column.clone(), cell.clone())];
-                                let expanded = collection.get_filtered_by_columns_values(
-                                    cvs,
-                                    next_expansion_type.clone(),
-                                    db,
-                                );
-                                let key = collection.get_name();
-                                object.insert(key, Value::Array(expanded));
-                            }
-                        }
+                    if entry.collection.eq_ignore_ascii_case(&collection_name)
+                        && let Some(collection) = db.get(&entry.collection)
+                        && let Some(cell) = object.get(&entry.ref_column)
+                    {
+                        let cvs =
+                            vec![ColumnValue::new(entry.column.clone(), cell.clone())];
+                        let expanded = collection.get_filtered_by_columns_values(
+                            cvs,
+                            next_expansion_type.clone(),
+                            db,
+                        );
+                        let key = collection.get_name();
+                        object.insert(key, Value::Array(expanded));
                     }
                 }
                 Value::Object(object)
