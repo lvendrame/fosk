@@ -54,6 +54,10 @@ impl PlanExecutor {
                 }
                 Ok(out)
             }
+            LogicalPlan::Subquery { input, visible } => {
+                let rows = Self::run_plan(input, db)?;
+                Self::prefix_rows(rows, visible)
+            }
             LogicalPlan::Filter { input, predicate } => {
                 let rows = Self::run_plan(input, db)?;
                 let mut out = Vec::new();
@@ -272,6 +276,21 @@ impl PlanExecutor {
         }
     }
 
+    fn prefix_rows(rows: Vec<Value>, visible: &str) -> Result<Vec<Value>, AnalyzerError> {
+        rows.into_iter()
+            .map(|row| match row {
+                Value::Object(map) => Ok(Value::Object(
+                    map.into_iter()
+                        .map(|(key, value)| (format!("{}.{}", visible, key), value))
+                        .collect(),
+                )),
+                _ => Err(AnalyzerError::Other(
+                    "Executor: expected object row while prefixing subquery output".into(),
+                )),
+            })
+            .collect()
+    }
+
     // Build key sets for null-extension; prefer schema if the side is a Scan.
     fn keyset_for_side(side_plan: &LogicalPlan, rows: &Vec<Value>, db: &Db) -> BTreeSet<String> {
         let derived = Self::keyset_for_plan(side_plan, db);
@@ -300,6 +319,13 @@ impl PlanExecutor {
                         keys.insert(format!("{}.{}", visible, col));
                     }
                 }
+            }
+            LogicalPlan::Subquery { input, visible } => {
+                keys.extend(
+                    Self::keyset_for_plan(input, db)
+                        .into_iter()
+                        .map(|key| format!("{}.{}", visible, key)),
+                );
             }
             LogicalPlan::Filter { input, .. }
             | LogicalPlan::Sort { input, .. }
@@ -491,6 +517,7 @@ mod tests {
     use crate::database::{Db, DbConfig, IdType};
     use crate::parser::analyzer::AnalyzedIdentifier;
     use crate::parser::analyzer::AnalyzedQuery;
+    use crate::parser::analyzer::AnalyzedSource;
     use crate::parser::ast::{
         Column, ComparatorOp, Function, JoinType, Literal, OrderBy, Predicate, ScalarExpr,
     };
@@ -542,7 +569,10 @@ mod tests {
                     output_name: "total".into(),
                 },
             ],
-            collections: vec![("t".into(), "t".into())],
+            collections: vec![AnalyzedSource::Table {
+                visible: "t".into(),
+                backing: "t".into(),
+            }],
             criteria: Some(Predicate::Compare {
                 left: ScalarExpr::Column(Column::WithCollection {
                     collection: "t".into(),
@@ -631,6 +661,57 @@ mod tests {
             assert!(obj.contains_key("t.id"));
             assert!(obj.contains_key("t.name"));
         }
+    }
+
+    #[test]
+    fn subquery_prefixes_output_rows_with_visible_alias() {
+        let db = mk_db_for_scan();
+        let plan = LogicalPlan::Subquery {
+            input: Box::new(LogicalPlan::Project {
+                input: Box::new(LogicalPlan::Scan {
+                    backing: "t".into(),
+                    visible: "t".into(),
+                }),
+                exprs: vec![AnalyzedIdentifier {
+                    expression: ScalarExpr::Column(Column::WithCollection {
+                        collection: "t".into(),
+                        name: "name".into(),
+                    }),
+                    alias: Some("person_name".into()),
+                    ty: JsonPrimitive::String,
+                    nullable: false,
+                    output_name: "person_name".into(),
+                }],
+            }),
+            visible: "sq".into(),
+        };
+
+        let rows = PlanExecutor::run_plan(&plan, &db).unwrap();
+
+        assert_eq!(rows.len(), 2);
+        let mut names: Vec<_> = rows
+            .iter()
+            .map(|row| {
+                let obj = row.as_object().unwrap();
+                assert!(!obj.contains_key("person_name"));
+                obj.get("sq.person_name").unwrap().as_str().unwrap().to_string()
+            })
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Ana", "Bob"]);
+    }
+
+    #[test]
+    fn subquery_reports_malformed_internal_row() {
+        let rows = vec![Value::String("not an object".into())];
+
+        let err = PlanExecutor::prefix_rows(rows, "sq").unwrap_err();
+
+        assert!(matches!(
+            err,
+            AnalyzerError::Other(message)
+                if message.contains("expected object row while prefixing subquery output")
+        ));
     }
 
     // ---------- Filter (3VL) ------------------------------------------------
@@ -1386,6 +1467,43 @@ mod tests {
                 "sum_1".to_string(),
                 "sum_2".to_string()
             ])
+        );
+    }
+
+    #[test]
+    fn keyset_for_plan_prefixes_subquery_output_names() {
+        let db = mk_db();
+        let subquery = LogicalPlan::Subquery {
+            input: Box::new(LogicalPlan::Project {
+                input: Box::new(LogicalPlan::Scan {
+                    backing: "t".into(),
+                    visible: "t".into(),
+                }),
+                exprs: vec![
+                    AnalyzedIdentifier {
+                        expression: ScalarExpr::Column(Column::Name { name: "id".into() }),
+                        alias: None,
+                        ty: JsonPrimitive::Int,
+                        nullable: false,
+                        output_name: "id".into(),
+                    },
+                    AnalyzedIdentifier {
+                        expression: ScalarExpr::Column(Column::Name { name: "name".into() }),
+                        alias: Some("person_name".into()),
+                        ty: JsonPrimitive::String,
+                        nullable: false,
+                        output_name: "person_name".into(),
+                    },
+                ],
+            }),
+            visible: "sq".into(),
+        };
+
+        let keys = PlanExecutor::keyset_for_plan(&subquery, &db);
+
+        assert_eq!(
+            keys,
+            BTreeSet::from_iter(["sq.id".to_string(), "sq.person_name".to_string()])
         );
     }
 

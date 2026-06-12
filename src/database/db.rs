@@ -10,9 +10,9 @@ use serde_json::{Map, Value};
 
 use crate::{
     database::{
-        DbCollection, DbConfig, DbReferences, ReferenceColumn, ReferenceFieldMap, SchemaProvider,
-        SchemaWithRefs, apply_schema_to_collection, collection_name_from_file_stem,
-        config_for_missing_collection, parse_schema_for_load, read_schema_json_file,
+        apply_schema_to_collection, collection_name_from_file_stem, config_for_missing_collection,
+        parse_schema_for_load, read_schema_json_file, DbCollection, DbConfig, DbReferences,
+        ReferenceColumn, ReferenceFieldMap, SchemaProvider, SchemaWithRefs,
     },
     executor::plan_executor::{Executor, PlanExecutor},
     parser::{
@@ -952,6 +952,12 @@ mod tests {
             { "id": 4, "name": "Grace", "age": 30 },
             { "id": 2, "name": "Bob", "age": 25 }
         ]));
+        let orders = db.create("orders");
+        orders.add_batch(json!([
+            { "id": 10, "person_id": 1, "total": 100.0 },
+            { "id": 11, "person_id": 1, "total": 50.0 },
+            { "id": 12, "person_id": 3, "total": 75.0 }
+        ]));
         db
     }
 
@@ -1319,6 +1325,97 @@ mod tests {
             msg.contains("unknowncolumn") || msg.contains("missing_column"),
             "unexpected error: {err:?}"
         );
+    }
+
+    #[test]
+    fn db_runner_selects_from_subquery_with_order_by() {
+        let db = mk_people_order_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT p.name
+                FROM (SELECT name FROM people) p
+                ORDER BY p.name
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            string_values(&rows, "name"),
+            vec!["Ada", "Bob", "Carla", "Grace"]
+        );
+    }
+
+    #[test]
+    fn db_runner_select_star_from_subquery() {
+        let db = mk_people_order_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT *
+                FROM (SELECT name, age FROM people WHERE id = 1) p
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["name"], json!("Ada"));
+        assert_eq!(rows[0]["age"], json!(37));
+    }
+
+    #[test]
+    fn db_runner_joins_against_subquery() {
+        let db = mk_people_order_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT p.name AS person, o.id AS order_id
+                FROM people p
+                JOIN (SELECT id, person_id FROM orders) o ON o.person_id = p.id
+                ORDER BY o.id
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0]["person"], json!("Ada"));
+        assert_eq!(rows[0]["order_id"], json!(10));
+        assert_eq!(rows[1]["person"], json!("Ada"));
+        assert_eq!(rows[1]["order_id"], json!(11));
+        assert_eq!(rows[2]["person"], json!("Carla"));
+        assert_eq!(rows[2]["order_id"], json!(12));
+    }
+
+    #[test]
+    fn db_runner_subquery_projection_alias_is_visible_outside() {
+        let db = mk_people_order_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT p.person
+                FROM (SELECT name AS person FROM people WHERE id = 1) p
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["person"], json!("Ada"));
+    }
+
+    #[test]
+    fn db_runner_nested_subquery_one_level_deep() {
+        let db = mk_people_order_db();
+        let rows = db
+            .query(
+                r#"
+                SELECT p.name
+                FROM (SELECT name FROM (SELECT name, id FROM people) inner_p WHERE inner_p.id = 1) p
+            "#,
+            )
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["name"], json!("Ada"));
     }
 
     #[test]
@@ -1699,7 +1796,10 @@ mod tests {
     fn load_from_json_and_schema_json_reject_non_object_roots() {
         let db = Db::new();
 
-        assert!(db.load_from_json(json!([]), false).unwrap_err().contains("root"));
+        assert!(db
+            .load_from_json(json!([]), false)
+            .unwrap_err()
+            .contains("root"));
         assert!(db
             .load_schemas_from_json(json!([]))
             .unwrap_err()

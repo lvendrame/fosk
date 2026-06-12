@@ -10,6 +10,11 @@ pub enum LogicalPlan {
         visible: String,   // visible name (alias or table)
     },
 
+    Subquery {
+        input: Box<LogicalPlan>,
+        visible: String,
+    },
+
     Join {
         left: Box<LogicalPlan>,
         right: Box<LogicalPlan>,

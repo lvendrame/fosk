@@ -9,7 +9,7 @@ impl WildcardResolver {
                 // expand all visible collections in insertion order
                 let mut result = Vec::new();
                 for (visible_collection, backing) in &ctx.collections {
-                    if let Some(schema) = ctx.schemas.schema_of(backing) {
+                    if let Some(schema) = ctx.schema_of_collection_ref(backing) {
                         for (col, _fi) in schema.fields {
                             result.push(ScalarExpr::Column(
                                 Column::WithCollection { collection: visible_collection.clone(), name: col }
@@ -24,7 +24,7 @@ impl WildcardResolver {
             ScalarExpr::WildCardWithCollection(collection) => {
                 let backing = ctx.collections.get(collection)
                     .ok_or_else(|| AnalyzerError::UnknownCollection(collection.clone()))?;
-                let schema = ctx.schemas.schema_of(backing)
+                let schema = ctx.schema_of_collection_ref(backing)
                     .ok_or_else(|| AnalyzerError::UnknownCollection(backing.clone()))?;
                 let mut result = Vec::new();
                 for (col, _fi) in schema.fields {

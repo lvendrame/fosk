@@ -130,6 +130,30 @@ LIMIT 20
     }
 
     #[test]
+    fn try_from_parses_from_subquery_with_alias() {
+        let query = Query::try_from("SELECT p.name FROM (SELECT name FROM people) p")
+            .expect("subquery should parse");
+
+        assert_eq!(query.projection.len(), 1);
+        assert_eq!(query.collections.len(), 1);
+        match &query.collections[0] {
+            crate::parser::ast::Collection::Query { query, alias } => {
+                assert_eq!(alias.as_deref(), Some("p"));
+                assert_eq!(query.projection.len(), 1);
+                assert_eq!(query.collections.len(), 1);
+            }
+            other => panic!("expected query collection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_from_rejects_from_subquery_without_alias() {
+        let err = Query::try_from("SELECT name FROM (SELECT name FROM people)");
+
+        assert!(err.is_err(), "FROM subqueries require aliases");
+    }
+
+    #[test]
     fn display_and_debug_include_all_query_sections() {
         let query = Query::try_from("SELECT * FROM people LIMIT 5").expect("query should parse");
         let display = query.to_string();

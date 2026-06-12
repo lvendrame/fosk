@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     parser::{
-        analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError},
+        analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzedSource, AnalyzerError},
         ast::{Column, JoinType, OrderBy, Predicate, ScalarExpr, Truth},
     },
     planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan},
@@ -18,17 +18,12 @@ impl PlanBuilder {
                 "Planner: no collections to scan".into(),
             ));
         }
-        // base scan = the first visible/backing pair
-        let (visible0, backing0) = aq.collections[0].clone();
-        let mut from: LogicalPlan = LogicalPlan::Scan {
-            backing: backing0,
-            visible: visible0,
-        };
+        let mut from = Self::plan_source(&aq.collections[0])?;
 
         // --- support implicit CROSS JOINs for multiple FROM items (A, B, C, ...) ---
         if aq.collections.len() > 1 {
-            for (visible, backing) in aq.collections.iter().skip(1).cloned() {
-                let right = LogicalPlan::Scan { backing, visible };
+            for source in aq.collections.iter().skip(1) {
+                let right = Self::plan_source(source)?;
                 from = LogicalPlan::Join {
                     left: Box::new(from),
                     right: Box::new(right),
@@ -40,19 +35,7 @@ impl PlanBuilder {
 
         // Apply explicit JOINs in order they appear ----
         for j in &aq.joins {
-            let (visible, backing) = match &j.collection {
-                crate::parser::ast::Collection::Table { name, alias } => {
-                    let vis = alias.clone().unwrap_or_else(|| name.clone());
-                    (vis, name.clone())
-                }
-                crate::parser::ast::Collection::Query => {
-                    return Err(AnalyzerError::Other(
-                        "Planner: subquery in JOIN not supported".into(),
-                    ));
-                }
-            };
-
-            let right = LogicalPlan::Scan { backing, visible };
+            let right = Self::plan_source(&j.source)?;
             from = LogicalPlan::Join {
                 left: Box::new(from),
                 right: Box::new(right),
@@ -220,6 +203,22 @@ impl PlanBuilder {
         Ok(plan)
     }
 
+    fn plan_source(source: &AnalyzedSource) -> Result<LogicalPlan, AnalyzerError> {
+        match source {
+            AnalyzedSource::Table { visible, backing } => Ok(LogicalPlan::Scan {
+                backing: backing.clone(),
+                visible: visible.clone(),
+            }),
+            AnalyzedSource::Subquery { visible, query } => {
+                let input = Self::from_analyzed(query)?;
+                Ok(LogicalPlan::Subquery {
+                    input: Box::new(input),
+                    visible: visible.clone(),
+                })
+            }
+        }
+    }
+
     fn collect_aggregates_in_scalar(
         e: &ScalarExpr,
         table: &mut HashMap<AggregateCall, usize>,
@@ -324,7 +323,7 @@ impl PlanBuilder {
 mod tests {
     use super::*;
     use crate::JsonPrimitive;
-    use crate::parser::analyzer::{AnalyzedIdentifier, AnalyzedQuery};
+    use crate::parser::analyzer::{AnalyzedIdentifier, AnalyzedQuery, AnalyzedSource};
     use crate::parser::ast::{
         Column, ComparatorOp, Function, Literal, OrderBy, Predicate, ScalarExpr, Truth,
     };
@@ -361,12 +360,18 @@ mod tests {
             output_name: name.into(),
         }
     }
+    fn table_source(name: &str) -> AnalyzedSource {
+        AnalyzedSource::Table {
+            visible: name.into(),
+            backing: name.into(),
+        }
+    }
 
     #[test]
     fn plan_for_simple_select_where_order_limit() {
         let aq = AnalyzedQuery {
             projection: vec![id_col_t("id")],
-            collections: vec![("t".into(), "t".into())],
+            collections: vec![table_source("t")],
             joins: vec![],
             criteria: Some(Predicate::Compare {
                 left: ScalarExpr::Column(col_t("id")),
@@ -437,7 +442,7 @@ mod tests {
                 },
                 id_fun("sum", vec![ScalarExpr::Column(col_t("amount"))]),
             ],
-            collections: vec![("t".into(), "t".into())],
+            collections: vec![table_source("t")],
             joins: vec![],
             criteria: None,
             group_by: vec![col_t("category")],
@@ -500,7 +505,7 @@ mod tests {
                 nullable: false,
                 output_name: "id".into(),
             }],
-            collections: vec![("a".into(), "a".into()), ("b".into(), "b".into())],
+            collections: vec![table_source("a"), table_source("b")],
             joins: vec![],
             criteria: None,
             group_by: vec![],
@@ -568,11 +573,7 @@ mod tests {
                 nullable: false,
                 output_name: "id".into(),
             }],
-            collections: vec![
-                ("a".into(), "a".into()),
-                ("b".into(), "b".into()),
-                ("c".into(), "c".into()),
-            ],
+            collections: vec![table_source("a"), table_source("b"), table_source("c")],
             joins: vec![],
             criteria: None,
             group_by: vec![],
@@ -797,10 +798,9 @@ mod join_shape_tests {
     use serde_json::json;
 
     use super::*;
-    use crate::parser::analyzer::AnalyzedIdentifier;
+    use crate::parser::analyzer::{AnalyzedIdentifier, AnalyzedJoin, AnalyzedSource};
     use crate::parser::ast::{
-        Collection as AstCollection, Column, ComparatorOp, JoinType, Literal, OrderBy, Predicate,
-        ScalarExpr,
+        Column, ComparatorOp, JoinType, Literal, OrderBy, Predicate, ScalarExpr,
     };
     use crate::{Db, DbConfig, IdType, JsonPrimitive};
 
@@ -829,6 +829,32 @@ mod join_shape_tests {
         }
     }
 
+    fn table_source(name: &str) -> AnalyzedSource {
+        AnalyzedSource::Table {
+            visible: name.into(),
+            backing: name.into(),
+        }
+    }
+
+    fn table_source_with_alias(backing: &str, visible: &str) -> AnalyzedSource {
+        AnalyzedSource::Table {
+            visible: visible.into(),
+            backing: backing.into(),
+        }
+    }
+
+    fn analyzed_join(
+        join_type: JoinType,
+        source: AnalyzedSource,
+        predicate: Predicate,
+    ) -> AnalyzedJoin {
+        AnalyzedJoin {
+            join_type,
+            source,
+            predicate,
+        }
+    }
+
     #[test]
     fn plan_for_inner_join_then_where() {
         let aq = AnalyzedQuery {
@@ -836,7 +862,7 @@ mod join_shape_tests {
                 id_col("a", "id", JsonPrimitive::Int),
                 id_col("b", "name", JsonPrimitive::String),
             ],
-            collections: vec![("a".into(), "a".into())],
+            collections: vec![table_source("a")],
             criteria: Some(Predicate::Compare {
                 left: ScalarExpr::Column(col("b", "age")),
                 op: ComparatorOp::Gt,
@@ -847,14 +873,11 @@ mod join_shape_tests {
             order_by: vec![],
             limit: None,
             offset: None,
-            joins: vec![crate::parser::ast::Join {
-                join_type: JoinType::Inner,
-                collection: AstCollection::Table {
-                    name: "b".into(),
-                    alias: None,
-                },
-                predicate: simple_on_eq("a", "id", "b", "a_id"),
-            }],
+            joins: vec![analyzed_join(
+                JoinType::Inner,
+                table_source("b"),
+                simple_on_eq("a", "id", "b", "a_id"),
+            )],
         };
 
         let plan = PlanBuilder::from_analyzed(&aq).expect("plan");
@@ -903,7 +926,7 @@ mod join_shape_tests {
     fn plan_for_left_join_chain_and_order_limit() {
         let aq = AnalyzedQuery {
             projection: vec![id_col("a", "id", JsonPrimitive::Int)],
-            collections: vec![("a".into(), "a".into())],
+            collections: vec![table_source("a")],
             criteria: None,
             group_by: vec![],
             having: None,
@@ -914,22 +937,16 @@ mod join_shape_tests {
             limit: Some(10),
             offset: None,
             joins: vec![
-                crate::parser::ast::Join {
-                    join_type: JoinType::Left,
-                    collection: AstCollection::Table {
-                        name: "b".into(),
-                        alias: None,
-                    },
-                    predicate: simple_on_eq("a", "id", "b", "a_id"),
-                },
-                crate::parser::ast::Join {
-                    join_type: JoinType::Right,
-                    collection: AstCollection::Table {
-                        name: "c".into(),
-                        alias: Some("c1".into()),
-                    },
-                    predicate: simple_on_eq("b", "id", "c1", "b_id"),
-                },
+                analyzed_join(
+                    JoinType::Left,
+                    table_source("b"),
+                    simple_on_eq("a", "id", "b", "a_id"),
+                ),
+                analyzed_join(
+                    JoinType::Right,
+                    table_source_with_alias("c", "c1"),
+                    simple_on_eq("b", "id", "c1", "b_id"),
+                ),
             ],
         };
 

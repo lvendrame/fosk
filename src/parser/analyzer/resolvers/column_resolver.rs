@@ -8,7 +8,7 @@ impl ColumnResolver {
             Column::WithCollection { collection, name } => {
                 let coll_ref = ctx.collections.get(collection)
                     .ok_or_else(|| AnalyzerError::UnknownCollection(collection.clone()))?;
-                let schema = ctx.schemas.schema_of(coll_ref)
+                let schema = ctx.schema_of_collection_ref(coll_ref)
                     .ok_or_else(|| AnalyzerError::UnknownCollection(coll_ref.clone()))?;
                 let field_info = schema.get(name).ok_or_else(|| {
                     AnalyzerError::UnknownColumn {
@@ -28,7 +28,7 @@ impl ColumnResolver {
                 // search each visible collection’s schema for this column
                 let mut matches: Vec<(String, ResolvedField)> = Vec::new();
                 for (visible_coll, backing) in &ctx.collections {
-                    if let Some(schema) = ctx.schemas.schema_of(backing) {
+                    if let Some(schema) = ctx.schema_of_collection_ref(backing) {
                         if let Some(field_info) = schema.get(name) {
                             matches.push((
                                 visible_coll.clone(),

@@ -95,7 +95,7 @@ mod tests {
                             assert_eq!(name, "tableA");
                             assert!(alias.is_none());
                         },
-                        Collection::Query => todo!(),
+                        Collection::Query { .. } => todo!(),
                     }
                 },
                 _ => panic!(),
@@ -123,7 +123,7 @@ mod tests {
                             assert_eq!(name, "tableA");
                             assert!(alias.is_none());
                         },
-                        Collection::Query => todo!(),
+                        Collection::Query { .. } => todo!(),
                     }
                 },
                 _ => panic!(),
@@ -151,7 +151,7 @@ mod tests {
                             assert_eq!(name, "tableA");
                             assert_eq!(alias.clone().unwrap(), "a");
                         },
-                        Collection::Query => todo!(),
+                        Collection::Query { .. } => todo!(),
                     }
                 },
                 _ => panic!(),
@@ -184,7 +184,7 @@ mod tests {
                             assert_eq!(item.join_type, expect_types[i]);
                             assert!(alias.is_none());
                         },
-                        Collection::Query => todo!(),
+                        Collection::Query { .. } => todo!(),
                     }
                 },
                 _ => panic!(),
@@ -218,10 +218,8 @@ mod tests {
                     assert_eq!(item.join_type, expect_types[i]);
                     assert!(alias.is_none());
                 },
-                Collection::Query => todo!(),
+                Collection::Query { .. } => todo!(),
             }
         }
     }
 }
-
-

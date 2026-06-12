@@ -3,9 +3,9 @@ use once_cell::sync::Lazy;
 use serde_json::Value;
 
 use crate::{
-    database::SchemaProvider,
+    database::{FieldInfo, SchemaDict, SchemaProvider},
     parser::{
-        aggregators_helper::AggregateRegistry, analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, JoinResolver, OrderByResolver, PredicateResolver, ScalarResolver, TypeInference}, ast::{Collection, Column, Query, ScalarExpr}
+        aggregators_helper::AggregateRegistry, analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedJoin, AnalyzedQuery, AnalyzedSource, AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, OrderByResolver, PredicateResolver, ScalarResolver, TypeInference}, ast::{Collection, Column, Query, ScalarExpr}
     }
 };
 
@@ -15,6 +15,7 @@ static DEFAULT_REGISTRY: Lazy<AggregateRegistry> = Lazy::new(AggregateRegistry::
 pub struct AnalysisContext<'a> {
     /// map visible name -> underlying collection ref (alias or table)
     pub collections: IndexMap<String, String>,
+    pub subquery_schemas: IndexMap<String, SchemaDict>,
     /// access to schemas
     pub schemas: &'a dyn SchemaProvider,
     /// access to aggregate implementations
@@ -32,6 +33,7 @@ impl<'a> AnalysisContext<'a> {
     ) -> Self {
         Self {
             collections: IndexMap::new(),
+            subquery_schemas: IndexMap::new(),
             schemas,
             aggregates,
             parameters: Value::Null,
@@ -53,6 +55,19 @@ impl<'a> AnalysisContext<'a> {
         self.collections.insert(visible.into(), backing.into());
     }
 
+    pub fn add_subquery(&mut self, visible: impl Into<String>, schema: SchemaDict) {
+        let visible = visible.into();
+        self.subquery_schemas.insert(visible.clone(), schema);
+        self.collections.insert(visible.clone(), visible);
+    }
+
+    pub fn schema_of_collection_ref(&self, collection_ref: &str) -> Option<SchemaDict> {
+        self.subquery_schemas
+            .get(collection_ref)
+            .cloned()
+            .or_else(|| self.schemas.schema_of(collection_ref))
+    }
+
     pub fn build_context_from_query(
         q: &Query,
         sp: &'a dyn SchemaProvider,
@@ -67,9 +82,11 @@ impl<'a> AnalysisContext<'a> {
                     let visible = alias.clone().unwrap_or_else(|| name.clone());
                     ctx.add_collection(visible, name.clone());
                 }
-                Collection::Query => {
-                    // you can extend to support subqueries later
-                    return Err(AnalyzerError::Other("Collection::Query not yet supported in analyzer".into()));
+                Collection::Query { alias, .. } => {
+                    let visible = alias.clone().ok_or_else(|| {
+                        AnalyzerError::Other("subquery in FROM requires an alias".into())
+                    })?;
+                    ctx.add_collection(visible.clone(), visible);
                 }
             }
         }
@@ -80,8 +97,11 @@ impl<'a> AnalysisContext<'a> {
                     let visible = alias.clone().unwrap_or_else(|| name.clone());
                     ctx.add_collection(visible, name.clone());
                 }
-                Collection::Query => {
-                    return Err(AnalyzerError::Other("Join of subquery not yet supported in analyzer".into()));
+                Collection::Query { alias, .. } => {
+                    let visible = alias.clone().ok_or_else(|| {
+                        AnalyzerError::Other("subquery in JOIN requires an alias".into())
+                    })?;
+                    ctx.add_collection(visible.clone(), visible);
                 }
             }
         }
@@ -138,19 +158,32 @@ impl<'a> AnalysisContext<'a> {
         aggregates: &'a AggregateRegistry,
         parameters: Value,
     ) -> Result<AnalyzedQuery, AnalyzerError> {
-        let mut ctx = Self::build_context_from_query(query, schema_provider, aggregates, parameters)?;
+        let mut ctx = Self::new_with_aggregates(schema_provider, aggregates);
+        ctx.parameters = parameters.clone();
 
-        let mut from_collections: Vec<(String, String)> = Vec::with_capacity(query.collections.len());
+        let mut from_collections: Vec<AnalyzedSource> = Vec::with_capacity(query.collections.len());
         for c in &query.collections {
-            if let Collection::Table { name, alias } = c {
-                let visible = alias.clone().unwrap_or_else(|| name.clone());
-                // look up backing in the context (should exist because we added it earlier)
-                if let Some(backing) = ctx.collections.get(&visible) {
-                    from_collections.push((visible, backing.clone()));
-                } else {
-                    return Err(AnalyzerError::UnknownCollection(visible));
-                }
-            }
+            let source =
+                Self::analyze_source(c, schema_provider, aggregates, parameters.clone(), &mut ctx)?;
+            from_collections.push(source);
+        }
+
+        let mut analyzed_joins = Vec::with_capacity(query.joins.len());
+        for join in &query.joins {
+            let source = Self::analyze_source(
+                &join.collection,
+                schema_provider,
+                aggregates,
+                parameters.clone(),
+                &mut ctx,
+            )?;
+            let qp = PredicateResolver::qualify_predicate(&join.predicate, &mut ctx)?;
+            let fp = PredicateResolver::fold_predicate(&qp);
+            analyzed_joins.push(AnalyzedJoin {
+                join_type: join.join_type.clone(),
+                source,
+                predicate: fp,
+            });
         }
 
         // expand wildcards in projection
@@ -174,8 +207,6 @@ impl<'a> AnalysisContext<'a> {
             });
         }
         AnalysisContext::assign_output_names(&mut analyzed_proj);
-
-        let analyzed_joins = JoinResolver::qualify_and_fold_joins(query, &mut ctx)?;
 
         // qualify + fold predicates
         let criteria_qualified = match &query.criteria {
@@ -260,6 +291,51 @@ impl<'a> AnalysisContext<'a> {
             offset: query.offset,
         })
     }
+
+    fn analyze_source(
+        collection: &Collection,
+        schema_provider: &'a dyn SchemaProvider,
+        aggregates: &'a AggregateRegistry,
+        parameters: Value,
+        ctx: &mut AnalysisContext<'a>,
+    ) -> Result<AnalyzedSource, AnalyzerError> {
+        match collection {
+            Collection::Table { name, alias } => {
+                let visible = alias.clone().unwrap_or_else(|| name.clone());
+                ctx.add_collection(visible.clone(), name.clone());
+                Ok(AnalyzedSource::Table {
+                    visible,
+                    backing: name.clone(),
+                })
+            }
+            Collection::Query { query, alias } => {
+                let visible = alias
+                    .clone()
+                    .ok_or_else(|| AnalyzerError::Other("subquery requires an alias".into()))?;
+                let analyzed = Self::analyze_query(query, schema_provider, aggregates, parameters)?;
+                let schema = Self::schema_from_projection(&analyzed.projection);
+                ctx.add_subquery(visible.clone(), schema);
+                Ok(AnalyzedSource::Subquery {
+                    visible,
+                    query: Box::new(analyzed),
+                })
+            }
+        }
+    }
+
+    fn schema_from_projection(projection: &[AnalyzedIdentifier]) -> SchemaDict {
+        let mut fields = IndexMap::new();
+        for id in projection {
+            fields.insert(
+                id.output_name.clone(),
+                FieldInfo {
+                    ty: id.ty,
+                    nullable: id.nullable,
+                },
+            );
+        }
+        SchemaDict { fields }
+    }
 }
 
 
@@ -267,7 +343,7 @@ impl<'a> AnalysisContext<'a> {
 mod tests {
     use crate::{
         database::FieldInfo,
-        parser::ast::{Column, ComparatorOp, Function, Identifier, Literal, OrderBy, Predicate, ScalarExpr, Truth},
+        parser::ast::{Column, ComparatorOp, Function, Identifier, Join, JoinType, Literal, OrderBy, Predicate, ScalarExpr, Truth},
         JsonPrimitive, SchemaDict
     };
 
@@ -522,6 +598,172 @@ mod tests {
             ("t1".into(), "name".into()),
             ("t2".into(), "x".into()),
         ]);
+    }
+
+    #[test]
+    fn analyzer_resolves_subquery_projection_columns() {
+        let sp = DummySchemas::new().with("people", vec![
+            ("id", JsonPrimitive::Int, false),
+            ("name",JsonPrimitive::String, false),
+        ]);
+        let query =
+            Query::try_from("SELECT p.name FROM (SELECT name FROM people) p").expect("parse");
+
+        let analyzed = AnalysisContext::analyze_query(&query, &sp, &DEFAULT_REGISTRY, Value::Null)
+            .expect("analyze");
+
+        assert_eq!(analyzed.projection.len(), 1);
+        match &analyzed.projection[0].expression {
+            ScalarExpr::Column(Column::WithCollection { collection, name }) => {
+                assert_eq!(collection, "p");
+                assert_eq!(name, "name");
+            }
+            other => panic!("expected qualified subquery column, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyzer_rejects_unknown_subquery_columns() {
+        let sp = DummySchemas::new().with("people", vec![("name", JsonPrimitive::String, false)]);
+        let query =
+            Query::try_from("SELECT p.age FROM (SELECT name FROM people) p").expect("parse");
+
+        let err = AnalysisContext::analyze_query(&query, &sp, &DEFAULT_REGISTRY, Value::Null);
+
+        assert!(matches!(err, Err(AnalyzerError::UnknownColumn { .. })));
+    }
+
+    #[test]
+    fn analyzer_detects_ambiguous_bare_names_across_subqueries() {
+        let sp = DummySchemas::new().with("people", vec![("name", JsonPrimitive::String, false)]);
+        let query = Query::try_from(
+            "SELECT name FROM (SELECT name FROM people) p, (SELECT name FROM people) q",
+        )
+        .expect("parse");
+
+        let err = AnalysisContext::analyze_query(&query, &sp, &DEFAULT_REGISTRY, Value::Null);
+
+        assert!(matches!(err, Err(AnalyzerError::AmbiguousColumn { .. })));
+    }
+
+    #[test]
+    fn context_registers_subquery_schema_under_visible_alias() {
+        let sp = DummySchemas::new();
+        let mut ctx = AnalysisContext::new(&sp);
+        let mut fields = IndexMap::new();
+        fields.insert(
+            "name".to_string(),
+            FieldInfo {
+                ty: JsonPrimitive::String,
+                nullable: false,
+            },
+        );
+
+        ctx.add_subquery("p", SchemaDict { fields });
+
+        assert_eq!(ctx.collections.get("p").map(String::as_str), Some("p"));
+        let schema = ctx
+            .schema_of_collection_ref("p")
+            .expect("subquery schema should resolve");
+        assert!(schema.fields.contains_key("name"));
+    }
+
+    #[test]
+    fn analyzer_rejects_manually_constructed_subquery_without_alias() {
+        let sp = DummySchemas::new().with("people", vec![("name", JsonPrimitive::String, false)]);
+        let inner = Query::try_from("SELECT name FROM people").expect("parse inner");
+        let query = Query {
+            projection: vec![Identifier {
+                expression: ScalarExpr::Column(Column::Name { name: "name".into() }),
+                alias: None,
+            }],
+            collections: vec![Collection::Query {
+                query: Box::new(inner),
+                alias: None,
+            }],
+            joins: vec![],
+            criteria: None,
+            group_by: vec![],
+            having: None,
+            order_by: vec![],
+            ..Default::default()
+        };
+
+        let err = AnalysisContext::analyze_query(&query, &sp, &DEFAULT_REGISTRY, Value::Null);
+
+        assert!(matches!(err, Err(AnalyzerError::Other(message)) if message.contains("alias")));
+    }
+
+    #[test]
+    fn build_context_from_query_registers_subquery_sources_and_joins() {
+        let sp = DummySchemas::new().with("people", vec![("name", JsonPrimitive::String, false)]);
+        let from_inner = Query::try_from("SELECT name FROM people").expect("parse from inner");
+        let join_inner = Query::try_from("SELECT name FROM people").expect("parse join inner");
+        let query = Query {
+            projection: vec![Identifier {
+                expression: ScalarExpr::Column(Column::Name { name: "name".into() }),
+                alias: None,
+            }],
+            collections: vec![Collection::Query {
+                query: Box::new(from_inner),
+                alias: Some("p".into()),
+            }],
+            joins: vec![Join {
+                join_type: JoinType::Inner,
+                collection: Collection::Query {
+                    query: Box::new(join_inner),
+                    alias: Some("q".into()),
+                },
+                predicate: Predicate::Const3(Truth::True),
+            }],
+            criteria: None,
+            group_by: vec![],
+            having: None,
+            order_by: vec![],
+            ..Default::default()
+        };
+
+        let ctx =
+            AnalysisContext::build_context_from_query(&query, &sp, &DEFAULT_REGISTRY, Value::Null)
+                .expect("context should build");
+
+        assert_eq!(ctx.collections.get("p").map(String::as_str), Some("p"));
+        assert_eq!(ctx.collections.get("q").map(String::as_str), Some("q"));
+    }
+
+    #[test]
+    fn build_context_from_query_rejects_subquery_join_without_alias() {
+        let sp = DummySchemas::new().with("people", vec![("name", JsonPrimitive::String, false)]);
+        let from_inner = Query::try_from("SELECT name FROM people").expect("parse from inner");
+        let join_inner = Query::try_from("SELECT name FROM people").expect("parse join inner");
+        let query = Query {
+            projection: vec![Identifier {
+                expression: ScalarExpr::Column(Column::Name { name: "name".into() }),
+                alias: None,
+            }],
+            collections: vec![Collection::Query {
+                query: Box::new(from_inner),
+                alias: Some("p".into()),
+            }],
+            joins: vec![Join {
+                join_type: JoinType::Inner,
+                collection: Collection::Query {
+                    query: Box::new(join_inner),
+                    alias: None,
+                },
+                predicate: Predicate::Const3(Truth::True),
+            }],
+            criteria: None,
+            group_by: vec![],
+            having: None,
+            order_by: vec![],
+            ..Default::default()
+        };
+
+        let err =
+            AnalysisContext::build_context_from_query(&query, &sp, &DEFAULT_REGISTRY, Value::Null);
+
+        assert!(matches!(err, Err(AnalyzerError::Other(message)) if message.contains("JOIN")));
     }
 
     #[test]
