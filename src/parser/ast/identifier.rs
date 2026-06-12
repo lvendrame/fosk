@@ -1,7 +1,10 @@
-use crate::parser::{ast::{ScalarExpr, TextCollector}, ParseError, QueryParser};
+use crate::parser::{
+    ParseError, QueryParser,
+    ast::{ScalarExpr, TextCollector},
+};
 
 #[derive(Clone, PartialEq)]
-pub struct  Identifier {
+pub struct Identifier {
     pub expression: ScalarExpr,
     pub alias: Option<String>,
 }
@@ -13,7 +16,7 @@ impl Identifier {
         if !parser.current().is_whitespace() || parser.eof() {
             return Ok(Identifier {
                 expression: scalar,
-                alias: None
+                alias: None,
             });
         }
 
@@ -24,7 +27,7 @@ impl Identifier {
         if parser.comparers.from.compare(parser) {
             return Ok(Identifier {
                 expression: scalar,
-                alias: None
+                alias: None,
             });
         }
 
@@ -64,7 +67,10 @@ impl fmt::Debug for Identifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{Column, Identifier, ScalarExpr}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{Column, Identifier, ScalarExpr},
+    };
 
     #[test]
     pub fn test_identifier() {
@@ -77,7 +83,10 @@ mod tests {
         match result.expression {
             ScalarExpr::Column(column) => match column {
                 Column::Name { name } => assert_eq!(name, text),
-                Column::WithCollection { collection: _, name: _ } => panic!(),
+                Column::WithCollection {
+                    collection: _,
+                    name: _,
+                } => panic!(),
             },
             _ => panic!(),
         };
@@ -96,7 +105,10 @@ mod tests {
         match result.expression {
             ScalarExpr::Column(column) => match column {
                 Column::Name { name } => assert_eq!(name, "column"),
-                Column::WithCollection { collection: _, name: _ } => panic!(),
+                Column::WithCollection {
+                    collection: _,
+                    name: _,
+                } => panic!(),
             },
             _ => panic!(),
         };
@@ -117,7 +129,7 @@ mod tests {
                     assert_eq!(name, "column");
                     assert_eq!(collection, "collection");
                     assert_eq!(result.alias.unwrap(), "alias");
-                },
+                }
             },
             _ => panic!(),
         };
@@ -137,8 +149,7 @@ mod tests {
                 assert_eq!(err.start, 7);
                 assert_eq!(err.end, 7);
                 assert_eq!(err.text, "a");
-            },
+            }
         };
     }
-
 }

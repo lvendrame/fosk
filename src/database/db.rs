@@ -10,9 +10,9 @@ use serde_json::{Map, Value};
 
 use crate::{
     database::{
-        apply_schema_to_collection, collection_name_from_file_stem, config_for_missing_collection,
-        parse_schema_for_load, read_schema_json_file, DbCollection, DbConfig, DbReferences,
-        ReferenceColumn, ReferenceFieldMap, SchemaProvider, SchemaWithRefs,
+        DbCollection, DbConfig, DbReferences, ReferenceColumn, ReferenceFieldMap, SchemaProvider,
+        SchemaWithRefs, apply_schema_to_collection, collection_name_from_file_stem,
+        config_for_missing_collection, parse_schema_for_load, read_schema_json_file,
     },
     executor::plan_executor::{Executor, PlanExecutor},
     parser::{
@@ -1796,14 +1796,16 @@ mod tests {
     fn load_from_json_and_schema_json_reject_non_object_roots() {
         let db = Db::new();
 
-        assert!(db
-            .load_from_json(json!([]), false)
-            .unwrap_err()
-            .contains("root"));
-        assert!(db
-            .load_schemas_from_json(json!([]))
-            .unwrap_err()
-            .contains("collection names"));
+        assert!(
+            db.load_from_json(json!([]), false)
+                .unwrap_err()
+                .contains("root")
+        );
+        assert!(
+            db.load_schemas_from_json(json!([]))
+                .unwrap_err()
+                .contains("collection names")
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@
 pub enum Truth {
     True,
     False,
-    Unknown
+    Unknown,
 }
 
 impl Truth {
@@ -10,7 +10,7 @@ impl Truth {
         match self {
             Self::True => Self::False,
             Self::False => Self::True,
-            Self::Unknown => Self::Unknown
+            Self::Unknown => Self::Unknown,
         }
     }
 
@@ -86,4 +86,3 @@ mod tests {
         assert_eq!(format!("{:?}", Truth::Unknown), "Truth(Unknown)");
     }
 }
-

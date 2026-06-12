@@ -25,16 +25,13 @@ impl ParseError {
     }
 }
 
-impl Display for ParseError  {
+impl Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(
-                f,
-                "ParseError: {}\n  at [{}:{}] -> '{}'",
-                self.message,
-                self.start,
-                self.end,
-                self.text
-            )
+        write!(
+            f,
+            "ParseError: {}\n  at [{}:{}] -> '{}'",
+            self.message, self.start, self.end, self.text
+        )
     }
 }
 
@@ -70,6 +67,9 @@ mod tests {
         let parser = QueryParser::new("x");
         let error = ParseError::new("bad token", 0, &parser);
 
-        assert_eq!(error.to_string(), "ParseError: bad token\n  at [0:0] -> 'x'");
+        assert_eq!(
+            error.to_string(),
+            "ParseError: bad token\n  at [0:0] -> 'x'"
+        );
     }
 }

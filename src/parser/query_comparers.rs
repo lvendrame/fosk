@@ -62,8 +62,14 @@ impl QueryComparers {
             on: WordComparer::new("ON").with_whitespace_postfix(),
             r#where: WordComparer::new("WHERE").with_whitespace_postfix(),
             group_by: WordComparer::new("GROUP BY").with_whitespace_postfix(),
-            asc: WordComparer::new("ASC").with_whitespace_postfix().with_eof().with_optional_postfix(','),
-            desc: WordComparer::new("DESC").with_whitespace_postfix().with_eof().with_optional_postfix(','),
+            asc: WordComparer::new("ASC")
+                .with_whitespace_postfix()
+                .with_eof()
+                .with_optional_postfix(','),
+            desc: WordComparer::new("DESC")
+                .with_whitespace_postfix()
+                .with_eof()
+                .with_optional_postfix(','),
             having: WordComparer::new("HAVING").with_whitespace_postfix(),
             order_by: WordComparer::new("ORDER BY").with_whitespace_postfix(),
             limit: WordComparer::new("LIMIT").with_whitespace_postfix(),
@@ -79,14 +85,30 @@ impl QueryComparers {
             less_than_or_equal: WordComparer::new("<=").with_whitespace_postfix(),
             like: WordComparer::new("LIKE").with_whitespace_postfix(),
             not_like: WordComparer::new("NOT LIKE").with_whitespace_postfix(),
-            is_null: WordComparer::new("IS NULL").with_whitespace_postfix().with_eof(),
-            is_not_null: WordComparer::new("IS NOT NULL").with_whitespace_postfix().with_eof(),
-            r#in: WordComparer::new("IN").with_whitespace_postfix().with_delimiter('('),
-            not_in: WordComparer::new("NOT IN").with_whitespace_postfix().with_delimiter('('),
-            b_true: WordComparer::new("TRUE").with_any_delimiter_postfix().with_eof(),
-            b_false: WordComparer::new("FALSE").with_any_delimiter_postfix().with_eof(),
-            null: WordComparer::new("NULL").with_any_delimiter_postfix().with_eof(),
-            param: WordComparer::new("?").with_any_delimiter_postfix().with_eof(),
+            is_null: WordComparer::new("IS NULL")
+                .with_whitespace_postfix()
+                .with_eof(),
+            is_not_null: WordComparer::new("IS NOT NULL")
+                .with_whitespace_postfix()
+                .with_eof(),
+            r#in: WordComparer::new("IN")
+                .with_whitespace_postfix()
+                .with_delimiter('('),
+            not_in: WordComparer::new("NOT IN")
+                .with_whitespace_postfix()
+                .with_delimiter('('),
+            b_true: WordComparer::new("TRUE")
+                .with_any_delimiter_postfix()
+                .with_eof(),
+            b_false: WordComparer::new("FALSE")
+                .with_any_delimiter_postfix()
+                .with_eof(),
+            null: WordComparer::new("NULL")
+                .with_any_delimiter_postfix()
+                .with_eof(),
+            param: WordComparer::new("?")
+                .with_any_delimiter_postfix()
+                .with_eof(),
         }
     }
 }

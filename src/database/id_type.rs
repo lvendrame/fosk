@@ -15,4 +15,3 @@ pub enum IdType {
     /// No automatic id generation; documents must include the configured id key.
     None,
 }
-

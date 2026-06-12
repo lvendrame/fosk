@@ -1,13 +1,26 @@
 use serde_json::Value;
 
-use crate::{parser::{aggregators_helper::{Accumulator, AggregateImpl}, analyzer::{AnalysisContext, AnalyzerError}, ast::Function}, JsonPrimitive};
+use crate::{
+    JsonPrimitive,
+    parser::{
+        aggregators_helper::{Accumulator, AggregateImpl},
+        analyzer::{AnalysisContext, AnalyzerError},
+        ast::Function,
+    },
+};
 
 pub struct CountImpl;
 
 impl AggregateImpl for CountImpl {
-    fn name(&self) -> &'static str { "count" }
+    fn name(&self) -> &'static str {
+        "count"
+    }
 
-    fn infer_type(&self, fun: &Function, _ctx: &AnalysisContext) -> Result<(JsonPrimitive, bool), AnalyzerError> {
+    fn infer_type(
+        &self,
+        fun: &Function,
+        _ctx: &AnalysisContext,
+    ) -> Result<(JsonPrimitive, bool), AnalyzerError> {
         // COUNT(*) | COUNT(expr) | COUNT(DISTINCT expr) -> Int, non-nullable
         if fun.args.len() == 1 {
             Ok((JsonPrimitive::Int, false))
@@ -21,7 +34,10 @@ impl AggregateImpl for CountImpl {
     }
 
     fn create_accumulator(&self) -> Box<dyn Accumulator> {
-        Box::new(CountAcc { cnt: 0, is_star: false })
+        Box::new(CountAcc {
+            cnt: 0,
+            is_star: false,
+        })
     }
 }
 
@@ -54,7 +70,7 @@ impl Accumulator for CountAcc {
                     name: "COUNT".into(),
                     expected: "COUNT(*|expr)".into(),
                     got: vec![],
-                })
+                });
             }
         }
         Ok(())

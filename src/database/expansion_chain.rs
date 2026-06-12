@@ -79,7 +79,7 @@ mod test {
     fn test_from_empty() {
         let exp = ExpansionChain::from("");
         match exp {
-            ExpansionChain::None => {},
+            ExpansionChain::None => {}
             _ => panic!("Expected ExpansionChain::None variant for empty input"),
         }
     }

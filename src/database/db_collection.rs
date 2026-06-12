@@ -186,8 +186,7 @@ impl InternalMemoryCollection {
                         && let Some(collection) = db.get(&entry.ref_collection)
                         && let Some(cell) = object.get(&entry.column)
                     {
-                        let cvs =
-                            vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
+                        let cvs = vec![ColumnValue::new(entry.ref_column.clone(), cell.clone())];
                         let expanded = collection.get_filtered_by_columns_values(
                             cvs,
                             next_expansion_type.clone(),
@@ -202,8 +201,7 @@ impl InternalMemoryCollection {
                         && let Some(collection) = db.get(&entry.collection)
                         && let Some(cell) = object.get(&entry.ref_column)
                     {
-                        let cvs =
-                            vec![ColumnValue::new(entry.column.clone(), cell.clone())];
+                        let cvs = vec![ColumnValue::new(entry.column.clone(), cell.clone())];
                         let expanded = collection.get_filtered_by_columns_values(
                             cvs,
                             next_expansion_type.clone(),
@@ -2268,7 +2266,10 @@ mod tests {
         let audit = InternalMemoryCollection::new("audit", DbConfig::uuid("audit_uuid"));
 
         assert_eq!(people.get_reference_column_name(), "people_id");
-        assert_eq!(categories.get_reference_column_name(), "categorie_category_id");
+        assert_eq!(
+            categories.get_reference_column_name(),
+            "categorie_category_id"
+        );
         assert_eq!(audit.get_reference_column_name(), "audit_uuid");
     }
 
@@ -2291,7 +2292,9 @@ mod tests {
         let mut collection = InternalMemoryCollection::new("items", DbConfig::none("id"));
         collection.add(json!({ "id": "a", "kind": "book", "title": "SQL" }));
         collection.add(json!({ "id": "b", "kind": "game", "title": "Rust" }));
-        collection.collection.insert("raw".to_string(), json!("not an object"));
+        collection
+            .collection
+            .insert("raw".to_string(), json!("not an object"));
 
         let matches = collection.get_filtered_by_columns_values(
             vec![ColumnValue::new("kind".to_string(), json!("book"))],
@@ -2321,7 +2324,9 @@ mod tests {
         assert_eq!(collection.get_all().len(), 1);
         assert_eq!(collection.get_paginated(0, 1).len(), 1);
 
-        let updated = collection.update("1", json!({ "name": "Ada Lovelace" })).unwrap();
+        let updated = collection
+            .update("1", json!({ "name": "Ada Lovelace" }))
+            .unwrap();
         assert_eq!(updated["id"], 1);
         assert_eq!(updated["name"], "Ada Lovelace");
 

@@ -100,8 +100,9 @@ impl QueryParser {
             return true;
         }
 
-        if self.phase < Phase::LimitAndOffset &&
-            (self.comparers.limit.compare(self) || self.comparers.offset.compare(self)) {
+        if self.phase < Phase::LimitAndOffset
+            && (self.comparers.limit.compare(self) || self.comparers.offset.compare(self))
+        {
             self.phase = Phase::LimitAndOffset;
             return true;
         }
@@ -126,10 +127,13 @@ impl QueryParser {
             return true;
         }
 
-        if self.phase <= Phase::Joins &&
-            (self.comparers.join.compare(self) || self.comparers.inner_join.compare(self) ||
-                self.comparers.left_join.compare(self) || self.comparers.right_join.compare(self) ||
-                self.comparers.full_join.compare(self)) {
+        if self.phase <= Phase::Joins
+            && (self.comparers.join.compare(self)
+                || self.comparers.inner_join.compare(self)
+                || self.comparers.left_join.compare(self)
+                || self.comparers.right_join.compare(self)
+                || self.comparers.full_join.compare(self))
+        {
             self.phase = Phase::Joins;
             return true;
         }
@@ -149,7 +153,6 @@ impl QueryParser {
         }
         pos + 1
     }
-
 }
 
 #[cfg(test)]
@@ -173,7 +176,6 @@ ORDER BY b.description DESC"#;
         //let result = parser.parse();
         //println!("{:?}", parser.query);
     }
-
 }
 
 // QueryToken
@@ -204,4 +206,3 @@ ORDER BY b.description DESC"#;
 //         OrderFieldTableToken
 //         OrderFieldNameToken
 //         OrderDirectionToken
-

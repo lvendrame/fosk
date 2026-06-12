@@ -102,8 +102,14 @@ mod tests {
     #[test]
     fn id_value_from_json_maps_numbers_to_int_and_others_to_uuid() {
         assert_eq!(IdValue::from(json!(7)), IdValue::Int(7));
-        assert_eq!(IdValue::from(json!("abc")), IdValue::Uuid("abc".to_string()));
-        assert_eq!(IdValue::from(json!(true)), IdValue::Uuid("true".to_string()));
+        assert_eq!(
+            IdValue::from(json!("abc")),
+            IdValue::Uuid("abc".to_string())
+        );
+        assert_eq!(
+            IdValue::from(json!(true)),
+            IdValue::Uuid("true".to_string())
+        );
     }
 
     #[test]
@@ -113,7 +119,10 @@ mod tests {
         assert_eq!(int_manager.current, Some(IdValue::Int(9)));
 
         let mut uuid_manager = IdManager::new(IdType::Uuid);
-        assert_eq!(uuid_manager.set_current(IdValue::Uuid("abc".to_string())), Ok(()));
+        assert_eq!(
+            uuid_manager.set_current(IdValue::Uuid("abc".to_string())),
+            Ok(())
+        );
         assert_eq!(uuid_manager.current, Some(IdValue::Uuid("abc".to_string())));
     }
 

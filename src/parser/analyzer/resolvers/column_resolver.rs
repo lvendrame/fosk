@@ -1,28 +1,40 @@
-use crate::parser::{analyzer::{AnalysisContext, AnalyzerError, ResolvedField}, ast::Column};
+use crate::parser::{
+    analyzer::{AnalysisContext, AnalyzerError, ResolvedField},
+    ast::Column,
+};
 
 pub struct ColumnResolver;
 
 impl ColumnResolver {
-    pub fn qualify_column(col: &Column, ctx: &AnalysisContext) -> Result<(Column, ResolvedField), AnalyzerError> {
+    pub fn qualify_column(
+        col: &Column,
+        ctx: &AnalysisContext,
+    ) -> Result<(Column, ResolvedField), AnalyzerError> {
         match col {
             Column::WithCollection { collection, name } => {
-                let coll_ref = ctx.collections.get(collection)
+                let coll_ref = ctx
+                    .collections
+                    .get(collection)
                     .ok_or_else(|| AnalyzerError::UnknownCollection(collection.clone()))?;
-                let schema = ctx.schema_of_collection_ref(coll_ref)
+                let schema = ctx
+                    .schema_of_collection_ref(coll_ref)
                     .ok_or_else(|| AnalyzerError::UnknownCollection(coll_ref.clone()))?;
-                let field_info = schema.get(name).ok_or_else(|| {
-                    AnalyzerError::UnknownColumn {
+                let field_info = schema
+                    .get(name)
+                    .ok_or_else(|| AnalyzerError::UnknownColumn {
                         name: format!("{}.{}", collection, name),
-                        candidates: schema.fields.keys().cloned().collect()
-                    }
-                })?;
+                        candidates: schema.fields.keys().cloned().collect(),
+                    })?;
 
-                Ok((col.clone(), ResolvedField {
-                    collection: collection.clone(),
-                    name: name.clone(),
-                    ty: field_info.ty,
-                    nullable: field_info.nullable
-                }))
+                Ok((
+                    col.clone(),
+                    ResolvedField {
+                        collection: collection.clone(),
+                        name: name.clone(),
+                        ty: field_info.ty,
+                        nullable: field_info.nullable,
+                    },
+                ))
             }
             Column::Name { name } => {
                 // search each visible collection’s schema for this column
@@ -37,26 +49,32 @@ impl ColumnResolver {
                                 collection: visible_coll.clone(),
                                 name: name.clone(),
                                 ty: field_info.ty,
-                                nullable: field_info.nullable
-                            }
+                                nullable: field_info.nullable,
+                            },
                         ));
                     }
                 }
                 match matches.len() {
-                    0 => Err(AnalyzerError::UnknownColumn { name: name.clone(), candidates: vec![] }),
+                    0 => Err(AnalyzerError::UnknownColumn {
+                        name: name.clone(),
+                        candidates: vec![],
+                    }),
                     1 => {
                         let (collection, resolved_field) = matches.into_iter().next().unwrap();
                         Ok((
                             Column::WithCollection {
                                 collection,
-                                name: name.clone()
+                                name: name.clone(),
                             },
-                            resolved_field
+                            resolved_field,
                         ))
                     }
                     _ => Err(AnalyzerError::AmbiguousColumn {
                         name: name.clone(),
-                        matches: matches.into_iter().map(|(coll_name, rf)| (coll_name, rf.name)).collect()
+                        matches: matches
+                            .into_iter()
+                            .map(|(coll_name, rf)| (coll_name, rf.name))
+                            .collect(),
                     }),
                 }
             }
@@ -66,7 +84,10 @@ impl ColumnResolver {
 
 #[cfg(test)]
 mod tests {
-    use crate::{database::{FieldInfo, SchemaProvider}, JsonPrimitive, SchemaDict};
+    use crate::{
+        JsonPrimitive, SchemaDict,
+        database::{FieldInfo, SchemaProvider},
+    };
 
     use super::*;
     use indexmap::IndexMap;
@@ -77,13 +98,18 @@ mod tests {
         by_name: std::collections::HashMap<String, SchemaDict>,
     }
     impl DummySchemas {
-        fn new() -> Self { Self { by_name: std::collections::HashMap::new() } }
+        fn new() -> Self {
+            Self {
+                by_name: std::collections::HashMap::new(),
+            }
+        }
         fn with(mut self, name: &str, fields: Vec<(&str, JsonPrimitive, bool)>) -> Self {
             let mut m = IndexMap::new();
             for (k, ty, nullable) in fields {
                 m.insert(k.to_string(), FieldInfo { ty, nullable });
             }
-            self.by_name.insert(name.to_string(), SchemaDict { fields: m });
+            self.by_name
+                .insert(name.to_string(), SchemaDict { fields: m });
             self
         }
         fn without(mut self, name: &str) -> Self {
@@ -97,7 +123,11 @@ mod tests {
         }
     }
 
-    fn ctx_with_alias<'a>(sp: &'a DummySchemas, backing: &'a str, visible: &'a str) -> AnalysisContext<'a> {
+    fn ctx_with_alias<'a>(
+        sp: &'a DummySchemas,
+        backing: &'a str,
+        visible: &'a str,
+    ) -> AnalysisContext<'a> {
         let mut ctx = AnalysisContext::new(sp);
         ctx.add_collection(visible.to_string(), backing.to_string());
         ctx
@@ -108,15 +138,23 @@ mod tests {
     #[test]
     fn qualify_with_collection_uses_visible_alias_and_schema() {
         // backing table "users" with (id:int, name:string), visible as "u"
-        let sp = DummySchemas::new().with("users", vec![
-            ("id",   JsonPrimitive::Int,    false),
-            ("name", JsonPrimitive::String, false),
-        ]);
+        let sp = DummySchemas::new().with(
+            "users",
+            vec![
+                ("id", JsonPrimitive::Int, false),
+                ("name", JsonPrimitive::String, false),
+            ],
+        );
         let ctx = ctx_with_alias(&sp, "users", "u");
 
         let (qualified, rf) = ColumnResolver::qualify_column(
-            &Column::WithCollection { collection: "u".into(), name: "name".into() }, &ctx
-        ).expect("qualify");
+            &Column::WithCollection {
+                collection: "u".into(),
+                name: "name".into(),
+            },
+            &ctx,
+        )
+        .expect("qualify");
 
         // stays WithCollection using the visible name, and resolves type/nullability
         match qualified {
@@ -137,14 +175,31 @@ mod tests {
         // two backings: users(id,name) and orders(id,total)
         // visible as "u" and "o"; column "total" exists only in "orders"
         let sp = DummySchemas::new()
-            .with("users",  vec![("id", JsonPrimitive::Int, false), ("name", JsonPrimitive::String, false)])
-            .with("orders", vec![("id", JsonPrimitive::Int, false), ("total", JsonPrimitive::Float, false)]);
+            .with(
+                "users",
+                vec![
+                    ("id", JsonPrimitive::Int, false),
+                    ("name", JsonPrimitive::String, false),
+                ],
+            )
+            .with(
+                "orders",
+                vec![
+                    ("id", JsonPrimitive::Int, false),
+                    ("total", JsonPrimitive::Float, false),
+                ],
+            );
         let mut ctx = AnalysisContext::new(&sp);
         ctx.add_collection("u", "users");
         ctx.add_collection("o", "orders");
 
-        let (qualified, rf) = ColumnResolver::qualify_column(&Column::Name { name: "total".into() }, &ctx)
-            .expect("qualify unqualified");
+        let (qualified, rf) = ColumnResolver::qualify_column(
+            &Column::Name {
+                name: "total".into(),
+            },
+            &ctx,
+        )
+        .expect("qualify unqualified");
 
         // Should qualify to o.total
         match qualified {
@@ -165,7 +220,11 @@ mod tests {
         let ctx = AnalysisContext::new(&sp);
 
         let err = ColumnResolver::qualify_column(
-            &Column::WithCollection { collection: "u".into(), name: "id".into() }, &ctx
+            &Column::WithCollection {
+                collection: "u".into(),
+                name: "id".into(),
+            },
+            &ctx,
         );
         assert!(matches!(err, Err(AnalyzerError::UnknownCollection(c)) if c == "u"));
     }
@@ -178,7 +237,11 @@ mod tests {
         ctx.add_collection("u", "users");
 
         let err = ColumnResolver::qualify_column(
-            &Column::WithCollection { collection: "u".into(), name: "id".into() }, &ctx
+            &Column::WithCollection {
+                collection: "u".into(),
+                name: "id".into(),
+            },
+            &ctx,
         );
         // qualify_column maps "u" -> "users", then asks schema_of("users") and gets None,
         // which your code maps to UnknownCollection(backing)
@@ -188,15 +251,22 @@ mod tests {
     #[test]
     fn error_unknown_column_reports_candidates() {
         // backing has columns (id, name), but we ask for "age"
-        let sp = DummySchemas::new().with("users", vec![
-            ("id",   JsonPrimitive::Int,    false),
-            ("name", JsonPrimitive::String, false),
-        ]);
+        let sp = DummySchemas::new().with(
+            "users",
+            vec![
+                ("id", JsonPrimitive::Int, false),
+                ("name", JsonPrimitive::String, false),
+            ],
+        );
         let mut ctx = AnalysisContext::new(&sp);
         ctx.add_collection("u", "users");
 
         let err = ColumnResolver::qualify_column(
-            &Column::WithCollection { collection: "u".into(), name: "age".into() }, &ctx
+            &Column::WithCollection {
+                collection: "u".into(),
+                name: "age".into(),
+            },
+            &ctx,
         );
         match err {
             Err(AnalyzerError::UnknownColumn { name, candidates }) => {
@@ -216,7 +286,7 @@ mod tests {
     fn error_ambiguous_unqualified_when_column_in_multiple_collections() {
         // both "users" and "orders" have "id"
         let sp = DummySchemas::new()
-            .with("users",  vec![("id", JsonPrimitive::Int, false)])
+            .with("users", vec![("id", JsonPrimitive::Int, false)])
             .with("orders", vec![("id", JsonPrimitive::Int, false)]);
         let mut ctx = AnalysisContext::new(&sp);
         ctx.add_collection("u", "users");
@@ -227,7 +297,8 @@ mod tests {
             Err(AnalyzerError::AmbiguousColumn { name, matches }) => {
                 assert_eq!(name, "id");
                 // matches is Vec<(coll, col)>; order from HashMap may vary, check as a set
-                let got: std::collections::HashSet<(String,String)> = matches.into_iter().collect();
+                let got: std::collections::HashSet<(String, String)> =
+                    matches.into_iter().collect();
                 let mut expected = std::collections::HashSet::new();
                 expected.insert(("u".into(), "id".into()));
                 expected.insert(("o".into(), "id".into()));
@@ -241,7 +312,7 @@ mod tests {
     fn qualify_unqualified_skips_visible_collections_without_schema() {
         // Build provider with users(id) and orders(id), then remove "orders" schema.
         let sp = DummySchemas::new()
-            .with("users",  vec![("id", JsonPrimitive::Int, false)])
+            .with("users", vec![("id", JsonPrimitive::Int, false)])
             .with("orders", vec![("id", JsonPrimitive::Int, false)])
             .without("orders");
 
@@ -251,8 +322,9 @@ mod tests {
         ctx.add_collection("o", "orders");
 
         // Unqualified "id" should resolve to the only *schema-backed* match: u.id
-        let (qualified, rf) = ColumnResolver::qualify_column(&Column::Name { name: "id".into() }, &ctx)
-            .expect("should resolve uniquely to users.id");
+        let (qualified, rf) =
+            ColumnResolver::qualify_column(&Column::Name { name: "id".into() }, &ctx)
+                .expect("should resolve uniquely to users.id");
 
         match qualified {
             Column::WithCollection { collection, name } => {

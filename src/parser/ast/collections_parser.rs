@@ -1,11 +1,9 @@
-use crate::parser::{ast::Collection, ParseError, Phase, QueryParser};
+use crate::parser::{ParseError, Phase, QueryParser, ast::Collection};
 
 pub struct CollectionsParser;
 
 impl CollectionsParser {
-
     pub fn parse(parser: &mut QueryParser) -> Result<Vec<Collection>, ParseError> {
-
         if !parser.comparers.from.compare(parser) {
             return ParseError::new("Invalid select statement", parser.position, parser).err();
         }
@@ -19,12 +17,12 @@ impl CollectionsParser {
         while parser.phase == Phase::Collections {
             if parser.current() == ',' {
                 if can_consume {
-                    return ParseError::new("Invalid select statement", parser.position, parser).err();
+                    return ParseError::new("Invalid select statement", parser.position, parser)
+                        .err();
                 }
                 can_consume = true;
                 parser.next();
             }
-
 
             if parser.current().is_whitespace() {
                 parser.next_non_whitespace();
@@ -40,12 +38,11 @@ impl CollectionsParser {
 
         Ok(collections)
     }
-
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{CollectionsParser}, Phase, QueryParser};
+    use crate::parser::{Phase, QueryParser, ast::CollectionsParser};
 
     #[test]
     pub fn test_collections() {
@@ -122,7 +119,7 @@ mod tests {
                 assert_eq!(err.text, ",");
                 assert_eq!(err.start, 23);
                 assert_eq!(err.end, 23);
-            },
+            }
         };
     }
 
@@ -141,7 +138,7 @@ mod tests {
                 assert_eq!(err.text, "c");
                 assert_eq!(err.start, 22);
                 assert_eq!(err.end, 22);
-            },
+            }
         };
     }
 
@@ -160,7 +157,7 @@ mod tests {
                 assert_eq!(err.text, "W");
                 assert_eq!(err.start, 32);
                 assert_eq!(err.end, 32);
-            },
+            }
         };
     }
 }

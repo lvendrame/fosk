@@ -1,4 +1,7 @@
-use crate::parser::{ast::{Collection, Predicate}, ParseError, Phase, QueryParser};
+use crate::parser::{
+    ParseError, Phase, QueryParser,
+    ast::{Collection, Predicate},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JoinType {
@@ -74,7 +77,10 @@ impl Join {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{Collection, Join, JoinType}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{Collection, Join, JoinType},
+    };
 
     #[test]
     pub fn test_inner_join() {
@@ -89,14 +95,12 @@ mod tests {
 
         match result.first() {
             Some(first) => match first.join_type {
-                JoinType::Inner => {
-                    match &first.collection {
-                        Collection::Table { name, alias } => {
-                            assert_eq!(name, "tableA");
-                            assert!(alias.is_none());
-                        },
-                        Collection::Query { .. } => todo!(),
+                JoinType::Inner => match &first.collection {
+                    Collection::Table { name, alias } => {
+                        assert_eq!(name, "tableA");
+                        assert!(alias.is_none());
                     }
+                    Collection::Query { .. } => todo!(),
                 },
                 _ => panic!(),
             },
@@ -117,14 +121,12 @@ mod tests {
 
         match result.first() {
             Some(first) => match first.join_type {
-                JoinType::Inner => {
-                    match &first.collection {
-                        Collection::Table { name, alias } => {
-                            assert_eq!(name, "tableA");
-                            assert!(alias.is_none());
-                        },
-                        Collection::Query { .. } => todo!(),
+                JoinType::Inner => match &first.collection {
+                    Collection::Table { name, alias } => {
+                        assert_eq!(name, "tableA");
+                        assert!(alias.is_none());
                     }
+                    Collection::Query { .. } => todo!(),
                 },
                 _ => panic!(),
             },
@@ -134,7 +136,8 @@ mod tests {
 
     #[test]
     pub fn test_inner_join_with_alias_and_two_predicates() {
-        let text = "INNER JOIN tableA a ON a.columnA = tableB.columnA AND a.columnB = tableB.columnB";
+        let text =
+            "INNER JOIN tableA a ON a.columnA = tableB.columnA AND a.columnB = tableB.columnB";
 
         let mut parser = QueryParser::new(text);
         assert!(parser.check_next_phase());
@@ -145,14 +148,12 @@ mod tests {
 
         match result.first() {
             Some(first) => match first.join_type {
-                JoinType::Inner => {
-                    match &first.collection {
-                        Collection::Table { name, alias } => {
-                            assert_eq!(name, "tableA");
-                            assert_eq!(alias.clone().unwrap(), "a");
-                        },
-                        Collection::Query { .. } => todo!(),
+                JoinType::Inner => match &first.collection {
+                    Collection::Table { name, alias } => {
+                        assert_eq!(name, "tableA");
+                        assert_eq!(alias.clone().unwrap(), "a");
                     }
+                    Collection::Query { .. } => todo!(),
                 },
                 _ => panic!(),
             },
@@ -177,15 +178,13 @@ mod tests {
 
         for (i, item) in result.iter().enumerate() {
             match item.join_type {
-                JoinType::Inner | JoinType::Left => {
-                    match &item.collection {
-                        Collection::Table { name, alias } => {
-                            assert_eq!(name, expect_names[i]);
-                            assert_eq!(item.join_type, expect_types[i]);
-                            assert!(alias.is_none());
-                        },
-                        Collection::Query { .. } => todo!(),
+                JoinType::Inner | JoinType::Left => match &item.collection {
+                    Collection::Table { name, alias } => {
+                        assert_eq!(name, expect_names[i]);
+                        assert_eq!(item.join_type, expect_types[i]);
+                        assert!(alias.is_none());
                     }
+                    Collection::Query { .. } => todo!(),
                 },
                 _ => panic!(),
             }
@@ -194,7 +193,7 @@ mod tests {
 
     #[test]
     pub fn test_all_joins() {
-        let text =r#"
+        let text = r#"
         INNER JOIN tableA ON tableA.columnA = tableB.columnA
         LEFT JOIN tableC ON tableC.columnB = tableA.columnB
         RIGHT JOIN tableD ON tableD.columnB = tableC.columnB
@@ -209,7 +208,12 @@ mod tests {
         assert_eq!(result.len(), 4);
 
         let expect_names = ["tableA", "tableC", "tableD", "tableE"];
-        let expect_types = [JoinType::Inner, JoinType::Left, JoinType::Right, JoinType::Full];
+        let expect_types = [
+            JoinType::Inner,
+            JoinType::Left,
+            JoinType::Right,
+            JoinType::Full,
+        ];
 
         for (i, item) in result.iter().enumerate() {
             match &item.collection {
@@ -217,7 +221,7 @@ mod tests {
                     assert_eq!(name, expect_names[i]);
                     assert_eq!(item.join_type, expect_types[i]);
                     assert!(alias.is_none());
-                },
+                }
                 Collection::Query { .. } => todo!(),
             }
         }

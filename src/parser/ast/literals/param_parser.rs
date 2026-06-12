@@ -1,4 +1,4 @@
-use crate::parser::{ast::ScalarExpr, ParseError, QueryParser};
+use crate::parser::{ParseError, QueryParser, ast::ScalarExpr};
 
 pub struct ParamParser;
 
@@ -10,16 +10,23 @@ impl ParamParser {
     pub fn parse(parser: &mut QueryParser) -> Result<ScalarExpr, ParseError> {
         if parser.comparers.param.compare(parser) {
             parser.jump(parser.comparers.param.length);
-            return Ok(ScalarExpr::Parameter)
+            return Ok(ScalarExpr::Parameter);
         }
 
-        Err(ParseError::new("Invalid Parameter", parser.position, parser))
+        Err(ParseError::new(
+            "Invalid Parameter",
+            parser.position,
+            parser,
+        ))
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::{ParamParser, ScalarExpr}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{ParamParser, ScalarExpr},
+    };
 
     #[test]
     pub fn test_param_parser() {
@@ -31,7 +38,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::Parameter => {}, //should happen
+                ScalarExpr::Parameter => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -48,7 +55,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::Parameter => {}, //should happen
+                ScalarExpr::Parameter => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -65,7 +72,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::Parameter => {}, //should happen
+                ScalarExpr::Parameter => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -82,7 +89,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::Parameter => {}, //should happen
+                ScalarExpr::Parameter => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -99,7 +106,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::Parameter => {}, //should happen
+                ScalarExpr::Parameter => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -120,7 +127,7 @@ pub mod tests {
                 assert_eq!(err.text, "?");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
-            },
+            }
         }
     }
 
@@ -138,7 +145,7 @@ pub mod tests {
                 assert_eq!(err.text, "?");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
-            },
+            }
         }
     }
 }

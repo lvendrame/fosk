@@ -1,8 +1,8 @@
-use crate::{parser::ast::ScalarExpr, JsonPrimitive};
+use crate::{JsonPrimitive, parser::ast::ScalarExpr};
 
 #[derive(Debug, Clone)]
 pub struct AnalyzedIdentifier {
-    pub expression: ScalarExpr,     // qualified & folded
+    pub expression: ScalarExpr, // qualified & folded
     pub alias: Option<String>,
     pub ty: JsonPrimitive,
     pub nullable: bool,

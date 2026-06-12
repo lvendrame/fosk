@@ -1,4 +1,4 @@
-use crate::parser::{ast::Literal, ParseError, QueryParser};
+use crate::parser::{ParseError, QueryParser, ast::Literal};
 
 pub struct NullParser;
 
@@ -10,7 +10,7 @@ impl NullParser {
     pub fn parse(parser: &mut QueryParser) -> Result<Literal, ParseError> {
         if parser.comparers.null.compare(parser) {
             parser.jump(parser.comparers.null.length);
-            return Ok(Literal::Null)
+            return Ok(Literal::Null);
         }
 
         Err(ParseError::new("Invalid boolean", parser.position, parser))
@@ -19,7 +19,10 @@ impl NullParser {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::{NullParser, Literal}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{Literal, NullParser},
+    };
 
     #[test]
     pub fn test_null_parser() {
@@ -31,7 +34,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                Literal::Null => {}, //should happen
+                Literal::Null => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -48,7 +51,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                Literal::Null => {}, //should happen
+                Literal::Null => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -65,7 +68,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                Literal::Null => {}, //should happen
+                Literal::Null => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -82,7 +85,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                Literal::Null => {}, //should happen
+                Literal::Null => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -99,7 +102,7 @@ pub mod tests {
 
         match result {
             Ok(result) => match result {
-                Literal::Null => {}, //should happen
+                Literal::Null => {} //should happen
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -120,7 +123,7 @@ pub mod tests {
                 assert_eq!(err.text, "n");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
-            },
+            }
         }
     }
 
@@ -138,7 +141,7 @@ pub mod tests {
                 assert_eq!(err.text, "n");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
-            },
+            }
         }
     }
 }

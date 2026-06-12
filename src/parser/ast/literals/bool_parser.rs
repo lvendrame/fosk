@@ -1,21 +1,20 @@
-use crate::parser::{ast::Literal, ParseError, QueryParser};
+use crate::parser::{ParseError, QueryParser, ast::Literal};
 
 pub struct BoolParser;
 
 impl BoolParser {
     pub fn is_bool(parser: &QueryParser) -> bool {
-        parser.comparers.b_true.compare(parser) ||
-        parser.comparers.b_false.compare(parser)
+        parser.comparers.b_true.compare(parser) || parser.comparers.b_false.compare(parser)
     }
 
     pub fn parse(parser: &mut QueryParser) -> Result<Literal, ParseError> {
         if parser.comparers.b_true.compare(parser) {
             parser.jump(parser.comparers.b_true.length);
-            return Ok(Literal::Bool(true))
+            return Ok(Literal::Bool(true));
         }
         if parser.comparers.b_false.compare(parser) {
             parser.jump(parser.comparers.b_false.length);
-            return Ok(Literal::Bool(false))
+            return Ok(Literal::Bool(false));
         }
 
         Err(ParseError::new("Invalid boolean", parser.position, parser))
@@ -24,7 +23,10 @@ impl BoolParser {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::{BoolParser, Literal}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{BoolParser, Literal},
+    };
 
     #[test]
     pub fn test_bool_parser_true() {
@@ -176,7 +178,7 @@ pub mod tests {
                 assert_eq!(err.text, "t");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
-            },
+            }
         }
     }
 
@@ -194,7 +196,7 @@ pub mod tests {
                 assert_eq!(err.text, "t");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
-            },
+            }
         }
     }
 }

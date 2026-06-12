@@ -10,7 +10,12 @@ pub struct Function {
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let args = self.args.iter().map(|a| format!("{}", a)).collect::<Vec<_>>().join(", ");
+        let args = self
+            .args
+            .iter()
+            .map(|a| format!("{}", a))
+            .collect::<Vec<_>>()
+            .join(", ");
         if self.distinct {
             write!(f, "{}(distinct {})", self.name, args)
         } else {
@@ -47,7 +52,10 @@ mod tests {
         };
 
         assert_eq!(function.to_string(), "lower(lit: s: \"Ada\")");
-        assert_eq!(format!("{:?}", function), "Function(lower(lit: s: \"Ada\"))");
+        assert_eq!(
+            format!("{:?}", function),
+            "Function(lower(lit: s: \"Ada\"))"
+        );
     }
 
     #[test]
@@ -58,6 +66,9 @@ mod tests {
             distinct: true,
         };
 
-        assert_eq!(function.to_string(), "count(distinct lit: i: 1, lit: s: \"Ada\")");
+        assert_eq!(
+            function.to_string(),
+            "count(distinct lit: i: 1, lit: s: \"Ada\")"
+        );
     }
 }

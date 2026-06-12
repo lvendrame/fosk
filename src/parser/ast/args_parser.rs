@@ -1,11 +1,10 @@
-use crate::parser::{ast::{ScalarExpr}, ParseError, QueryParser};
+use crate::parser::{ParseError, QueryParser, ast::ScalarExpr};
 
 #[derive(Debug, Default)]
 pub struct ArgsExpr {
     pub args: Vec<ScalarExpr>,
     pub distinct: bool,
 }
-
 
 impl ArgsExpr {
     pub fn is_args_start(parser: &QueryParser) -> bool {
@@ -29,7 +28,11 @@ impl ArgsExpr {
 
         if parser.comparers.distinct.compare(parser) {
             if !allow_wildcard {
-                return Err(ParseError::new("Invalid distinct on args value", pivot, parser));
+                return Err(ParseError::new(
+                    "Invalid distinct on args value",
+                    pivot,
+                    parser,
+                ));
             }
             expr.distinct = true;
             parser.jump(parser.comparers.distinct.length);
@@ -65,7 +68,7 @@ impl ArgsExpr {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::ArgsExpr, QueryParser};
+    use crate::parser::{QueryParser, ast::ArgsExpr};
 
     #[test]
     pub fn test_args_empty() {
@@ -79,7 +82,7 @@ pub mod tests {
             Ok(result) => {
                 assert_eq!(result.args.len(), 0);
                 assert!(!result.distinct);
-            },
+            }
             Err(_) => panic!(),
         }
     }
@@ -96,7 +99,7 @@ pub mod tests {
             Ok(result) => {
                 assert_eq!(result.args.len(), 1);
                 assert!(!result.distinct);
-            },
+            }
             Err(_) => panic!(),
         }
     }
@@ -113,7 +116,7 @@ pub mod tests {
             Ok(result) => {
                 assert_eq!(result.args.len(), 2);
                 assert!(!result.distinct);
-            },
+            }
             Err(_) => panic!(),
         }
     }
@@ -130,7 +133,7 @@ pub mod tests {
             Ok(result) => {
                 assert_eq!(result.args.len(), 3);
                 assert!(!result.distinct);
-            },
+            }
             Err(_) => panic!(),
         }
     }
@@ -149,7 +152,7 @@ pub mod tests {
                 assert_eq!(err.text, "\"");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
-            },
+            }
         }
     }
 
@@ -167,7 +170,7 @@ pub mod tests {
                 assert_eq!(err.text, "(\"hello\", true, ,");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 16);
-            },
+            }
         }
     }
 
@@ -185,7 +188,7 @@ pub mod tests {
                 assert_eq!(err.text, "(\"hello\", true, 1");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 17);
-            },
+            }
         }
     }
 
@@ -203,7 +206,7 @@ pub mod tests {
                 assert_eq!(err.text, "(\"hello\" t");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 9);
-            },
+            }
         }
     }
 
@@ -219,7 +222,7 @@ pub mod tests {
             Ok(result) => {
                 assert_eq!(result.args.len(), 1);
                 assert!(!result.distinct);
-            },
+            }
             Err(_) => panic!(),
         }
     }
@@ -238,7 +241,7 @@ pub mod tests {
                 assert_eq!(err.text, "*)");
                 assert_eq!(err.start, 1);
                 assert_eq!(err.end, 2);
-            },
+            }
         }
     }
 
@@ -254,7 +257,7 @@ pub mod tests {
             Ok(result) => {
                 assert_eq!(result.args.len(), 2);
                 assert!(result.distinct);
-            },
+            }
             Err(_) => panic!(),
         }
     }
@@ -273,7 +276,7 @@ pub mod tests {
                 assert_eq!(err.text, "(D");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 1);
-            },
+            }
         }
     }
 }

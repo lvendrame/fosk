@@ -1,9 +1,12 @@
 #[cfg(test)]
 pub mod fixtures {
-    use std::{collections::{HashMap, HashSet}, sync::Arc};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::Arc,
+    };
 
-    use serde_json::{json, Value};
-    use crate::database::{DbConfig, Db, DbCollection, IdType};
+    use crate::database::{Db, DbCollection, DbConfig, IdType};
+    use serde_json::{Value, json};
 
     pub fn create_people(db: &Db) {
         let people = db.create("People");
@@ -267,12 +270,11 @@ pub mod fixtures {
         coll.get_all()
             .into_iter()
             .filter_map(|v| {
-                v.get("id")
-                    .and_then(|id| match id {
-                        Value::Number(n) => n.as_i64(),
-                        Value::String(s) => s.parse::<i64>().ok(),
-                        _ => None,
-                    })
+                v.get("id").and_then(|id| match id {
+                    Value::Number(n) => n.as_i64(),
+                    Value::String(s) => s.parse::<i64>().ok(),
+                    _ => None,
+                })
             })
             .collect()
     }
@@ -281,18 +283,16 @@ pub mod fixtures {
         coll.get_all()
             .into_iter()
             .filter_map(|v| {
-                let id = v.get("id")
-                    .and_then(|id| match id {
-                        Value::Number(n) => n.as_i64(),
-                        Value::String(s) => s.parse::<i64>().ok(),
-                        _ => None
-                    })?;
-                let price = v.get("price")
-                    .and_then(|p| match p {
-                        Value::Number(n) => n.as_f64(),
-                        Value::String(s) => s.parse::<f64>().ok(),
-                        _ => None,
-                    })?;
+                let id = v.get("id").and_then(|id| match id {
+                    Value::Number(n) => n.as_i64(),
+                    Value::String(s) => s.parse::<i64>().ok(),
+                    _ => None,
+                })?;
+                let price = v.get("price").and_then(|p| match p {
+                    Value::Number(n) => n.as_f64(),
+                    Value::String(s) => s.parse::<f64>().ok(),
+                    _ => None,
+                })?;
                 Some((id, price))
             })
             .collect()
@@ -302,10 +302,10 @@ pub mod fixtures {
     fn seed_creates_all_collections_and_counts() {
         let db = seed_db();
 
-        let people   = db.get("People").expect("People collection missing");
+        let people = db.get("People").expect("People collection missing");
         let products = db.get("Products").expect("Products collection missing");
-        let orders   = db.get("Orders").expect("Orders collection missing");
-        let items    = db.get("OrderItems").expect("OrderItems collection missing");
+        let orders = db.get("Orders").expect("Orders collection missing");
+        let items = db.get("OrderItems").expect("OrderItems collection missing");
 
         assert_eq!(people.count(), 15, "expected 15 people");
         assert_eq!(products.count(), 15, "expected 15 products");
@@ -313,14 +313,22 @@ pub mod fixtures {
         assert_eq!(items.count(), 100, "expected 100 order items");
 
         // Presence checks against your actual seed:
-        let people_names: std::collections::HashSet<String> = people.get_all().into_iter()
-            .filter_map(|v| v.get("full_name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+        let people_names: std::collections::HashSet<String> = people
+            .get_all()
+            .into_iter()
+            .filter_map(|v| {
+                v.get("full_name")
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
         assert!(people_names.contains("Alice Johnson"));
         assert!(people_names.contains("Nuno Teixeira"));
 
         // Bonus: sanity check VIP count (ids 1,4,7,11,14 in your seed)
-        let vip_count = people.get_all().into_iter()
+        let vip_count = people
+            .get_all()
+            .into_iter()
             .filter(|v| v.get("vip").and_then(|b| b.as_bool()).unwrap_or(false))
             .count();
         assert_eq!(vip_count, 5, "expected 5 VIPs");
@@ -341,24 +349,39 @@ pub mod fixtures {
 
         // Orders.person_id must exist in People
         for o in orders.get_all() {
-            let pid = o.get("person_id")
+            let pid = o
+                .get("person_id")
                 .and_then(|v| v.as_i64())
                 .expect("Orders.person_id must be i64");
-            assert!(person_ids.contains(&pid), "Orders.person_id {} not found in People", pid);
+            assert!(
+                person_ids.contains(&pid),
+                "Orders.person_id {} not found in People",
+                pid
+            );
         }
 
         // OrderItems.order_id must exist in Orders
         // OrderItems.product_id must exist in Products
         for it in items.get_all() {
-            let oid = it.get("order_id")
+            let oid = it
+                .get("order_id")
                 .and_then(|v| v.as_i64())
                 .expect("OrderItems.order_id must be i64");
-            assert!(order_ids.contains(&oid), "OrderItems.order_id {} not found in Orders", oid);
+            assert!(
+                order_ids.contains(&oid),
+                "OrderItems.order_id {} not found in Orders",
+                oid
+            );
 
-            let pid = it.get("product_id")
+            let pid = it
+                .get("product_id")
                 .and_then(|v| v.as_i64())
                 .expect("OrderItems.product_id must be i64");
-            assert!(product_ids.contains(&pid), "OrderItems.product_id {} not found in Products", pid);
+            assert!(
+                product_ids.contains(&pid),
+                "OrderItems.product_id {} not found in Products",
+                pid
+            );
         }
     }
 
@@ -372,19 +395,27 @@ pub mod fixtures {
         let price_by_product = product_price_map(products);
 
         for it in items.get_all() {
-            let pid = it.get("product_id")
+            let pid = it
+                .get("product_id")
                 .and_then(|v| v.as_i64())
                 .expect("OrderItems.product_id must be i64");
-            let item_price = it.get("unit_price")
+            let item_price = it
+                .get("unit_price")
                 .and_then(|v| v.as_f64())
                 .expect("OrderItems.unit_price must be f64");
 
-            let expected = price_by_product.get(&pid)
+            let expected = price_by_product
+                .get(&pid)
                 .unwrap_or_else(|| panic!("Product {} must exist to compare price", pid));
 
             // allow tiny float noise, though we seeded exact values
-            assert!((item_price - *expected).abs() < 1e-9,
-                "unit_price {} does not match product {} price {}", item_price, pid, expected);
+            assert!(
+                (item_price - *expected).abs() < 1e-9,
+                "unit_price {} does not match product {} price {}",
+                item_price,
+                pid,
+                expected
+            );
         }
     }
 
@@ -434,7 +465,10 @@ pub mod fixtures {
             let lines = get_f64(r, "lines");
 
             assert!(items_sold >= 0.0, "items_sold must be non-negative");
-            assert!(lines >= 1.0, "each grouped person should have at least 1 line");
+            assert!(
+                lines >= 1.0,
+                "each grouped person should have at least 1 line"
+            );
 
             // DESC items_sold, then ASC person — check DESC part
             if let Some(prev) = last_items {
@@ -453,7 +487,11 @@ pub mod fixtures {
 
         let grand_sql = r#"SELECT SUM(quantity) AS total_qty FROM OrderItems"#;
         let grand_rows = db.query(grand_sql).expect("grand total query should run");
-        assert_eq!(grand_rows.len(), 1, "grand total query should return one row");
+        assert_eq!(
+            grand_rows.len(),
+            1,
+            "grand total query should return one row"
+        );
         let total_qty = grand_rows[0]
             .get("total_qty")
             .and_then(|v| v.as_f64())
@@ -510,7 +548,11 @@ pub mod fixtures {
         assert_eq!(r0.get("city").unwrap(), "Lisboa");
         assert_eq!(i64_of(r0.get("people").unwrap()), 4);
         let avg0 = f64_of(r0.get("avg_age").unwrap());
-        assert!((avg0 - 34.75).abs() < 1e-9, "Lisboa avg_age expected 34.75, got {}", avg0);
+        assert!(
+            (avg0 - 34.75).abs() < 1e-9,
+            "Lisboa avg_age expected 34.75, got {}",
+            avg0
+        );
         assert_eq!(i64_of(r0.get("min_age").unwrap()), 30);
         assert_eq!(i64_of(r0.get("max_age").unwrap()), 39);
 
@@ -519,7 +561,11 @@ pub mod fixtures {
         assert_eq!(r1.get("city").unwrap(), "Porto");
         assert_eq!(i64_of(r1.get("people").unwrap()), 3);
         let avg1 = f64_of(r1.get("avg_age").unwrap());
-        assert!((avg1 - 34.666_666_666_7).abs() < 1e-9, "Porto avg_age expected ~34.6667, got {}", avg1);
+        assert!(
+            (avg1 - 34.666_666_666_7).abs() < 1e-9,
+            "Porto avg_age expected ~34.6667, got {}",
+            avg1
+        );
         assert_eq!(i64_of(r1.get("min_age").unwrap()), 28);
         assert_eq!(i64_of(r1.get("max_age").unwrap()), 47);
 
@@ -528,13 +574,21 @@ pub mod fixtures {
         assert_eq!(r2.get("city").unwrap(), "Braga");
         assert_eq!(i64_of(r2.get("people").unwrap()), 2);
         let avg2 = f64_of(r2.get("avg_age").unwrap());
-        assert!((avg2 - 34.0).abs() < 1e-9, "Braga avg_age expected 34.0, got {}", avg2);
+        assert!(
+            (avg2 - 34.0).abs() < 1e-9,
+            "Braga avg_age expected 34.0, got {}",
+            avg2
+        );
         assert_eq!(i64_of(r2.get("min_age").unwrap()), 27);
         assert_eq!(i64_of(r2.get("max_age").unwrap()), 41);
     }
 
-    fn as_i64(v: &Value) -> i64 { v.as_i64().expect("expected integer") }
-    fn as_str(v: &Value) -> &str { v.as_str().expect("expected string") }
+    fn as_i64(v: &Value) -> i64 {
+        v.as_i64().expect("expected integer")
+    }
+    fn as_str(v: &Value) -> &str {
+        v.as_str().expect("expected string")
+    }
 
     #[test]
     fn report_top_categories_by_city_complex_joins() {
@@ -592,23 +646,37 @@ pub mod fixtures {
             let city = as_str(obj.get("city").unwrap()).to_string();
             let category = as_str(obj.get("category").unwrap());
             let orders = as_i64(obj.get("orders").unwrap());
-            let items  = as_i64(obj.get("items").unwrap());
+            let items = as_i64(obj.get("items").unwrap());
 
             // Domain checks
-            assert!(city == "Porto" || city == "Lisboa", "unexpected city: {}", city);
+            assert!(
+                city == "Porto" || city == "Lisboa",
+                "unexpected city: {}",
+                city
+            );
             assert!(!category.is_empty(), "category should be non-empty");
             assert!(orders >= 1, "HAVING + join implies at least one order");
-            assert!(items  >= 1, "HAVING SUM(oi.quantity) >= 1");
+            assert!(items >= 1, "HAVING SUM(oi.quantity) >= 1");
 
             // ORDER BY city ASC
             if let Some(prev) = &prev_city {
-                assert!(prev <= &city, "rows must be ordered by city ASC ({} <= {})", prev, city);
+                assert!(
+                    prev <= &city,
+                    "rows must be ordered by city ASC ({} <= {})",
+                    prev,
+                    city
+                );
                 if prev == &city {
                     // Within same city: items must be DESC
                     if let Some(prev_items) = prev_items_for_city {
-                        assert!(prev_items >= items,
+                        assert!(
+                            prev_items >= items,
                             "within city {}, items must be non-increasing ({} >= {}), row {}",
-                            city, prev_items, items, i);
+                            city,
+                            prev_items,
+                            items,
+                            i
+                        );
                     }
                 } else {
                     // New city segment: reset the per-city tracker
@@ -619,5 +687,4 @@ pub mod fixtures {
             prev_items_for_city = Some(prev_items_for_city.map_or(items, |p| p.min(items))); // track last (DESC)
         }
     }
-
 }

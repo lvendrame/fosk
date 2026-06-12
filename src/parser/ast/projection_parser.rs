@@ -1,4 +1,4 @@
-use crate::parser::{ast::Identifier, ParseError, Phase, QueryParser};
+use crate::parser::{ParseError, Phase, QueryParser, ast::Identifier};
 
 pub struct ProjectionParser;
 
@@ -58,7 +58,7 @@ impl ProjectionParser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::ProjectionParser, QueryParser};
+    use crate::parser::{QueryParser, ast::ProjectionParser};
 
     #[test]
     pub fn test_projection() {
@@ -120,7 +120,7 @@ column as alias FROM table"#;
                 assert_eq!(err.text, "F");
                 assert_eq!(err.start, 14);
                 assert_eq!(err.end, 14);
-            },
+            }
         }
     }
 
@@ -138,7 +138,7 @@ column as alias FROM table"#;
                 assert_eq!(err.text, ", ,");
                 assert_eq!(err.start, 27);
                 assert_eq!(err.end, 29);
-            },
+            }
         }
     }
 
@@ -156,7 +156,7 @@ column as alias FROM table"#;
                 assert_eq!(err.text, "");
                 assert_eq!(err.start, 44);
                 assert_eq!(err.end, 44);
-            },
+            }
         }
     }
 
@@ -174,7 +174,7 @@ column as alias FROM table"#;
                 assert_eq!(err.text, ", F");
                 assert_eq!(err.start, 44);
                 assert_eq!(err.end, 46);
-            },
+            }
         }
     }
 }

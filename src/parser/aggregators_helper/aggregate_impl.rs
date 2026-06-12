@@ -1,8 +1,11 @@
-use crate::{parser::{
-    aggregators_helper::Accumulator,
-    analyzer::{AnalysisContext, AnalyzerError},
-    ast::Function
-}, JsonPrimitive};
+use crate::{
+    JsonPrimitive,
+    parser::{
+        aggregators_helper::Accumulator,
+        analyzer::{AnalysisContext, AnalyzerError},
+        ast::Function,
+    },
+};
 
 /// Per-aggregate metadata + factory.
 /// One instance is registered globally per function name.
@@ -14,10 +17,16 @@ pub trait AggregateImpl: Send + Sync {
     /// Type inference for this function.
     /// - args are as in the parsed Function (qualified & folded already).
     /// - return (type, nullable)
-    fn infer_type(&self, fun: &Function, ctx: &AnalysisContext) -> Result<(JsonPrimitive, bool), AnalyzerError>;
+    fn infer_type(
+        &self,
+        fun: &Function,
+        ctx: &AnalysisContext,
+    ) -> Result<(JsonPrimitive, bool), AnalyzerError>;
 
     /// Whether constant folding is allowed for this aggregate (usually false).
-    fn allow_fold(&self) -> bool { false }
+    fn allow_fold(&self) -> bool {
+        false
+    }
 
     /// Create a fresh accumulator instance for one group.
     fn create_accumulator(&self) -> Box<dyn Accumulator>;

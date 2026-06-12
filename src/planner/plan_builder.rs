@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     parser::{
-        analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzedSource, AnalyzerError},
+        analyzer::{
+            AggregateResolver, AnalyzedIdentifier, AnalyzedQuery, AnalyzedSource, AnalyzerError,
+        },
         ast::{Column, JoinType, OrderBy, Predicate, ScalarExpr, Truth},
     },
     planner::{aggregate_call::AggregateCall, logical_plan::LogicalPlan},

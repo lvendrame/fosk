@@ -3,7 +3,7 @@ use crate::parser::ast::Column;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ColumnKey {
     pub column: String,
-    pub name: String
+    pub name: String,
 }
 
 impl ColumnKey {
@@ -15,7 +15,7 @@ impl ColumnKey {
             },
             Column::Name { name } => Self {
                 column: String::new(),
-                name: name.clone()
+                name: name.clone(),
             },
         }
     }
@@ -24,14 +24,19 @@ impl ColumnKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashSet, HashMap};
+    use std::collections::{HashMap, HashSet};
 
     // Helper to build columns quickly
     fn col_wc(coll: &str, name: &str) -> Column {
-        Column::WithCollection { collection: coll.to_string(), name: name.to_string() }
+        Column::WithCollection {
+            collection: coll.to_string(),
+            name: name.to_string(),
+        }
     }
     fn col_name(name: &str) -> Column {
-        Column::Name { name: name.to_string() }
+        Column::Name {
+            name: name.to_string(),
+        }
     }
 
     #[test]
@@ -52,8 +57,14 @@ mod tests {
 
     #[test]
     fn equality_and_hash_same_values_are_equal() {
-        let k1 = ColumnKey { column: "t".into(), name: "a".into() };
-        let k2 = ColumnKey { column: "t".into(), name: "a".into() };
+        let k1 = ColumnKey {
+            column: "t".into(),
+            name: "a".into(),
+        };
+        let k2 = ColumnKey {
+            column: "t".into(),
+            name: "a".into(),
+        };
         assert_eq!(k1, k2);
 
         // HashSet behavior

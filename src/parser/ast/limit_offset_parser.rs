@@ -1,4 +1,7 @@
-use crate::parser::{ast::{Literal, ScalarExpr}, ParseError, QueryParser};
+use crate::parser::{
+    ParseError, QueryParser,
+    ast::{Literal, ScalarExpr},
+};
 
 pub struct LimitAndOffsetParser;
 
@@ -13,17 +16,36 @@ impl LimitAndOffsetParser {
                 let value = ScalarExpr::parse(parser, false)?;
                 match value {
                     ScalarExpr::Literal(Literal::Int(value)) => limit = Some(value),
-                    _ => return ParseError::new("Invalid limit", parser.get_initial_sequence_pos(), parser).err(),
+                    _ => {
+                        return ParseError::new(
+                            "Invalid limit",
+                            parser.get_initial_sequence_pos(),
+                            parser,
+                        )
+                        .err();
+                    }
                 }
             } else if parser.comparers.offset.compare(parser) {
                 parser.jump(parser.comparers.offset.length);
                 let value = ScalarExpr::parse(parser, false)?;
                 match value {
                     ScalarExpr::Literal(Literal::Int(value)) => offset = Some(value),
-                    _ => return ParseError::new("Invalid offset", parser.get_initial_sequence_pos() , parser).err(),
+                    _ => {
+                        return ParseError::new(
+                            "Invalid offset",
+                            parser.get_initial_sequence_pos(),
+                            parser,
+                        )
+                        .err();
+                    }
                 }
             } else {
-                return ParseError::new("Invalid offset", parser.get_initial_sequence_pos() , parser).err();
+                return ParseError::new(
+                    "Invalid offset",
+                    parser.get_initial_sequence_pos(),
+                    parser,
+                )
+                .err();
             }
         }
 
@@ -33,7 +55,7 @@ impl LimitAndOffsetParser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{LimitAndOffsetParser}, QueryParser};
+    use crate::parser::{QueryParser, ast::LimitAndOffsetParser};
 
     #[test]
     pub fn test_limit() {
@@ -42,7 +64,8 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.check_next_phase();
 
-        let (limit, offset) = LimitAndOffsetParser::parse(&mut parser).expect("Failed to parse limit and offset");
+        let (limit, offset) =
+            LimitAndOffsetParser::parse(&mut parser).expect("Failed to parse limit and offset");
 
         assert_eq!(limit.unwrap(), 10);
         assert!(offset.is_none());
@@ -55,7 +78,8 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.check_next_phase();
 
-        let (limit, offset) = LimitAndOffsetParser::parse(&mut parser).expect("Failed to parse limit and offset");
+        let (limit, offset) =
+            LimitAndOffsetParser::parse(&mut parser).expect("Failed to parse limit and offset");
 
         assert!(limit.is_none());
         assert_eq!(offset.unwrap(), 10);
@@ -68,7 +92,8 @@ mod tests {
         let mut parser = QueryParser::new(text);
         parser.check_next_phase();
 
-        let (limit, offset) = LimitAndOffsetParser::parse(&mut parser).expect("Failed to parse limit and offset");
+        let (limit, offset) =
+            LimitAndOffsetParser::parse(&mut parser).expect("Failed to parse limit and offset");
 
         assert_eq!(limit.unwrap(), 30);
         assert_eq!(offset.unwrap(), 20);
@@ -89,7 +114,7 @@ mod tests {
                 assert_eq!(err.text, "AB");
                 assert_eq!(err.start, 16);
                 assert_eq!(err.end, 18);
-            },
+            }
         }
     }
 
@@ -108,7 +133,7 @@ mod tests {
                 assert_eq!(err.text, "3");
                 assert_eq!(err.start, 10);
                 assert_eq!(err.end, 10);
-            },
+            }
         }
     }
 
@@ -127,7 +152,7 @@ mod tests {
                 assert_eq!(err.text, "G");
                 assert_eq!(err.start, 19);
                 assert_eq!(err.end, 19);
-            },
+            }
         }
     }
 }

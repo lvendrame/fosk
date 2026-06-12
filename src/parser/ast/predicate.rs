@@ -1,4 +1,7 @@
-use crate::parser::{ast::{ArgsExpr, ComparatorOp, ScalarExpr, Truth}, ParseError, QueryParser};
+use crate::parser::{
+    ParseError, QueryParser,
+    ast::{ArgsExpr, ComparatorOp, ScalarExpr, Truth},
+};
 
 #[derive(Clone, PartialEq)]
 pub enum Predicate {
@@ -7,10 +10,25 @@ pub enum Predicate {
     //Not(Box<Predicate>),
 
     // Predicates that *embed* scalars:
-    Compare { left: ScalarExpr, op: ComparatorOp, right: ScalarExpr }, // =, <, <=, >, >=, <>, !=
-    IsNull  { expr: ScalarExpr, negated: bool },
-    InList  { expr: ScalarExpr, list: Vec<ScalarExpr>, negated: bool },
-    Like    { expr: ScalarExpr, pattern: ScalarExpr, negated: bool },
+    Compare {
+        left: ScalarExpr,
+        op: ComparatorOp,
+        right: ScalarExpr,
+    }, // =, <, <=, >, >=, <>, !=
+    IsNull {
+        expr: ScalarExpr,
+        negated: bool,
+    },
+    InList {
+        expr: ScalarExpr,
+        list: Vec<ScalarExpr>,
+        negated: bool,
+    },
+    Like {
+        expr: ScalarExpr,
+        pattern: ScalarExpr,
+        negated: bool,
+    },
 
     Const3(Truth),
 }
@@ -20,8 +38,10 @@ impl Predicate {
         parser.comparers.on.compare(parser)
     }
 
-    pub fn parse_single(parser: &mut QueryParser, allow_wildcard: bool) -> Result<Self, ParseError> {
-
+    pub fn parse_single(
+        parser: &mut QueryParser,
+        allow_wildcard: bool,
+    ) -> Result<Self, ParseError> {
         let left = ScalarExpr::parse(parser, allow_wildcard)?;
 
         parser.next_non_whitespace();
@@ -38,26 +58,40 @@ impl Predicate {
 
         if parser.comparers.is_null.compare(parser) {
             parser.jump(parser.comparers.is_null.length);
-            return Ok(Self::IsNull { expr: left, negated: false });
+            return Ok(Self::IsNull {
+                expr: left,
+                negated: false,
+            });
         }
 
         if parser.comparers.is_not_null.compare(parser) {
             parser.jump(parser.comparers.is_not_null.length);
-            return Ok(Self::IsNull { expr: left, negated: true });
+            return Ok(Self::IsNull {
+                expr: left,
+                negated: true,
+            });
         }
 
         if parser.comparers.r#in.compare(parser) {
             parser.jump(parser.comparers.r#in.length);
             parser.next_non_whitespace();
             let args_expr = ArgsExpr::parse(parser, allow_wildcard)?;
-            return Ok(Self::InList { expr: left, list: args_expr.args, negated: false });
+            return Ok(Self::InList {
+                expr: left,
+                list: args_expr.args,
+                negated: false,
+            });
         }
 
         if parser.comparers.not_in.compare(parser) {
             parser.jump(parser.comparers.not_in.length);
             parser.next_non_whitespace();
             let args_expr = ArgsExpr::parse(parser, allow_wildcard)?;
-            return Ok(Self::InList { expr: left, list: args_expr.args, negated: true });
+            return Ok(Self::InList {
+                expr: left,
+                list: args_expr.args,
+                negated: true,
+            });
         }
 
         if parser.comparers.like.compare(parser) {
@@ -65,7 +99,11 @@ impl Predicate {
             parser.next_non_whitespace();
 
             let pattern = ScalarExpr::parse(parser, false)?;
-            return Ok(Self::Like { expr: left, pattern, negated: false });
+            return Ok(Self::Like {
+                expr: left,
+                pattern,
+                negated: false,
+            });
         }
 
         if parser.comparers.not_like.compare(parser) {
@@ -73,18 +111,26 @@ impl Predicate {
             parser.next_non_whitespace();
 
             let pattern = ScalarExpr::parse(parser, true)?;
-            return Ok(Self::Like { expr: left, pattern, negated: false });
+            return Ok(Self::Like {
+                expr: left,
+                pattern,
+                negated: false,
+            });
         }
 
         ParseError::new("Invalid predicate", pivot, parser).err()
     }
 
-    pub fn parse_all(parser: &mut QueryParser, allow_wildcard: bool, depth: i8) -> Result<Self, ParseError> {
+    pub fn parse_all(
+        parser: &mut QueryParser,
+        allow_wildcard: bool,
+        depth: i8,
+    ) -> Result<Self, ParseError> {
         let mut pivot = parser.position;
         let mut predicates: Vec<Predicate> = vec![];
         let mut and = false;
         let mut or = false;
-        while (!parser.check_next_phase()) && (depth == 0 || parser.current() != ')')   {
+        while (!parser.check_next_phase()) && (depth == 0 || parser.current() != ')') {
             predicates.push(Self::parse_single(parser, allow_wildcard)?);
             parser.next_non_whitespace();
 
@@ -145,23 +191,55 @@ impl fmt::Display for Predicate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Predicate::And(items) => {
-                let s = items.iter().map(|p| format!("{}", p)).collect::<Vec<_>>().join(" AND ");
+                let s = items
+                    .iter()
+                    .map(|p| format!("{}", p))
+                    .collect::<Vec<_>>()
+                    .join(" AND ");
                 write!(f, "({})", s)
             }
             Predicate::Or(items) => {
-                let s = items.iter().map(|p| format!("{}", p)).collect::<Vec<_>>().join(" OR ");
+                let s = items
+                    .iter()
+                    .map(|p| format!("{}", p))
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
                 write!(f, "({})", s)
             }
             Predicate::Compare { left, op, right } => write!(f, "{} {} {}", left, op, right),
             Predicate::IsNull { expr, negated } => {
-                if *negated { write!(f, "{} IS NOT NULL", expr) } else { write!(f, "{} IS NULL", expr) }
+                if *negated {
+                    write!(f, "{} IS NOT NULL", expr)
+                } else {
+                    write!(f, "{} IS NULL", expr)
+                }
             }
-            Predicate::InList { expr, list, negated } => {
-                let items = list.iter().map(|s| format!("{}", s)).collect::<Vec<_>>().join(", ");
-                if *negated { write!(f, "{} NOT IN [{}]", expr, items) } else { write!(f, "{} IN [{}]", expr, items) }
+            Predicate::InList {
+                expr,
+                list,
+                negated,
+            } => {
+                let items = list
+                    .iter()
+                    .map(|s| format!("{}", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if *negated {
+                    write!(f, "{} NOT IN [{}]", expr, items)
+                } else {
+                    write!(f, "{} IN [{}]", expr, items)
+                }
             }
-            Predicate::Like { expr, pattern, negated } => {
-                if *negated { write!(f, "{} NOT LIKE {}", expr, pattern) } else { write!(f, "{} LIKE {}", expr, pattern) }
+            Predicate::Like {
+                expr,
+                pattern,
+                negated,
+            } => {
+                if *negated {
+                    write!(f, "{} NOT LIKE {}", expr, pattern)
+                } else {
+                    write!(f, "{} LIKE {}", expr, pattern)
+                }
             }
             Predicate::Const3(t) => write!(f, "{}", t),
         }
@@ -176,7 +254,10 @@ impl fmt::Debug for Predicate {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{ComparatorOp, Literal, Predicate, ScalarExpr, Truth}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{ComparatorOp, Literal, Predicate, ScalarExpr, Truth},
+    };
 
     #[test]
     pub fn test_predicate_single_equal() {
@@ -184,10 +265,15 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::Eq),
+            Predicate::Compare {
+                left: _,
+                op,
+                right: _,
+            } => assert_eq!(op, ComparatorOp::Eq),
             _ => panic!(),
         };
     }
@@ -198,10 +284,15 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::NotEq),
+            Predicate::Compare {
+                left: _,
+                op,
+                right: _,
+            } => assert_eq!(op, ComparatorOp::NotEq),
             _ => panic!(),
         };
     }
@@ -212,10 +303,15 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::NotEq),
+            Predicate::Compare {
+                left: _,
+                op,
+                right: _,
+            } => assert_eq!(op, ComparatorOp::NotEq),
             _ => panic!(),
         };
     }
@@ -226,10 +322,15 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::Lt),
+            Predicate::Compare {
+                left: _,
+                op,
+                right: _,
+            } => assert_eq!(op, ComparatorOp::Lt),
             _ => panic!(),
         };
     }
@@ -240,10 +341,15 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::LtEq),
+            Predicate::Compare {
+                left: _,
+                op,
+                right: _,
+            } => assert_eq!(op, ComparatorOp::LtEq),
             _ => panic!(),
         };
     }
@@ -254,10 +360,15 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::Gt),
+            Predicate::Compare {
+                left: _,
+                op,
+                right: _,
+            } => assert_eq!(op, ComparatorOp::Gt),
             _ => panic!(),
         };
     }
@@ -268,10 +379,15 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::Compare { left: _, op, right: _ } => assert_eq!(op, ComparatorOp::GtEq),
+            Predicate::Compare {
+                left: _,
+                op,
+                right: _,
+            } => assert_eq!(op, ComparatorOp::GtEq),
             _ => panic!(),
         };
     }
@@ -282,7 +398,8 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::IsNull { expr: _, negated } => assert!(!negated),
@@ -296,7 +413,8 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
             Predicate::IsNull { expr: _, negated } => assert!(negated),
@@ -310,13 +428,18 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::InList { expr: _, list, negated } => {
+            Predicate::InList {
+                expr: _,
+                list,
+                negated,
+            } => {
                 assert_eq!(list.len(), 3);
                 assert!(!negated);
-            },
+            }
             _ => panic!(),
         };
     }
@@ -327,13 +450,18 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::InList { expr: _, list, negated } => {
+            Predicate::InList {
+                expr: _,
+                list,
+                negated,
+            } => {
                 assert_eq!(list.len(), 3);
                 assert!(negated);
-            },
+            }
             _ => panic!(),
         };
     }
@@ -344,10 +472,15 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::Like { expr: _, pattern: _, negated } => assert!(!negated),
+            Predicate::Like {
+                expr: _,
+                pattern: _,
+                negated,
+            } => assert!(!negated),
             _ => panic!(),
         };
     }
@@ -358,10 +491,15 @@ mod tests {
 
         let mut parser = QueryParser::new(text);
 
-        let result = Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
+        let result =
+            Predicate::parse_single(&mut parser, false).expect("Failed to parse predicate");
 
         match result {
-            Predicate::Like { expr: _, pattern: _, negated } => assert!(!negated),
+            Predicate::Like {
+                expr: _,
+                pattern: _,
+                negated,
+            } => assert!(!negated),
             _ => panic!(),
         };
     }
@@ -380,7 +518,7 @@ mod tests {
                 assert_eq!(err.text, "=");
                 assert_eq!(err.start, 8);
                 assert_eq!(err.end, 8);
-            },
+            }
         };
     }
 
@@ -398,7 +536,7 @@ mod tests {
                 assert_eq!(err.text, "");
                 assert_eq!(err.start, 11);
                 assert_eq!(err.end, 11);
-            },
+            }
         };
     }
 
@@ -444,7 +582,7 @@ mod tests {
                 assert_eq!(err.text, "");
                 assert_eq!(err.start, 66);
                 assert_eq!(err.end, 66);
-            },
+            }
         };
     }
 
@@ -462,7 +600,7 @@ mod tests {
                 assert_eq!(err.text, "F");
                 assert_eq!(err.start, 62);
                 assert_eq!(err.end, 62);
-            },
+            }
         };
     }
 
@@ -480,7 +618,7 @@ mod tests {
                 assert_eq!(err.text, ")");
                 assert_eq!(err.start, 60);
                 assert_eq!(err.end, 60);
-            },
+            }
         };
     }
 
@@ -498,7 +636,7 @@ mod tests {
                 assert_eq!(err.text, "c");
                 assert_eq!(err.start, 26);
                 assert_eq!(err.end, 26);
-            },
+            }
         };
     }
 
@@ -508,7 +646,9 @@ mod tests {
 
     #[test]
     fn is_start_detects_on_keyword() {
-        assert!(Predicate::is_start(&QueryParser::new("ON people.id = orders.person_id")));
+        assert!(Predicate::is_start(&QueryParser::new(
+            "ON people.id = orders.person_id"
+        )));
         assert!(!Predicate::is_start(&QueryParser::new("WHERE id = 1")));
     }
 
@@ -519,8 +659,14 @@ mod tests {
             op: ComparatorOp::Eq,
             right: int(2),
         };
-        let is_null = Predicate::IsNull { expr: int(1), negated: false };
-        let is_not_null = Predicate::IsNull { expr: int(1), negated: true };
+        let is_null = Predicate::IsNull {
+            expr: int(1),
+            negated: false,
+        };
+        let is_not_null = Predicate::IsNull {
+            expr: int(1),
+            negated: true,
+        };
         let in_list = Predicate::InList {
             expr: int(1),
             list: vec![int(1), int(2)],
@@ -549,11 +695,20 @@ mod tests {
         assert_eq!(is_null.to_string(), "lit: i: 1 IS NULL");
         assert_eq!(is_not_null.to_string(), "lit: i: 1 IS NOT NULL");
         assert_eq!(in_list.to_string(), "lit: i: 1 IN [lit: i: 1, lit: i: 2]");
-        assert_eq!(not_in.to_string(), "lit: i: 1 NOT IN [lit: i: 1, lit: i: 2]");
+        assert_eq!(
+            not_in.to_string(),
+            "lit: i: 1 NOT IN [lit: i: 1, lit: i: 2]"
+        );
         assert_eq!(like.to_string(), "lit: i: 1 LIKE lit: s: \"%a%\"");
         assert_eq!(not_like.to_string(), "lit: i: 1 NOT LIKE lit: s: \"%a%\"");
-        assert_eq!(and.to_string(), "(lit: i: 1 = lit: i: 2 AND lit: i: 1 IS NULL)");
-        assert_eq!(or.to_string(), "(lit: i: 1 = lit: i: 2 OR lit: i: 1 IS NOT NULL)");
+        assert_eq!(
+            and.to_string(),
+            "(lit: i: 1 = lit: i: 2 AND lit: i: 1 IS NULL)"
+        );
+        assert_eq!(
+            or.to_string(),
+            "(lit: i: 1 = lit: i: 2 OR lit: i: 1 IS NOT NULL)"
+        );
         assert_eq!(truth.to_string(), "Unknown");
         assert_eq!(format!("{:?}", truth), "Predicate(Unknown)");
     }

@@ -1,4 +1,4 @@
-use crate::parser::{ast::Literal, ParseError, QueryParser, WordComparer};
+use crate::parser::{ParseError, QueryParser, WordComparer, ast::Literal};
 
 pub struct StringParser;
 
@@ -38,7 +38,10 @@ impl StringParser {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::{Literal, StringParser}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{Literal, StringParser},
+    };
 
     #[test]
     pub fn test_string_parser() {
@@ -105,7 +108,7 @@ pub mod tests {
                 assert_eq!(err.text, "lets\r");
                 assert_eq!(err.start, 1);
                 assert_eq!(err.end, 5);
-            },
+            }
         }
     }
 }

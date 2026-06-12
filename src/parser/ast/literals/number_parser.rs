@@ -1,4 +1,4 @@
-use crate::parser::{ast::Literal, ParseError, QueryParser, WordComparer};
+use crate::parser::{ParseError, QueryParser, WordComparer, ast::Literal};
 
 pub struct NumberParser;
 
@@ -29,10 +29,19 @@ impl NumberParser {
 
         let number = parser.text_from_pivot(pivot);
         let number = match is_float {
-            true => Literal::Float(ordered_float::NotNan::new(
-                number.parse::<f64>().map_err(|_| ParseError::new("Invalid number", pivot, parser))?
-            ).map_err(|_| ParseError::new("Invalid number (NaN)", pivot, parser))?),
-            false => Literal::Int(number.parse::<i64>().map_err(|_| ParseError::new("Invalid number", pivot, parser))?),
+            true => Literal::Float(
+                ordered_float::NotNan::new(
+                    number
+                        .parse::<f64>()
+                        .map_err(|_| ParseError::new("Invalid number", pivot, parser))?,
+                )
+                .map_err(|_| ParseError::new("Invalid number (NaN)", pivot, parser))?,
+            ),
+            false => Literal::Int(
+                number
+                    .parse::<i64>()
+                    .map_err(|_| ParseError::new("Invalid number", pivot, parser))?,
+            ),
         };
 
         Ok(number)
@@ -41,7 +50,10 @@ impl NumberParser {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::{ast::{Literal, NumberParser}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{Literal, NumberParser},
+    };
 
     #[test]
     pub fn test_number_parser_int() {
@@ -227,7 +239,7 @@ pub mod tests {
                 assert_eq!(err.text, "32a");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 2);
-            },
+            }
         }
     }
 }

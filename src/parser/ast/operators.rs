@@ -7,7 +7,7 @@ pub enum ComparatorOp {
     Lt,
     LtEq,
     Gt,
-    GtEq
+    GtEq,
 }
 
 use std::fmt;
@@ -38,7 +38,9 @@ impl ComparatorOp {
             return Some(ComparatorOp::Eq);
         }
 
-        if parser.comparers.not_equal_b.compare(parser) || parser.comparers.not_equal_c.compare(parser) {
+        if parser.comparers.not_equal_b.compare(parser)
+            || parser.comparers.not_equal_c.compare(parser)
+        {
             parser.jump(parser.comparers.not_equal_b.length);
             return Some(ComparatorOp::NotEq);
         }
@@ -72,7 +74,7 @@ pub enum ArithmeticOp {
     Add,
     Sub,
     Mul,
-    Div
+    Div,
 }
 
 #[cfg(test)]

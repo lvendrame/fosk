@@ -7,7 +7,13 @@
 // HAVING COUNT(*) > 3
 // ORDER BY b.description DESC V
 
-use crate::parser::{ast::{Collection, CollectionsParser, Column, GroupBy, HavingParser, Identifier, Join, LimitAndOffsetParser, OrderBy, Predicate, ProjectionParser, WhereParser}, ParseError, Phase, QueryParser};
+use crate::parser::{
+    ParseError, Phase, QueryParser,
+    ast::{
+        Collection, CollectionsParser, Column, GroupBy, HavingParser, Identifier, Join,
+        LimitAndOffsetParser, OrderBy, Predicate, ProjectionParser, WhereParser,
+    },
+};
 
 #[derive(Default, Clone, PartialEq)]
 pub struct Query {
@@ -41,7 +47,7 @@ impl Query {
                     let (limit, offset) = LimitAndOffsetParser::parse(parser)?;
                     query.limit = limit;
                     query.offset = offset;
-                },
+                }
                 Phase::EOF => todo!(),
             }
         }
@@ -63,16 +69,50 @@ use std::fmt;
 
 impl fmt::Display for Query {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let proj = self.projection.iter().map(|p| format!("{:?}", p)).collect::<Vec<_>>().join(", ");
-        let cols = self.collections.iter().map(|c| format!("{:?}", c)).collect::<Vec<_>>().join(", ");
-        let joins = self.joins.iter().map(|j| format!("{:?}", j)).collect::<Vec<_>>().join(", ");
-        let crit = match &self.criteria { Some(c) => format!("{:?}", c), None => "None".to_string() };
-        let group = self.group_by.iter().map(|g| format!("{:?}", g)).collect::<Vec<_>>().join(", ");
-        let having = match &self.having { Some(h) => format!("{:?}", h), None => "None".to_string() };
-        let order = self.order_by.iter().map(|o| format!("{:?}", o)).collect::<Vec<_>>().join(", ");
+        let proj = self
+            .projection
+            .iter()
+            .map(|p| format!("{:?}", p))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let cols = self
+            .collections
+            .iter()
+            .map(|c| format!("{:?}", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let joins = self
+            .joins
+            .iter()
+            .map(|j| format!("{:?}", j))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let crit = match &self.criteria {
+            Some(c) => format!("{:?}", c),
+            None => "None".to_string(),
+        };
+        let group = self
+            .group_by
+            .iter()
+            .map(|g| format!("{:?}", g))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let having = match &self.having {
+            Some(h) => format!("{:?}", h),
+            None => "None".to_string(),
+        };
+        let order = self
+            .order_by
+            .iter()
+            .map(|o| format!("{:?}", o))
+            .collect::<Vec<_>>()
+            .join(", ");
 
-        write!(f, "Query(projection=[{}], collections=[{}], joins=[{}], criteria={}, group_by=[{}], having={}, order_by=[{}], limit={:?}, offset={:?})",
-               proj, cols, joins, crit, group, having, order, self.limit, self.offset)
+        write!(
+            f,
+            "Query(projection=[{}], collections=[{}], joins=[{}], criteria={}, group_by=[{}], having={}, order_by=[{}], limit={:?}, offset={:?})",
+            proj, cols, joins, crit, group, having, order, self.limit, self.offset
+        )
     }
 }
 

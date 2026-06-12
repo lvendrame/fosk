@@ -1,13 +1,21 @@
-use crate::parser::{ast::{Query, TextCollector}, ParseError, QueryParser};
+use crate::parser::{
+    ParseError, QueryParser,
+    ast::{Query, TextCollector},
+};
 
 #[derive(Clone, PartialEq)]
 pub enum Collection {
-    Table { name: String, alias: Option<String> },
-    Query { query: Box<Query>, alias: Option<String> },
+    Table {
+        name: String,
+        alias: Option<String>,
+    },
+    Query {
+        query: Box<Query>,
+        alias: Option<String>,
+    },
 }
 
 impl Collection {
-
     pub fn parse(parser: &mut QueryParser) -> Result<Collection, ParseError> {
         parser.next_non_whitespace();
         if parser.current() == '(' {
@@ -17,7 +25,6 @@ impl Collection {
         let name = TextCollector::collect_with_stopper(parser, |current| current == '.')?;
 
         parser.next_non_whitespace();
-
 
         let mut alias: Option<String> = None;
         let next_phase = parser.check_next_phase();
@@ -30,7 +37,6 @@ impl Collection {
         }
 
         parser.next_non_whitespace();
-
 
         let next_phase = next_phase || parser.check_next_phase();
 
@@ -127,7 +133,7 @@ impl fmt::Display for Collection {
                 } else {
                     write!(f, "Query")
                 }
-            },
+            }
         }
     }
 }
@@ -140,7 +146,7 @@ impl fmt::Debug for Collection {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::Collection, QueryParser};
+    use crate::parser::{QueryParser, ast::Collection};
 
     #[test]
     pub fn test_collection() {
@@ -154,7 +160,7 @@ mod tests {
             Collection::Table { name, alias } => {
                 assert_eq!(name, "table");
                 assert_eq!(alias, None);
-            },
+            }
             Collection::Query { .. } => panic!(),
         }
     }
@@ -171,7 +177,7 @@ mod tests {
             Collection::Table { name, alias } => {
                 assert_eq!(name, "table");
                 assert_eq!(alias.unwrap(), "a");
-            },
+            }
             Collection::Query { .. } => panic!(),
         }
     }
@@ -188,7 +194,7 @@ mod tests {
             Collection::Table { name, alias } => {
                 assert_eq!(name, "table");
                 assert_eq!(alias.as_deref(), Some("a"));
-            },
+            }
             Collection::Query { .. } => panic!(),
         }
     }
@@ -205,7 +211,7 @@ mod tests {
             Collection::Table { name, alias } => {
                 assert_eq!(name, "table");
                 assert_eq!(alias.unwrap(), "a");
-            },
+            }
             Collection::Query { .. } => panic!(),
         }
     }
@@ -222,7 +228,7 @@ mod tests {
             Collection::Table { name, alias } => {
                 assert_eq!(name, "table");
                 assert_eq!(alias.unwrap(), "a");
-            },
+            }
             Collection::Query { .. } => panic!(),
         }
     }
@@ -239,7 +245,7 @@ mod tests {
             Collection::Table { name, alias } => {
                 assert_eq!(name, "table");
                 assert_eq!(alias.unwrap(), "a");
-            },
+            }
             Collection::Query { .. } => panic!(),
         }
     }
@@ -258,7 +264,7 @@ mod tests {
                 assert_eq!(err.text, "w");
                 assert_eq!(err.start, 8);
                 assert_eq!(err.end, 8);
-            },
+            }
         }
     }
 
@@ -313,7 +319,7 @@ mod tests {
                 assert_eq!(alias.as_deref(), Some("p"));
                 assert_eq!(query.projection.len(), 1);
                 assert_eq!(query.collections.len(), 1);
-            },
+            }
             other => panic!("expected query collection, got {other:?}"),
         }
     }
@@ -328,7 +334,7 @@ mod tests {
             Collection::Query { query, alias } => {
                 assert_eq!(alias.as_deref(), Some("p"));
                 assert_eq!(query.collections.len(), 1);
-            },
+            }
             other => panic!("expected query collection, got {other:?}"),
         }
     }
@@ -366,20 +372,24 @@ mod tests {
 
         let result = Collection::parse(&mut parser);
 
-        assert!(result.is_err(), "unexpected token after subquery alias should fail");
+        assert!(
+            result.is_err(),
+            "unexpected token after subquery alias should fail"
+        );
     }
 
     #[test]
     fn subquery_collector_ignores_parentheses_inside_string_literals() {
         let mut parser = QueryParser::new(r#"(SELECT ")" AS marker FROM people) p"#);
 
-        let result = Collection::parse(&mut parser).expect("quoted paren should not close subquery");
+        let result =
+            Collection::parse(&mut parser).expect("quoted paren should not close subquery");
 
         match result {
             Collection::Query { query, alias } => {
                 assert_eq!(alias.as_deref(), Some("p"));
                 assert_eq!(query.projection[0].alias.as_deref(), Some("marker"));
-            },
+            }
             other => panic!("expected query collection, got {other:?}"),
         }
     }

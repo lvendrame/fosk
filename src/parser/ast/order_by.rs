@@ -1,4 +1,4 @@
-use crate::parser::{ast::ScalarExpr, ParseError, Phase, QueryParser};
+use crate::parser::{ParseError, Phase, QueryParser, ast::ScalarExpr};
 
 #[derive(Clone, PartialEq)]
 pub struct OrderBy {
@@ -11,19 +11,28 @@ impl OrderBy {
         let expr = ScalarExpr::parse(parser, false)?;
         parser.next_non_whitespace();
         if parser.current() == ',' || parser.check_next_phase() {
-            return Ok(Self { expr, ascending: true });
+            return Ok(Self {
+                expr,
+                ascending: true,
+            });
         }
 
         if parser.comparers.asc.compare(parser) {
             parser.jump(parser.comparers.asc.length);
             parser.check_next_phase();
-            return Ok(OrderBy { expr, ascending: true });
+            return Ok(OrderBy {
+                expr,
+                ascending: true,
+            });
         }
 
         if parser.comparers.desc.compare(parser) {
             parser.jump(parser.comparers.desc.length);
             parser.check_next_phase();
-            return Ok(OrderBy { expr, ascending: false });
+            return Ok(OrderBy {
+                expr,
+                ascending: false,
+            });
         }
 
         ParseError::new("Invalid order by", parser.position, parser).err()
@@ -79,7 +88,10 @@ impl fmt::Debug for OrderBy {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{Column, OrderBy, ScalarExpr}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{Column, OrderBy, ScalarExpr},
+    };
 
     #[test]
     pub fn test_order_by_single() {
@@ -92,14 +104,12 @@ mod tests {
         assert!(result.ascending);
 
         match result.expr {
-            ScalarExpr::Column(column) => {
-                match column {
-                    Column::WithCollection { collection, name } => {
-                        assert_eq!(collection, "tableA");
-                        assert_eq!(name, "columnA");
-                    },
-                    Column::Name { name: _ } => panic!(),
+            ScalarExpr::Column(column) => match column {
+                Column::WithCollection { collection, name } => {
+                    assert_eq!(collection, "tableA");
+                    assert_eq!(name, "columnA");
                 }
+                Column::Name { name: _ } => panic!(),
             },
             _ => panic!(),
         }
@@ -116,14 +126,12 @@ mod tests {
         assert!(result.ascending);
 
         match result.expr {
-            ScalarExpr::Column(column) => {
-                match column {
-                    Column::WithCollection { collection, name } => {
-                        assert_eq!(collection, "tableA");
-                        assert_eq!(name, "columnA");
-                    },
-                    Column::Name { name: _ } => panic!(),
+            ScalarExpr::Column(column) => match column {
+                Column::WithCollection { collection, name } => {
+                    assert_eq!(collection, "tableA");
+                    assert_eq!(name, "columnA");
                 }
+                Column::Name { name: _ } => panic!(),
             },
             _ => panic!(),
         }
@@ -140,13 +148,14 @@ mod tests {
         assert!(!result.ascending);
 
         match result.expr {
-            ScalarExpr::Column(column) => {
-                match column {
-                    Column::Name { name } => {
-                        assert_eq!(name, "columnA");
-                    },
-                    Column::WithCollection { collection: _, name: _ } => panic!(),
+            ScalarExpr::Column(column) => match column {
+                Column::Name { name } => {
+                    assert_eq!(name, "columnA");
                 }
+                Column::WithCollection {
+                    collection: _,
+                    name: _,
+                } => panic!(),
             },
             _ => panic!(),
         }
@@ -163,14 +172,12 @@ mod tests {
         assert!(result.ascending);
 
         match result.expr {
-            ScalarExpr::Column(column) => {
-                match column {
-                    Column::WithCollection { collection, name } => {
-                        assert_eq!(collection, "tableA");
-                        assert_eq!(name, "columnA");
-                    },
-                    Column::Name { name: _ } => panic!(),
+            ScalarExpr::Column(column) => match column {
+                Column::WithCollection { collection, name } => {
+                    assert_eq!(collection, "tableA");
+                    assert_eq!(name, "columnA");
                 }
+                Column::Name { name: _ } => panic!(),
             },
             _ => panic!(),
         }
@@ -187,14 +194,12 @@ mod tests {
         assert!(result.ascending);
 
         match result.expr {
-            ScalarExpr::Column(column) => {
-                match column {
-                    Column::WithCollection { collection, name } => {
-                        assert_eq!(collection, "tableA");
-                        assert_eq!(name, "columnA");
-                    },
-                    Column::Name { name: _ } => panic!(),
+            ScalarExpr::Column(column) => match column {
+                Column::WithCollection { collection, name } => {
+                    assert_eq!(collection, "tableA");
+                    assert_eq!(name, "columnA");
                 }
+                Column::Name { name: _ } => panic!(),
             },
             _ => panic!(),
         }
@@ -218,18 +223,18 @@ mod tests {
             assert_eq!(order_by.ascending, expected_order[i]);
 
             match &order_by.expr {
-                ScalarExpr::Column(column) => {
-                    match column {
-                        Column::Name { name } => {
-                            assert_eq!(name, expected_column[i]);
-                        },
-                        Column::WithCollection { collection: _, name: _ } => panic!(),
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name } => {
+                        assert_eq!(name, expected_column[i]);
                     }
+                    Column::WithCollection {
+                        collection: _,
+                        name: _,
+                    } => panic!(),
                 },
                 _ => panic!(),
             }
         }
-
     }
 
     #[test]
@@ -250,18 +255,18 @@ mod tests {
             assert_eq!(order_by.ascending, expected_order[i]);
 
             match &order_by.expr {
-                ScalarExpr::Column(column) => {
-                    match column {
-                        Column::Name { name } => {
-                            assert_eq!(name, expected_column[i]);
-                        },
-                        Column::WithCollection { collection: _, name: _ } => panic!(),
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name } => {
+                        assert_eq!(name, expected_column[i]);
                     }
+                    Column::WithCollection {
+                        collection: _,
+                        name: _,
+                    } => panic!(),
                 },
                 _ => panic!(),
             }
         }
-
     }
 
     #[test]
@@ -282,18 +287,18 @@ mod tests {
             assert_eq!(order_by.ascending, expected_order[i]);
 
             match &order_by.expr {
-                ScalarExpr::Column(column) => {
-                    match column {
-                        Column::Name { name } => {
-                            assert_eq!(name, expected_column[i]);
-                        },
-                        Column::WithCollection { collection: _, name: _ } => panic!(),
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name } => {
+                        assert_eq!(name, expected_column[i]);
                     }
+                    Column::WithCollection {
+                        collection: _,
+                        name: _,
+                    } => panic!(),
                 },
                 _ => panic!(),
             }
         }
-
     }
 
     #[test]
@@ -311,18 +316,22 @@ mod tests {
                 assert_eq!(err.text, "G");
                 assert_eq!(err.start, 22);
                 assert_eq!(err.end, 22);
-            },
+            }
         }
     }
 
     #[test]
     fn display_and_debug_format_direction() {
         let asc = OrderBy {
-            expr: ScalarExpr::Column(Column::Name { name: "age".to_string() }),
+            expr: ScalarExpr::Column(Column::Name {
+                name: "age".to_string(),
+            }),
             ascending: true,
         };
         let desc = OrderBy {
-            expr: ScalarExpr::Column(Column::Name { name: "age".to_string() }),
+            expr: ScalarExpr::Column(Column::Name {
+                name: "age".to_string(),
+            }),
             ascending: false,
         };
 

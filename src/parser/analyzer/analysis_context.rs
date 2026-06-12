@@ -5,12 +5,19 @@ use serde_json::Value;
 use crate::{
     database::{FieldInfo, SchemaDict, SchemaProvider},
     parser::{
-        aggregators_helper::AggregateRegistry, analyzer::{AggregateResolver, AnalyzedIdentifier, AnalyzedJoin, AnalyzedQuery, AnalyzedSource, AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, OrderByResolver, PredicateResolver, ScalarResolver, TypeInference}, ast::{Collection, Column, Query, ScalarExpr}
-    }
+        aggregators_helper::AggregateRegistry,
+        analyzer::{
+            AggregateResolver, AnalyzedIdentifier, AnalyzedJoin, AnalyzedQuery, AnalyzedSource,
+            AnalyzerError, ColumnKey, ColumnResolver, IdentifierResolver, OrderByResolver,
+            PredicateResolver, ScalarResolver, TypeInference,
+        },
+        ast::{Collection, Column, Query, ScalarExpr},
+    },
 };
 
 // Use a single shared default registry, safely.
-static DEFAULT_REGISTRY: Lazy<AggregateRegistry> = Lazy::new(AggregateRegistry::default_aggregate_registry);
+static DEFAULT_REGISTRY: Lazy<AggregateRegistry> =
+    Lazy::new(AggregateRegistry::default_aggregate_registry);
 
 pub struct AnalysisContext<'a> {
     /// map visible name -> underlying collection ref (alias or table)
@@ -109,11 +116,12 @@ impl<'a> AnalysisContext<'a> {
         Ok(ctx)
     }
 
-
     fn default_name_for_expr_in_analyzer(e: &ScalarExpr) -> String {
         match e {
-            ScalarExpr::Column(Column::WithCollection{ collection, name }) => format!("{}.{}", collection, name),
-            ScalarExpr::Column(Column::Name{ name }) => name.clone(),
+            ScalarExpr::Column(Column::WithCollection { collection, name }) => {
+                format!("{}.{}", collection, name)
+            }
+            ScalarExpr::Column(Column::Name { name }) => name.clone(),
             ScalarExpr::Function(f) => f.name.to_ascii_lowercase(),
             ScalarExpr::Literal(_) => "_lit".into(),
             ScalarExpr::WildCard | ScalarExpr::WildCardWithCollection(_) => "*".into(),
@@ -134,8 +142,12 @@ impl<'a> AnalysisContext<'a> {
                 a.clone()
             } else {
                 match &id.expression {
-                    ScalarExpr::Column(Column::WithCollection{ collection, name }) => {
-                        if !used.contains(name) { name.clone() } else { format!("{}.{}", collection, name) }
+                    ScalarExpr::Column(Column::WithCollection { collection, name }) => {
+                        if !used.contains(name) {
+                            name.clone()
+                        } else {
+                            format!("{}.{}", collection, name)
+                        }
                     }
                     _ => AnalysisContext::default_name_for_expr_in_analyzer(&id.expression),
                 }
@@ -211,15 +223,19 @@ impl<'a> AnalysisContext<'a> {
         // qualify + fold predicates
         let criteria_qualified = match &query.criteria {
             Some(predicate) => Some(PredicateResolver::qualify_predicate(predicate, &mut ctx)?),
-            None => None
+            None => None,
         };
-        let criteria = criteria_qualified.as_ref().map(PredicateResolver::fold_predicate);
+        let criteria = criteria_qualified
+            .as_ref()
+            .map(PredicateResolver::fold_predicate);
 
         let having_qualified = match &query.having {
             Some(predicate) => Some(PredicateResolver::qualify_predicate(predicate, &mut ctx)?),
-            None => None
+            None => None,
         };
-        let having = having_qualified.as_ref().map(PredicateResolver::fold_predicate);
+        let having = having_qualified
+            .as_ref()
+            .map(PredicateResolver::fold_predicate);
 
         // qualify group_by columns
         let mut group_by = Vec::with_capacity(query.group_by.len());
@@ -232,19 +248,27 @@ impl<'a> AnalysisContext<'a> {
 
         // detect aggregate query
         let is_agg_query = !group_by.is_empty()
-            || analyzed_proj.iter().any(|id| AggregateResolver::contains_aggregate(&id.expression))
-            || having_qualified.as_ref().is_some_and(AggregateResolver::predicate_contains_aggregate);
+            || analyzed_proj
+                .iter()
+                .any(|id| AggregateResolver::contains_aggregate(&id.expression))
+            || having_qualified
+                .as_ref()
+                .is_some_and(AggregateResolver::predicate_contains_aggregate);
 
         // If HAVING exists but no group-by and no aggregate anywhere, it's invalid
         if !is_agg_query && having_qualified.is_some() {
-            return Err(AnalyzerError::Other("HAVING without GROUP BY must reference an aggregate".into()));
+            return Err(AnalyzerError::Other(
+                "HAVING without GROUP BY must reference an aggregate".into(),
+            ));
         }
 
         // WHERE must not contain aggregates (check on qualified, pre-fold form)
         if let Some(pq) = &criteria_qualified
             && AggregateResolver::predicate_contains_aggregate(pq)
         {
-            return Err(AnalyzerError::Other("Aggregates are not allowed in WHERE".into()));
+            return Err(AnalyzerError::Other(
+                "Aggregates are not allowed in WHERE".into(),
+            ));
         }
 
         // Validate SELECT and HAVING in aggregate queries
@@ -259,21 +283,32 @@ impl<'a> AnalysisContext<'a> {
             if let Some(hv_q) = &having_qualified
                 && !AggregateResolver::predicate_uses_only_group_by_or_agg(hv_q, &group_set)
             {
-                return Err(AnalyzerError::Other("HAVING references columns not in GROUP BY and outside aggregates".into()));
+                return Err(AnalyzerError::Other(
+                    "HAVING references columns not in GROUP BY and outside aggregates".into(),
+                ));
             }
         }
 
         // ORDER BY resolution (aliases, positional indexes, qualification, folding, validation)
         // Decide if the query is an aggregate
-        let needs_agg =
-            !group_by.is_empty()
-            || analyzed_proj.iter().any(|id| AggregateResolver::contains_aggregate(&id.expression))
-            || having.as_ref().map(AggregateResolver::predicate_contains_aggregate).unwrap_or(false);
+        let needs_agg = !group_by.is_empty()
+            || analyzed_proj
+                .iter()
+                .any(|id| AggregateResolver::contains_aggregate(&id.expression))
+            || having
+                .as_ref()
+                .map(AggregateResolver::predicate_contains_aggregate)
+                .unwrap_or(false);
 
         // Resolve ORDER BY
         let order_by = if needs_agg {
             // existing path: resolve + validate against group set
-            OrderByResolver::qualify_order_by(&query.order_by, &analyzed_proj, &mut ctx, &group_set)?
+            OrderByResolver::qualify_order_by(
+                &query.order_by,
+                &analyzed_proj,
+                &mut ctx,
+                &group_set,
+            )?
         } else {
             // NEW: non-aggregate path (no group validation)
             OrderByResolver::qualify_order_by_non_agg(&query.order_by, &analyzed_proj, &mut ctx)?
@@ -338,13 +373,15 @@ impl<'a> AnalysisContext<'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::{
+        JsonPrimitive, SchemaDict,
         database::FieldInfo,
-        parser::ast::{Column, ComparatorOp, Function, Identifier, Join, JoinType, Literal, OrderBy, Predicate, ScalarExpr, Truth},
-        JsonPrimitive, SchemaDict
+        parser::ast::{
+            Column, ComparatorOp, Function, Identifier, Join, JoinType, Literal, OrderBy,
+            Predicate, ScalarExpr, Truth,
+        },
     };
 
     use super::*;
@@ -357,13 +394,18 @@ mod tests {
         by_name: std::collections::HashMap<String, SchemaDict>,
     }
     impl DummySchemas {
-        fn new() -> Self { Self { by_name: std::collections::HashMap::new() } }
+        fn new() -> Self {
+            Self {
+                by_name: std::collections::HashMap::new(),
+            }
+        }
         fn with(mut self, name: &str, fields: Vec<(&str, JsonPrimitive, bool)>) -> Self {
             let mut map: IndexMap<String, FieldInfo> = IndexMap::new();
             for (k, ty, nullable) in fields {
                 map.insert(k.to_string(), FieldInfo { ty, nullable });
             }
-            self.by_name.insert(name.to_string(), SchemaDict { fields: map });
+            self.by_name
+                .insert(name.to_string(), SchemaDict { fields: map });
             self
         }
     }
@@ -374,7 +416,8 @@ mod tests {
     }
 
     fn simple_ctx_for<'a>(query: &'a Query, sp: &'a DummySchemas) -> AnalysisContext<'a> {
-        AnalysisContext::build_context_from_query(query, sp, &DEFAULT_REGISTRY, Value::Null).expect("build context")
+        AnalysisContext::build_context_from_query(query, sp, &DEFAULT_REGISTRY, Value::Null)
+            .expect("build context")
     }
 
     fn make_query_with_table(
@@ -387,7 +430,10 @@ mod tests {
     ) -> Query {
         Query {
             projection,
-            collections: vec![Collection::Table { name: table.to_string(), alias: None }],
+            collections: vec![Collection::Table {
+                name: table.to_string(),
+                alias: None,
+            }],
             joins: vec![],
             criteria,
             group_by,
@@ -402,18 +448,31 @@ mod tests {
     #[test]
     fn select_group_by_validation_error() {
         // table t(a:int, b:int)
-        let sp = DummySchemas::new().with("t", vec![
-            ("a", JsonPrimitive::Int,  false),
-            ("b", JsonPrimitive::Int,  false),
-        ]);
+        let sp = DummySchemas::new().with(
+            "t",
+            vec![
+                ("a", JsonPrimitive::Int, false),
+                ("b", JsonPrimitive::Int, false),
+            ],
+        );
 
         // SELECT a, SUM(b) FROM t GROUP BY a  -- OK
         // SELECT a, b FROM t GROUP BY a       -- ERROR (b not in group and not aggregated)
         let q_ok = make_query_with_table(
             "t",
             vec![
-                Identifier { expression: ScalarExpr::Column(Column::Name { name: "a".into() }), alias: None },
-                Identifier { expression: ScalarExpr::Function(Function { name: "sum".into(), args: vec![ScalarExpr::Column(Column::Name { name: "b".into() })], distinct: false }), alias: None },
+                Identifier {
+                    expression: ScalarExpr::Column(Column::Name { name: "a".into() }),
+                    alias: None,
+                },
+                Identifier {
+                    expression: ScalarExpr::Function(Function {
+                        name: "sum".into(),
+                        args: vec![ScalarExpr::Column(Column::Name { name: "b".into() })],
+                        distinct: false,
+                    }),
+                    alias: None,
+                },
             ],
             None,
             vec![Column::Name { name: "a".into() }],
@@ -423,8 +482,14 @@ mod tests {
         let q_err = make_query_with_table(
             "t",
             vec![
-                Identifier { expression: ScalarExpr::Column(Column::Name { name: "a".into() }), alias: None },
-                Identifier { expression: ScalarExpr::Column(Column::Name { name: "b".into() }), alias: None },
+                Identifier {
+                    expression: ScalarExpr::Column(Column::Name { name: "a".into() }),
+                    alias: None,
+                },
+                Identifier {
+                    expression: ScalarExpr::Column(Column::Name { name: "b".into() }),
+                    alias: None,
+                },
             ],
             None,
             vec![Column::Name { name: "a".into() }],
@@ -433,33 +498,48 @@ mod tests {
         );
 
         // OK case
-        let analyzed_ok = AnalysisContext::analyze_query(&q_ok, &sp, &DEFAULT_REGISTRY, Value::Null);
+        let analyzed_ok =
+            AnalysisContext::analyze_query(&q_ok, &sp, &DEFAULT_REGISTRY, Value::Null);
         assert!(analyzed_ok.is_ok(), "expected OK, got: {:?}", analyzed_ok);
 
         // Error case
-        let analyzed_err = AnalysisContext::analyze_query(&q_err, &sp, &DEFAULT_REGISTRY, Value::Null);
+        let analyzed_err =
+            AnalysisContext::analyze_query(&q_err, &sp, &DEFAULT_REGISTRY, Value::Null);
         assert!(analyzed_err.is_err(), "expected GROUP BY validation error");
         let msg = format!("{analyzed_err:?}");
-        assert!(msg.to_lowercase().contains("group by"), "err msg should mention group by; got: {msg}");
+        assert!(
+            msg.to_lowercase().contains("group by"),
+            "err msg should mention group by; got: {msg}"
+        );
     }
 
     #[test]
     fn where_rejects_aggregates() {
-        let sp = DummySchemas::new().with("t", vec![
-            ("a", JsonPrimitive::Int,  false),
-            ("b", JsonPrimitive::Int,  false),
-        ]);
+        let sp = DummySchemas::new().with(
+            "t",
+            vec![
+                ("a", JsonPrimitive::Int, false),
+                ("b", JsonPrimitive::Int, false),
+            ],
+        );
 
         // WHERE SUM(b) > 10  --> invalid
         let crit = Some(Predicate::Compare {
-            left:  ScalarExpr::Function(Function { name: "sum".into(), args: vec![ScalarExpr::Column(Column::Name { name: "b".into() })], distinct: false }),
-            op:    ComparatorOp::Gt,
+            left: ScalarExpr::Function(Function {
+                name: "sum".into(),
+                args: vec![ScalarExpr::Column(Column::Name { name: "b".into() })],
+                distinct: false,
+            }),
+            op: ComparatorOp::Gt,
             right: ScalarExpr::Literal(Literal::Int(10)),
         });
 
         let q = make_query_with_table(
             "t",
-            vec![ Identifier { expression: ScalarExpr::Column(Column::Name { name: "a".into() }), alias: None } ],
+            vec![Identifier {
+                expression: ScalarExpr::Column(Column::Name { name: "a".into() }),
+                alias: None,
+            }],
             crit,
             vec![],
             None,
@@ -469,28 +549,48 @@ mod tests {
         let res = AnalysisContext::analyze_query(&q, &sp, &DEFAULT_REGISTRY, Value::Null);
         assert!(res.is_err(), "aggregates in WHERE should error");
         let msg = format!("{res:?}");
-        assert!(msg.to_lowercase().contains("where"), "err msg should mention WHERE; got: {msg}");
+        assert!(
+            msg.to_lowercase().contains("where"),
+            "err msg should mention WHERE; got: {msg}"
+        );
     }
 
     #[test]
     fn having_allows_aggregates() {
-        let sp = DummySchemas::new().with("t", vec![
-            ("a", JsonPrimitive::Int,  false),
-            ("b", JsonPrimitive::Int,  false),
-        ]);
+        let sp = DummySchemas::new().with(
+            "t",
+            vec![
+                ("a", JsonPrimitive::Int, false),
+                ("b", JsonPrimitive::Int, false),
+            ],
+        );
 
         // SELECT a, COUNT(*) FROM t GROUP BY a HAVING COUNT(*) > 1
         let having = Some(Predicate::Compare {
-            left:  ScalarExpr::Function(Function { name: "count".into(), args: vec![ScalarExpr::WildCard], distinct: false }),
-            op:    ComparatorOp::Gt,
+            left: ScalarExpr::Function(Function {
+                name: "count".into(),
+                args: vec![ScalarExpr::WildCard],
+                distinct: false,
+            }),
+            op: ComparatorOp::Gt,
             right: ScalarExpr::Literal(Literal::Int(1)),
         });
 
         let q = make_query_with_table(
             "t",
             vec![
-                Identifier { expression: ScalarExpr::Column(Column::Name { name: "a".into() }), alias: None },
-                Identifier { expression: ScalarExpr::Function(Function { name: "count".into(), args: vec![ScalarExpr::WildCard], distinct: false }), alias: None },
+                Identifier {
+                    expression: ScalarExpr::Column(Column::Name { name: "a".into() }),
+                    alias: None,
+                },
+                Identifier {
+                    expression: ScalarExpr::Function(Function {
+                        name: "count".into(),
+                        args: vec![ScalarExpr::WildCard],
+                        distinct: false,
+                    }),
+                    alias: None,
+                },
             ],
             None,
             vec![Column::Name { name: "a".into() }],
@@ -499,35 +599,62 @@ mod tests {
         );
 
         let res = AnalysisContext::analyze_query(&q, &sp, &DEFAULT_REGISTRY, Value::Null);
-        assert!(res.is_ok(), "HAVING with aggregate should be accepted: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "HAVING with aggregate should be accepted: {:?}",
+            res.err()
+        );
     }
 
     #[test]
     fn order_by_alias_and_positional_and_validation() {
         // table t(name:string, age:int)
-        let sp = DummySchemas::new().with("t", vec![
-            ("name", JsonPrimitive::String, false),
-            ("age",  JsonPrimitive::Int,    false),
-        ]);
+        let sp = DummySchemas::new().with(
+            "t",
+            vec![
+                ("name", JsonPrimitive::String, false),
+                ("age", JsonPrimitive::Int, false),
+            ],
+        );
 
         // SELECT name AS n, age FROM t GROUP BY name, age
         // ORDER BY n ASC, 2 DESC
         let q = make_query_with_table(
             "t",
             vec![
-                Identifier { expression: ScalarExpr::Column(Column::Name { name: "name".into() }), alias: Some("n".into()) },
-                Identifier { expression: ScalarExpr::Column(Column::Name { name: "age".into()  }), alias: None },
+                Identifier {
+                    expression: ScalarExpr::Column(Column::Name {
+                        name: "name".into(),
+                    }),
+                    alias: Some("n".into()),
+                },
+                Identifier {
+                    expression: ScalarExpr::Column(Column::Name { name: "age".into() }),
+                    alias: None,
+                },
             ],
             None,
-            vec![Column::Name { name: "name".into() }, Column::Name { name: "age".into() }],
+            vec![
+                Column::Name {
+                    name: "name".into(),
+                },
+                Column::Name { name: "age".into() },
+            ],
             None,
             vec![
-                OrderBy { expr: ScalarExpr::Column(Column::Name { name: "n".into() }), ascending: true },
-                OrderBy { expr: ScalarExpr::Literal(Literal::Int(2)), ascending: false },
+                OrderBy {
+                    expr: ScalarExpr::Column(Column::Name { name: "n".into() }),
+                    ascending: true,
+                },
+                OrderBy {
+                    expr: ScalarExpr::Literal(Literal::Int(2)),
+                    ascending: false,
+                },
             ],
         );
 
-        let analyzed = AnalysisContext::analyze_query(&q, &sp, &DEFAULT_REGISTRY, Value::Null).expect("analyze");
+        let analyzed = AnalysisContext::analyze_query(&q, &sp, &DEFAULT_REGISTRY, Value::Null)
+            .expect("analyze");
         // first ORDER BY should resolve to the `name` column expr; second to the 2nd projection (age)
         assert_eq!(analyzed.order_by.len(), 2);
         match &analyzed.order_by[0].expr {
@@ -546,35 +673,63 @@ mod tests {
         // SELECT COUNT(*) FROM t GROUP BY name ORDER BY age
         let q_bad = make_query_with_table(
             "t",
-            vec![ Identifier { expression: ScalarExpr::Function(Function { name: "count".into(), args: vec![ScalarExpr::WildCard], distinct: false }), alias: None } ],
+            vec![Identifier {
+                expression: ScalarExpr::Function(Function {
+                    name: "count".into(),
+                    args: vec![ScalarExpr::WildCard],
+                    distinct: false,
+                }),
+                alias: None,
+            }],
             None,
-            vec![Column::Name { name: "name".into() }],
+            vec![Column::Name {
+                name: "name".into(),
+            }],
             None,
-            vec![ OrderBy { expr: ScalarExpr::Column(Column::Name { name: "age".into() }), ascending: true } ],
+            vec![OrderBy {
+                expr: ScalarExpr::Column(Column::Name { name: "age".into() }),
+                ascending: true,
+            }],
         );
         let err = AnalysisContext::analyze_query(&q_bad, &sp, &DEFAULT_REGISTRY, Value::Null);
-        assert!(err.is_err(), "ORDER BY should error when referencing non-grouped columns outside aggregates");
+        assert!(
+            err.is_err(),
+            "ORDER BY should error when referencing non-grouped columns outside aggregates"
+        );
         let msg = format!("{err:?}");
-        assert!(msg.to_lowercase().contains("order by"), "err msg should mention ORDER BY; got: {msg}");
+        assert!(
+            msg.to_lowercase().contains("order by"),
+            "err msg should mention ORDER BY; got: {msg}"
+        );
     }
 
     #[test]
     fn wildcard_expansion_is_stable() {
         // Two collections in insertion order: t1 then t2
         let sp = DummySchemas::new()
-            .with("t1", vec![
-                ("id",  JsonPrimitive::Int,    false),
-                ("name",JsonPrimitive::String, false),
-            ])
-            .with("t2", vec![
-                ("x", JsonPrimitive::Int, false),
-            ]);
+            .with(
+                "t1",
+                vec![
+                    ("id", JsonPrimitive::Int, false),
+                    ("name", JsonPrimitive::String, false),
+                ],
+            )
+            .with("t2", vec![("x", JsonPrimitive::Int, false)]);
 
         let query = Query {
-            projection: vec![ Identifier { expression: ScalarExpr::WildCard, alias: None } ],
+            projection: vec![Identifier {
+                expression: ScalarExpr::WildCard,
+                alias: None,
+            }],
             collections: vec![
-                Collection::Table { name: "t1".into(), alias: None },
-                Collection::Table { name: "t2".into(), alias: None },
+                Collection::Table {
+                    name: "t1".into(),
+                    alias: None,
+                },
+                Collection::Table {
+                    name: "t2".into(),
+                    alias: None,
+                },
             ],
             joins: vec![],
             criteria: None,
@@ -585,27 +740,42 @@ mod tests {
         };
 
         // build ctx & expand (indirectly via analyze)
-        let analyzed = AnalysisContext::analyze_query(&query, &sp, &DEFAULT_REGISTRY, Value::Null).expect("analyze");
+        let analyzed = AnalysisContext::analyze_query(&query, &sp, &DEFAULT_REGISTRY, Value::Null)
+            .expect("analyze");
         // Expect order: t1.id, t1.name, t2.x
-        let cols: Vec<(String,String)> = analyzed.projection.iter().filter_map(|id| {
-            if let ScalarExpr::Column(Column::WithCollection{collection, name}) = &id.expression {
-                Some((collection.clone(), name.clone()))
-            } else { None }
-        }).collect();
+        let cols: Vec<(String, String)> = analyzed
+            .projection
+            .iter()
+            .filter_map(|id| {
+                if let ScalarExpr::Column(Column::WithCollection { collection, name }) =
+                    &id.expression
+                {
+                    Some((collection.clone(), name.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        assert_eq!(cols, vec![
-            ("t1".into(), "id".into()),
-            ("t1".into(), "name".into()),
-            ("t2".into(), "x".into()),
-        ]);
+        assert_eq!(
+            cols,
+            vec![
+                ("t1".into(), "id".into()),
+                ("t1".into(), "name".into()),
+                ("t2".into(), "x".into()),
+            ]
+        );
     }
 
     #[test]
     fn analyzer_resolves_subquery_projection_columns() {
-        let sp = DummySchemas::new().with("people", vec![
-            ("id", JsonPrimitive::Int, false),
-            ("name",JsonPrimitive::String, false),
-        ]);
+        let sp = DummySchemas::new().with(
+            "people",
+            vec![
+                ("id", JsonPrimitive::Int, false),
+                ("name", JsonPrimitive::String, false),
+            ],
+        );
         let query =
             Query::try_from("SELECT p.name FROM (SELECT name FROM people) p").expect("parse");
 
@@ -674,7 +844,9 @@ mod tests {
         let inner = Query::try_from("SELECT name FROM people").expect("parse inner");
         let query = Query {
             projection: vec![Identifier {
-                expression: ScalarExpr::Column(Column::Name { name: "name".into() }),
+                expression: ScalarExpr::Column(Column::Name {
+                    name: "name".into(),
+                }),
                 alias: None,
             }],
             collections: vec![Collection::Query {
@@ -701,7 +873,9 @@ mod tests {
         let join_inner = Query::try_from("SELECT name FROM people").expect("parse join inner");
         let query = Query {
             projection: vec![Identifier {
-                expression: ScalarExpr::Column(Column::Name { name: "name".into() }),
+                expression: ScalarExpr::Column(Column::Name {
+                    name: "name".into(),
+                }),
                 alias: None,
             }],
             collections: vec![Collection::Query {
@@ -738,7 +912,9 @@ mod tests {
         let join_inner = Query::try_from("SELECT name FROM people").expect("parse join inner");
         let query = Query {
             projection: vec![Identifier {
-                expression: ScalarExpr::Column(Column::Name { name: "name".into() }),
+                expression: ScalarExpr::Column(Column::Name {
+                    name: "name".into(),
+                }),
                 alias: None,
             }],
             collections: vec![Collection::Query {
@@ -770,34 +946,37 @@ mod tests {
     fn folding_like_case_insensitive_with_escape_and_in_null_unknown() {
         // LIKE folding
         let p1 = Predicate::Like {
-            expr:     ScalarExpr::Literal(Literal::String("Hello".into())),
-            pattern:  ScalarExpr::Literal(Literal::String("he%".into())),
-            negated:  false,
+            expr: ScalarExpr::Literal(Literal::String("Hello".into())),
+            pattern: ScalarExpr::Literal(Literal::String("he%".into())),
+            negated: false,
         };
         match PredicateResolver::fold_predicate(&p1) {
-            Predicate::Const3(Truth::True) => {},
+            Predicate::Const3(Truth::True) => {}
             other => panic!("expected Const3(True), got {other:?}"),
         }
 
         // Escape: value "he%llo", pattern r"he\%l%"
         let p2 = Predicate::Like {
-            expr:     ScalarExpr::Literal(Literal::String("he%llo".into())),
-            pattern:  ScalarExpr::Literal(Literal::String(r"he\%l%".into())),
-            negated:  false,
+            expr: ScalarExpr::Literal(Literal::String("he%llo".into())),
+            pattern: ScalarExpr::Literal(Literal::String(r"he\%l%".into())),
+            negated: false,
         };
         match PredicateResolver::fold_predicate(&p2) {
-            Predicate::Const3(Truth::True) => {},
+            Predicate::Const3(Truth::True) => {}
             other => panic!("expected Const3(True) for escaped %, got {other:?}"),
         }
 
         // IN with NULL → Unknown when no match found
         let p3 = Predicate::InList {
-            expr:    ScalarExpr::Literal(Literal::Int(2)),
-            list:    vec![ScalarExpr::Literal(Literal::Int(1)), ScalarExpr::Literal(Literal::Null)],
+            expr: ScalarExpr::Literal(Literal::Int(2)),
+            list: vec![
+                ScalarExpr::Literal(Literal::Int(1)),
+                ScalarExpr::Literal(Literal::Null),
+            ],
             negated: false,
         };
         match PredicateResolver::fold_predicate(&p3) {
-            Predicate::Const3(Truth::Unknown) => {},
+            Predicate::Const3(Truth::Unknown) => {}
             other => panic!("expected Const3(Unknown) for IN with NULL, got {other:?}"),
         }
     }
@@ -805,15 +984,21 @@ mod tests {
     #[test]
     fn type_inference_for_aggregates() {
         // table t(i:int, f:float, s:string)
-        let sp = DummySchemas::new().with("t", vec![
-            ("i", JsonPrimitive::Int,   false),
-            ("f", JsonPrimitive::Float, false),
-            ("s", JsonPrimitive::String,false),
-        ]);
+        let sp = DummySchemas::new().with(
+            "t",
+            vec![
+                ("i", JsonPrimitive::Int, false),
+                ("f", JsonPrimitive::Float, false),
+                ("s", JsonPrimitive::String, false),
+            ],
+        );
 
         let q_base = Query {
             projection: vec![],
-            collections: vec![Collection::Table { name: "t".into(), alias: None }],
+            collections: vec![Collection::Table {
+                name: "t".into(),
+                alias: None,
+            }],
             joins: vec![],
             criteria: None,
             group_by: vec![],
@@ -824,31 +1009,51 @@ mod tests {
         let ctx = simple_ctx_for(&q_base, &sp);
 
         // COUNT(*)
-        let cnt = ScalarExpr::Function(Function { name: "count".into(), args: vec![ScalarExpr::WildCard], distinct: false });
+        let cnt = ScalarExpr::Function(Function {
+            name: "count".into(),
+            args: vec![ScalarExpr::WildCard],
+            distinct: false,
+        });
         let (ty, nullable) = TypeInference::infer_scalar(&cnt, &ctx).expect("type");
         assert_eq!(ty, JsonPrimitive::Int);
         assert!(!nullable);
 
         // SUM(i) -> Int, nullable
-        let sum_i = ScalarExpr::Function(Function { name: "sum".into(), args: vec![ScalarExpr::Column(Column::Name { name: "i".into() })], distinct: false });
+        let sum_i = ScalarExpr::Function(Function {
+            name: "sum".into(),
+            args: vec![ScalarExpr::Column(Column::Name { name: "i".into() })],
+            distinct: false,
+        });
         let (ty, nullable) = TypeInference::infer_scalar(&sum_i, &ctx).expect("type");
         assert_eq!(ty, JsonPrimitive::Int);
         assert!(nullable);
 
         // SUM(f) -> Float, nullable
-        let sum_f = ScalarExpr::Function(Function { name: "sum".into(), args: vec![ScalarExpr::Column(Column::Name { name: "f".into() })], distinct: false });
+        let sum_f = ScalarExpr::Function(Function {
+            name: "sum".into(),
+            args: vec![ScalarExpr::Column(Column::Name { name: "f".into() })],
+            distinct: false,
+        });
         let (ty, nullable) = TypeInference::infer_scalar(&sum_f, &ctx).expect("type");
         assert_eq!(ty, JsonPrimitive::Float);
         assert!(nullable);
 
         // AVG(i) -> Float, nullable
-        let avg_i = ScalarExpr::Function(Function { name: "avg".into(), args: vec![ScalarExpr::Column(Column::Name { name: "i".into() })], distinct: false });
+        let avg_i = ScalarExpr::Function(Function {
+            name: "avg".into(),
+            args: vec![ScalarExpr::Column(Column::Name { name: "i".into() })],
+            distinct: false,
+        });
         let (ty, nullable) = TypeInference::infer_scalar(&avg_i, &ctx).expect("type");
         assert_eq!(ty, JsonPrimitive::Float);
         assert!(nullable);
 
         // MIN(s) -> String, nullable
-        let min_s = ScalarExpr::Function(Function { name: "min".into(), args: vec![ScalarExpr::Column(Column::Name { name: "s".into() })], distinct: false });
+        let min_s = ScalarExpr::Function(Function {
+            name: "min".into(),
+            args: vec![ScalarExpr::Column(Column::Name { name: "s".into() })],
+            distinct: false,
+        });
         let (ty, nullable) = TypeInference::infer_scalar(&min_s, &ctx).expect("type");
         assert_eq!(ty, JsonPrimitive::String);
         assert!(nullable);

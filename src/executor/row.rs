@@ -4,14 +4,18 @@ use serde_json::{Map, Value};
 pub struct Row(pub Map<String, Value>);
 
 impl Row {
-    pub fn get(&self, key: &str) -> Option<&Value> { self.0.get(key) }
-    pub fn into_value(self) -> Value { Value::Object(self.0) }
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.0.get(key)
+    }
+    pub fn into_value(self) -> Value {
+        Value::Object(self.0)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Row;
-    use serde_json::{json, Map, Value};
+    use serde_json::{Map, Value, json};
 
     #[test]
     fn get_returns_existing_value_and_none_for_missing_key() {
@@ -29,6 +33,9 @@ mod tests {
         map.insert("id".to_string(), json!(1));
         let row = Row(map);
 
-        assert_eq!(row.into_value(), Value::Object(Map::from_iter([("id".to_string(), json!(1))])));
+        assert_eq!(
+            row.into_value(),
+            Value::Object(Map::from_iter([("id".to_string(), json!(1))]))
+        );
     }
 }

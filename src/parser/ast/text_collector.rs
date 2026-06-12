@@ -4,18 +4,25 @@ pub struct TextCollector;
 
 impl TextCollector {
     pub fn collect(parser: &mut QueryParser) -> Result<String, ParseError> {
-        TextCollector::collect_with_stopper(parser, |_|false)
+        TextCollector::collect_with_stopper(parser, |_| false)
     }
 
-    pub fn collect_with_stopper<F>(parser: &mut QueryParser, stopper: F) -> Result<String, ParseError>
-        where F: Fn(char) -> bool
+    pub fn collect_with_stopper<F>(
+        parser: &mut QueryParser,
+        stopper: F,
+    ) -> Result<String, ParseError>
+    where
+        F: Fn(char) -> bool,
     {
         while parser.current().is_whitespace() {
             parser.next();
         }
 
         let pivot = parser.position;
-        while !parser.eof() && !WordComparer::is_any_delimiter(parser.current()) && !stopper(parser.current()) {
+        while !parser.eof()
+            && !WordComparer::is_any_delimiter(parser.current())
+            && !stopper(parser.current())
+        {
             let current = parser.current();
             if !current.is_ascii_alphanumeric() && current != '_' {
                 return Err(ParseError::new("Invalid text", pivot, parser));
@@ -28,7 +35,7 @@ impl TextCollector {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::TextCollector, QueryParser};
+    use crate::parser::{QueryParser, ast::TextCollector};
 
     #[test]
     pub fn test_text_collector_collect() {
@@ -122,8 +129,7 @@ mod tests {
                 assert_eq!(err.text, "text#");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 4);
-            },
+            }
         }
-
     }
 }

@@ -1,4 +1,7 @@
-use crate::parser::{analyzer::AnalyzedIdentifier, ast::{Column, JoinType, OrderBy, Predicate}};
+use crate::parser::{
+    analyzer::AnalyzedIdentifier,
+    ast::{Column, JoinType, OrderBy, Predicate},
+};
 
 #[derive(Debug, Clone)]
 pub enum AnalyzedSource {
@@ -24,10 +27,10 @@ pub struct AnalyzedQuery {
     pub projection: Vec<AnalyzedIdentifier>, // qualified + typed
     pub collections: Vec<AnalyzedSource>,
     pub joins: Vec<AnalyzedJoin>,
-    pub criteria: Option<Predicate>,         // qualified + folded
-    pub group_by: Vec<Column>,               // qualified
-    pub having: Option<Predicate>,           // qualified + folded
-    pub order_by: Vec<OrderBy>,  // OrderBy
+    pub criteria: Option<Predicate>, // qualified + folded
+    pub group_by: Vec<Column>,       // qualified
+    pub having: Option<Predicate>,   // qualified + folded
+    pub order_by: Vec<OrderBy>,      // OrderBy
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

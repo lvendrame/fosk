@@ -694,7 +694,11 @@ mod tests {
             .map(|row| {
                 let obj = row.as_object().unwrap();
                 assert!(!obj.contains_key("person_name"));
-                obj.get("sq.person_name").unwrap().as_str().unwrap().to_string()
+                obj.get("sq.person_name")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
             })
             .collect();
         names.sort();
@@ -1458,7 +1462,10 @@ mod tests {
         );
         let aggregate_keys = PlanExecutor::keyset_for_plan(&aggregate, &db);
 
-        assert_eq!(project_keys, BTreeSet::from_iter(["projected_x".to_string()]));
+        assert_eq!(
+            project_keys,
+            BTreeSet::from_iter(["projected_x".to_string()])
+        );
         assert_eq!(
             aggregate_keys,
             BTreeSet::from_iter([
@@ -1488,7 +1495,9 @@ mod tests {
                         output_name: "id".into(),
                     },
                     AnalyzedIdentifier {
-                        expression: ScalarExpr::Column(Column::Name { name: "name".into() }),
+                        expression: ScalarExpr::Column(Column::Name {
+                            name: "name".into(),
+                        }),
                         alias: Some("person_name".into()),
                         ty: JsonPrimitive::String,
                         nullable: false,
@@ -1555,7 +1564,10 @@ mod tests {
 
         let keys = PlanExecutor::keyset_for_plan(&join, &db);
 
-        assert_eq!(keys, BTreeSet::from_iter(["l_id".to_string(), "r_id".to_string()]));
+        assert_eq!(
+            keys,
+            BTreeSet::from_iter(["l_id".to_string(), "r_id".to_string()])
+        );
     }
 
     #[test]
@@ -1585,12 +1597,18 @@ mod tests {
             PlanExecutor::default_name_for_expr(&ScalarExpr::Literal(Literal::Int(1))),
             "_lit"
         );
-        assert_eq!(PlanExecutor::default_name_for_expr(&ScalarExpr::WildCard), "*");
+        assert_eq!(
+            PlanExecutor::default_name_for_expr(&ScalarExpr::WildCard),
+            "*"
+        );
         assert_eq!(
             PlanExecutor::default_name_for_expr(&ScalarExpr::WildCardWithCollection("t".into())),
             "*"
         );
-        assert_eq!(PlanExecutor::default_name_for_expr(&ScalarExpr::Parameter), "?");
+        assert_eq!(
+            PlanExecutor::default_name_for_expr(&ScalarExpr::Parameter),
+            "?"
+        );
         assert_eq!(
             PlanExecutor::default_name_for_expr(&ScalarExpr::Args(vec![ScalarExpr::Literal(
                 Literal::Int(1)

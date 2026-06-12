@@ -1,4 +1,4 @@
-use crate::parser::{ast::Predicate, ParseError, QueryParser};
+use crate::parser::{ParseError, QueryParser, ast::Predicate};
 
 pub struct HavingParser;
 
@@ -15,7 +15,10 @@ impl HavingParser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{ComparatorOp, HavingParser, Predicate}, Phase, QueryParser};
+    use crate::parser::{
+        Phase, QueryParser,
+        ast::{ComparatorOp, HavingParser, Predicate},
+    };
 
     #[test]
     pub fn test_having() {
@@ -27,7 +30,11 @@ mod tests {
         let result = HavingParser::parse(&mut parser).expect("Failed to parse having");
 
         match result {
-            Predicate::Compare { left: _, op, right: _ } => assert_eq!(ComparatorOp::Gt, op),
+            Predicate::Compare {
+                left: _,
+                op,
+                right: _,
+            } => assert_eq!(ComparatorOp::Gt, op),
             _ => panic!(),
         }
     }
@@ -62,7 +69,7 @@ mod tests {
                 assert_eq!(err.text, "H");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
-            },
+            }
         }
     }
 }

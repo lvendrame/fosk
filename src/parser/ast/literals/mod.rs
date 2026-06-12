@@ -1,4 +1,4 @@
-pub mod  literal;
+pub mod literal;
 pub use literal::Literal;
 
 pub mod string_parser;

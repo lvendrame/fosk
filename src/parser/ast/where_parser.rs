@@ -1,4 +1,4 @@
-use crate::parser::{ast::Predicate, ParseError, QueryParser};
+use crate::parser::{ParseError, QueryParser, ast::Predicate};
 
 pub struct WhereParser;
 
@@ -15,7 +15,10 @@ impl WhereParser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{ComparatorOp, Predicate, WhereParser}, Phase, QueryParser};
+    use crate::parser::{
+        Phase, QueryParser,
+        ast::{ComparatorOp, Predicate, WhereParser},
+    };
 
     #[test]
     pub fn test_where() {
@@ -27,7 +30,11 @@ mod tests {
         let result = WhereParser::parse(&mut parser).expect("Failed to parse where");
 
         match result {
-            Predicate::Compare { left: _, op, right: _ } => assert_eq!(ComparatorOp::Gt, op),
+            Predicate::Compare {
+                left: _,
+                op,
+                right: _,
+            } => assert_eq!(ComparatorOp::Gt, op),
             _ => panic!(),
         }
     }
@@ -62,7 +69,7 @@ mod tests {
                 assert_eq!(err.text, "W");
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 0);
-            },
+            }
         }
     }
 }

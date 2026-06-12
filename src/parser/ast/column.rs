@@ -1,4 +1,7 @@
-use crate::parser::{ast::{ArgsExpr, Function, ScalarExpr, TextCollector}, ParseError, QueryParser, WordComparer};
+use crate::parser::{
+    ParseError, QueryParser, WordComparer,
+    ast::{ArgsExpr, Function, ScalarExpr, TextCollector},
+};
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -8,8 +11,9 @@ pub enum Column {
 }
 
 impl Column {
-
-    pub fn parse_column_or_function_or_wildcard(parser: &mut QueryParser) -> Result<ScalarExpr, ParseError> {
+    pub fn parse_column_or_function_or_wildcard(
+        parser: &mut QueryParser,
+    ) -> Result<ScalarExpr, ParseError> {
         Column::parse_general_scalar(parser, true)
     }
 
@@ -17,7 +21,10 @@ impl Column {
         Column::parse_general_scalar(parser, false)
     }
 
-    pub fn parse_general_scalar(parser: &mut QueryParser, allow_wildcard: bool) -> Result<ScalarExpr, ParseError> {
+    pub fn parse_general_scalar(
+        parser: &mut QueryParser,
+        allow_wildcard: bool,
+    ) -> Result<ScalarExpr, ParseError> {
         let mut pivot = parser.position;
         let mut collection: Option<String> = None;
         let mut args_expr: Option<ArgsExpr> = None;
@@ -63,7 +70,7 @@ impl Column {
         }
 
         if name.is_empty() {
-            name =  text;
+            name = text;
         }
 
         let result = match is_wildcard {
@@ -73,12 +80,18 @@ impl Column {
             },
             false => match args_expr {
                 Some(args_expr) => ScalarExpr::Function(Function {
-                    name: format!("{}{}", collection.map_or("".to_string(), |coll| format!("{}.", coll)), name),
+                    name: format!(
+                        "{}{}",
+                        collection.map_or("".to_string(), |coll| format!("{}.", coll)),
+                        name
+                    ),
                     args: args_expr.args,
                     distinct: args_expr.distinct,
                 }),
                 None => match collection {
-                    Some(collection) => ScalarExpr::Column(Column::WithCollection { collection, name }),
+                    Some(collection) => {
+                        ScalarExpr::Column(Column::WithCollection { collection, name })
+                    }
                     None => ScalarExpr::Column(Column::Name { name }),
                 },
             },
@@ -92,7 +105,9 @@ impl fmt::Display for Column {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Column::Name { name } => write!(f, "col: {}", name),
-            Column::WithCollection { collection, name } => write!(f, "col: {}.{}", collection, name),
+            Column::WithCollection { collection, name } => {
+                write!(f, "col: {}.{}", collection, name)
+            }
         }
     }
 }
@@ -108,7 +123,10 @@ impl fmt::Debug for Column {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{ast::{Column, ScalarExpr}, QueryParser};
+    use crate::parser::{
+        QueryParser,
+        ast::{Column, ScalarExpr},
+    };
 
     #[test]
     pub fn test_column_name() {
@@ -119,14 +137,15 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Column(column) => match column {
-                        Column::Name { name } => assert_eq!(name, text),
-                        Column::WithCollection { collection: _, name: _ } => panic!(),
-                    },
-                    _ => panic!(),
-                }
+            Ok(result) => match result {
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name } => assert_eq!(name, text),
+                    Column::WithCollection {
+                        collection: _,
+                        name: _,
+                    } => panic!(),
+                },
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -141,14 +160,15 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Column(column) => match column {
-                        Column::Name { name } => assert_eq!(name, text),
-                        Column::WithCollection { collection: _, name: _ } => panic!(),
-                    },
-                    _ => panic!(),
-                }
+            Ok(result) => match result {
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name } => assert_eq!(name, text),
+                    Column::WithCollection {
+                        collection: _,
+                        name: _,
+                    } => panic!(),
+                },
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -163,14 +183,15 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Column(column) => match column {
-                        Column::Name { name } => assert_eq!(name, "column"),
-                        Column::WithCollection { collection: _, name: _ } => panic!(),
-                    },
-                    _ => panic!(),
-                }
+            Ok(result) => match result {
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name } => assert_eq!(name, "column"),
+                    Column::WithCollection {
+                        collection: _,
+                        name: _,
+                    } => panic!(),
+                },
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -185,14 +206,15 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Column(column) => match column {
-                        Column::Name { name } => assert_eq!(name, "column"),
-                        Column::WithCollection { collection: _, name: _ } => panic!(),
-                    },
-                    _ => panic!(),
-                }
+            Ok(result) => match result {
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name } => assert_eq!(name, "column"),
+                    Column::WithCollection {
+                        collection: _,
+                        name: _,
+                    } => panic!(),
+                },
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -207,14 +229,15 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Column(column) => match column {
-                        Column::Name { name } => assert_eq!(name, "column"),
-                        Column::WithCollection { collection: _, name: _ } => panic!(),
-                    },
-                    _ => panic!(),
-                }
+            Ok(result) => match result {
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name } => assert_eq!(name, "column"),
+                    Column::WithCollection {
+                        collection: _,
+                        name: _,
+                    } => panic!(),
+                },
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -229,14 +252,15 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Column(column) => match column {
-                        Column::Name { name } => assert_eq!(name, "column"),
-                        Column::WithCollection { collection: _, name: _ } => panic!(),
-                    },
-                    _ => panic!(),
-                }
+            Ok(result) => match result {
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name } => assert_eq!(name, "column"),
+                    Column::WithCollection {
+                        collection: _,
+                        name: _,
+                    } => panic!(),
+                },
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -251,17 +275,15 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Column(column) => match column {
-                        Column::Name { name: _ } => panic!(),
-                        Column::WithCollection { collection, name } => {
-                            assert_eq!(name, "column");
-                            assert_eq!(collection, "collection")
-                        },
-                    },
-                    _ => panic!(),
-                }
+            Ok(result) => match result {
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name: _ } => panic!(),
+                    Column::WithCollection { collection, name } => {
+                        assert_eq!(name, "column");
+                        assert_eq!(collection, "collection")
+                    }
+                },
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -276,17 +298,15 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Column(column) => match column {
-                        Column::Name { name: _ } => panic!(),
-                        Column::WithCollection { collection, name } => {
-                            assert_eq!(name, "column");
-                            assert_eq!(collection, "collection")
-                        },
-                    },
-                    _ => panic!(),
-                }
+            Ok(result) => match result {
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name: _ } => panic!(),
+                    Column::WithCollection { collection, name } => {
+                        assert_eq!(name, "column");
+                        assert_eq!(collection, "collection")
+                    }
+                },
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -301,17 +321,15 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Column(column) => match column {
-                        Column::Name { name: _ } => panic!(),
-                        Column::WithCollection { collection, name } => {
-                            assert_eq!(name, "column");
-                            assert_eq!(collection, "collection")
-                        },
-                    },
-                    _ => panic!(),
-                }
+            Ok(result) => match result {
+                ScalarExpr::Column(column) => match column {
+                    Column::Name { name: _ } => panic!(),
+                    Column::WithCollection { collection, name } => {
+                        assert_eq!(name, "column");
+                        assert_eq!(collection, "collection")
+                    }
+                },
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -330,7 +348,7 @@ mod tests {
             Err(err) => {
                 assert_eq!(err.end, 0);
                 assert_eq!(err.text, "9");
-            },
+            }
         }
     }
 
@@ -347,7 +365,7 @@ mod tests {
             Err(err) => {
                 assert_eq!(err.end, 10);
                 assert_eq!(err.text, "column.");
-            },
+            }
         }
     }
 
@@ -360,14 +378,12 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Function(function) => {
-                        assert_eq!(function.name, "fn_new");
-                        assert_eq!(function.args.len(), 0);
-                    },
-                    _ => panic!(),
+            Ok(result) => match result {
+                ScalarExpr::Function(function) => {
+                    assert_eq!(function.name, "fn_new");
+                    assert_eq!(function.args.len(), 0);
                 }
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -382,14 +398,12 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Function(function) => {
-                        assert_eq!(function.name, "schema.fn_new");
-                        assert_eq!(function.args.len(), 0);
-                    },
-                    _ => panic!(),
+            Ok(result) => match result {
+                ScalarExpr::Function(function) => {
+                    assert_eq!(function.name, "schema.fn_new");
+                    assert_eq!(function.args.len(), 0);
                 }
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -404,14 +418,12 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Function(function) => {
-                        assert_eq!(function.name, "fn_new");
-                        assert_eq!(function.args.len(), 1);
-                    },
-                    _ => panic!(),
+            Ok(result) => match result {
+                ScalarExpr::Function(function) => {
+                    assert_eq!(function.name, "fn_new");
+                    assert_eq!(function.args.len(), 1);
                 }
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -426,14 +438,12 @@ mod tests {
         let result = Column::parse_column_or_function(&mut parser);
 
         match result {
-            Ok(result) => {
-                match result {
-                    ScalarExpr::Function(function) => {
-                        assert_eq!(function.name, "fn_new");
-                        assert_eq!(function.args.len(), 3);
-                    },
-                    _ => panic!(),
+            Ok(result) => match result {
+                ScalarExpr::Function(function) => {
+                    assert_eq!(function.name, "fn_new");
+                    assert_eq!(function.args.len(), 3);
                 }
+                _ => panic!(),
             },
             Err(_) => panic!(),
         }
@@ -452,11 +462,11 @@ mod tests {
             Err(err) => {
                 assert_eq!(err.end, 8);
                 assert_eq!(err.text, "fn_new()f");
-            },
+            }
         }
     }
 
-     #[test]
+    #[test]
     pub fn test_wildcard() {
         let text = "*";
 
@@ -466,7 +476,7 @@ mod tests {
 
         match result {
             Ok(result) => match result {
-                ScalarExpr::WildCard => {}, //allowed
+                ScalarExpr::WildCard => {} //allowed
                 _ => panic!(),
             },
             Err(_) => panic!(),
@@ -504,7 +514,7 @@ mod tests {
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 1);
                 assert_eq!(err.text, "*4");
-            },
+            }
         }
     }
 
@@ -522,7 +532,7 @@ mod tests {
                 assert_eq!(err.start, 0);
                 assert_eq!(err.end, 1);
                 assert_eq!(err.text, "*");
-            },
+            }
         }
     }
 
@@ -540,7 +550,7 @@ mod tests {
                 assert_eq!(err.start, 5);
                 assert_eq!(err.end, 6);
                 assert_eq!(err.text, "*");
-            },
+            }
         }
     }
 }

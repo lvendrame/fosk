@@ -53,19 +53,25 @@ impl WordComparer {
     pub fn compare(&self, parser: &QueryParser) -> bool {
         let mut position = 0;
         while position < self.length {
-            if (parser.position + position) >= parser.length ||
-                self.word[position] != parser.text_v[parser.position + position].to_ascii_uppercase() {
+            if (parser.position + position) >= parser.length
+                || self.word[position]
+                    != parser.text_v[parser.position + position].to_ascii_uppercase()
+            {
                 return false;
             }
             position += 1;
         }
 
         if self.reach_eof(parser) {
-             return self.eof;
+            return self.eof;
         }
 
-        if self.delimiter.is_none() && !self.full_block_delimiter_postfix && !self.whitespace_postfix &&
-            !self.break_line_postfix && self.optional_postfix.is_empty() {
+        if self.delimiter.is_none()
+            && !self.full_block_delimiter_postfix
+            && !self.whitespace_postfix
+            && !self.break_line_postfix
+            && self.optional_postfix.is_empty()
+        {
             return true;
         }
 
@@ -98,16 +104,34 @@ impl WordComparer {
         false
     }
 
-    pub fn with_eof(mut self) -> Self { self.eof = true; self }
-    pub fn with_whitespace_postfix(mut self) -> Self { self.whitespace_postfix = true; self }
-    pub fn with_break_line_postfix(mut self) -> Self { self.break_line_postfix = true; self }
-    pub fn with_any_delimiter_postfix(mut self) -> Self { self.full_block_delimiter_postfix = true; self }
-    pub fn with_delimiter(mut self, delimiter: char) -> Self { self.delimiter = Some(delimiter); self }
-    pub fn with_optional_postfix(mut self, value: char) -> Self { self.optional_postfix.push(value); self }
+    pub fn with_eof(mut self) -> Self {
+        self.eof = true;
+        self
+    }
+    pub fn with_whitespace_postfix(mut self) -> Self {
+        self.whitespace_postfix = true;
+        self
+    }
+    pub fn with_break_line_postfix(mut self) -> Self {
+        self.break_line_postfix = true;
+        self
+    }
+    pub fn with_any_delimiter_postfix(mut self) -> Self {
+        self.full_block_delimiter_postfix = true;
+        self
+    }
+    pub fn with_delimiter(mut self, delimiter: char) -> Self {
+        self.delimiter = Some(delimiter);
+        self
+    }
+    pub fn with_optional_postfix(mut self, value: char) -> Self {
+        self.optional_postfix.push(value);
+        self
+    }
 
     pub fn compare_with_block_delimiter(&self, parser: &QueryParser) -> bool {
-        self.compare(parser) &&
-            (self.reach_eof(parser) || Self::is_any_delimiter(parser.peek(self.length)))
+        self.compare(parser)
+            && (self.reach_eof(parser) || Self::is_any_delimiter(parser.peek(self.length)))
     }
 }
 
@@ -126,14 +150,42 @@ mod tests {
 
     #[test]
     fn compare_honors_eof_and_postfix_rules() {
-        assert!(WordComparer::new("x").with_eof().compare(&QueryParser::new("x")));
+        assert!(
+            WordComparer::new("x")
+                .with_eof()
+                .compare(&QueryParser::new("x"))
+        );
         assert!(!WordComparer::new("x").compare(&QueryParser::new("x")));
-        assert!(WordComparer::new("x").with_whitespace_postfix().compare(&QueryParser::new("x ")));
-        assert!(WordComparer::new("x").with_break_line_postfix().compare(&QueryParser::new("x\n")));
-        assert!(WordComparer::new("x").with_any_delimiter_postfix().compare(&QueryParser::new("x,")));
-        assert!(WordComparer::new("x").with_delimiter('(').compare(&QueryParser::new("x(")));
-        assert!(WordComparer::new("x").with_optional_postfix(',').compare(&QueryParser::new("x,")));
-        assert!(!WordComparer::new("x").with_whitespace_postfix().compare(&QueryParser::new("x,")));
+        assert!(
+            WordComparer::new("x")
+                .with_whitespace_postfix()
+                .compare(&QueryParser::new("x "))
+        );
+        assert!(
+            WordComparer::new("x")
+                .with_break_line_postfix()
+                .compare(&QueryParser::new("x\n"))
+        );
+        assert!(
+            WordComparer::new("x")
+                .with_any_delimiter_postfix()
+                .compare(&QueryParser::new("x,"))
+        );
+        assert!(
+            WordComparer::new("x")
+                .with_delimiter('(')
+                .compare(&QueryParser::new("x("))
+        );
+        assert!(
+            WordComparer::new("x")
+                .with_optional_postfix(',')
+                .compare(&QueryParser::new("x,"))
+        );
+        assert!(
+            !WordComparer::new("x")
+                .with_whitespace_postfix()
+                .compare(&QueryParser::new("x,"))
+        );
     }
 
     #[test]
